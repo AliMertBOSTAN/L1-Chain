@@ -1,0 +1,58 @@
+# cargo-deny configuration for QuantumVault.
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+ignore  = []
+# We treat advisories as errors by default; add specific IDs to `ignore` only
+# with explicit justification.
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Zlib",
+    "MPL-2.0",
+]
+confidence-threshold = 0.92
+
+[[licenses.exceptions]]
+# ring uses a custom license for OpenSSL compat — widely used, widely vetted.
+allow = ["OpenSSL"]
+name  = "ring"
+
+[bans]
+multiple-versions = "warn"
+wildcards         = "deny"
+highlight         = "all"
+
+deny = [
+    # Unmaintained crypto implementations we should never see
+    { name = "openssl-sys", use-instead = "rustls or system openssl via pqcrypto" },
+    { name = "md5" },
+    { name = "sha1" },
+    { name = "time", version = "<0.3" },  # known soundness issue in 0.1
+]
+
+skip = []
+
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git      = "deny"
+
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git      = []

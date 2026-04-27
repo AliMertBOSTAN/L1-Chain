@@ -1,0 +1,28 @@
+# Fuzzing artifacts
+corpus/
+artifacts/
+leak-*.txt
+asan.log*
+msan.suppressions
+ubsan.log*
+
+# Build artifacts
+target/
+*.o
+*.a
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Crash minimization
+crash-*
+leak-*
+timeout-*

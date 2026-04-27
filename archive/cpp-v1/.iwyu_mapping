@@ -1,0 +1,33 @@
+# include-what-you-use mapping for QuantumVault
+# Maps private includes to public headers that should be used instead
+
+[
+  # C++ Standard Library mappings
+  { include: ["<bits/stdc++.h>", "private", "<algorithm>", "public"] },
+  { include: ["<bits/chrono.h>", "private", "<chrono>", "public"] },
+  { include: ["<bits/move.h>", "private", "<utility>", "public"] },
+  { include: ["<bits/refwrap.h>", "private", "<functional>", "public"] },
+  { include: ["<ext/hash_set>", "private", "<unordered_set>", "public"] },
+  { include: ["<ext/hash_map>", "private", "<unordered_map>", "public"] },
+
+  # QuantumVault Core Headers
+  { include: ["qv/core/transaction.hpp", "private", "qv/core/block.hpp", "public"] },
+  { include: ["qv/core/utxo.hpp", "private", "qv/core/block.hpp", "public"] },
+  { include: ["qv/crypto/kyber.hpp", "private", "qv/crypto/pqc_keyshed.hpp", "public"] },
+  { include: ["qv/crypto/dilithium.hpp", "private", "qv/crypto/pqc_signature.hpp", "public"] },
+  { include: ["qv/crypto/x25519.hpp", "private", "qv/crypto/hybrid_kem.hpp", "public"] },
+
+  # OpenSSL / liboqs private implementation headers
+  { include: ["<openssl/evp.h>", "private", "<openssl/ssl.h>", "public"] },
+  { include: ["<oqs/oqs.h>", "private", "qv/crypto/pqc_provider.hpp", "public"] },
+
+  # libp2p private headers
+  { include: ["<libp2p/peer/peer_info.hpp>", "private", "<libp2p/peer/peer_repository.hpp>", "public"] },
+  { include: ["<libp2p/connection/connection.hpp>", "private", "<libp2p/host/host.hpp>", "public"] },
+
+  # Protobuf generated headers (typically internal)
+  { include: ["\"qv/proto/messages.pb.h\"", "private", "qv/rpc/serializer.hpp", "public"] },
+
+  # Suppress warnings for third-party code
+  { symbol: ["std::__", "private", "<bits/stdc++.h>", "public"] },
+]

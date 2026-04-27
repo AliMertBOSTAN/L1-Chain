@@ -1,0 +1,53 @@
+[package]
+name         = "qv-miner"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+description  = "Stake pool operator: VRF slot leader, block production, encrypted-mempool committee."
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "qv-miner"
+path = "src/main.rs"
+
+[dependencies]
+qv-common    = { workspace = true }
+qv-core      = { workspace = true }
+qv-crypto    = { workspace = true }
+qv-consensus = { workspace = true }
+qv-mempool   = { workspace = true }
+qv-storage   = { workspace = true }
+qv-net       = { workspace = true }
+qv-defi      = { workspace = true }
+qv-privacy   = { workspace = true }
+
+tokio              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+clap               = { version = "4", features = ["derive"] }
+anyhow             = { workspace = true }
+
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+toml               = { workspace = true }
+bincode            = { workspace = true }
+
+hex                = { workspace = true }
+rand               = { workspace = true }
+
+ratatui            = { version = "0.27", optional = true }
+crossterm          = { version = "0.27", optional = true }
+
+tempfile           = { workspace = true }
+
+[features]
+default = ["dashboard"]
+dashboard = ["ratatui", "crossterm"]

@@ -1,0 +1,29 @@
+[package]
+name         = "qv-wallet"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+description  = "QuantumVault CLI wallet (PQC keys, stealth scanning, transaction builder)."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "qv-wallet"
+path = "src/main.rs"
+
+[dependencies]
+qv-common  = { workspace = true }
+qv-core    = { workspace = true }
+qv-crypto  = { workspace = true }
+qv-privacy = { workspace = true }
+qv-script  = { workspace = true }
+tokio              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap               = { workspace = true }
+anyhow             = { workspace = true }
+hex                = { workspace = true }
+serde_json         = { workspace = true }

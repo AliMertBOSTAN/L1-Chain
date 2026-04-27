@@ -1,0 +1,24 @@
+# Cargo configuration shared across the QuantumVault workspace.
+
+[build]
+# Use more codegen units in dev builds for faster compile.
+# release profile overrides to single unit for LTO.
+
+[target.'cfg(all())']
+rustflags = [
+    "-Wunsafe_op_in_unsafe_fn",
+    "-Wtrivial_casts",
+    "-Wtrivial_numeric_casts",
+    "-Wunused_extern_crates",
+    "-Wunused_import_braces",
+]
+
+[alias]
+# Handy shortcuts.
+ci           = "run --package qv-node --"
+xtest        = "test --workspace --all-features"
+xclippy      = "clippy --workspace --all-targets --all-features -- -D warnings"
+xfmt-check   = "fmt --all -- --check"
+xfmt         = "fmt --all"
+xdoc         = "doc --workspace --no-deps --all-features"
+xcov         = "llvm-cov --workspace --all-features --lcov --output-path lcov.info"

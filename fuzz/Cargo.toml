@@ -1,0 +1,63 @@
+[package]
+name = "qv-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1.3", features = ["derive"] }
+bincode = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+
+# Workspace crates under test
+qv-crypto = { path = "../crates/qv-crypto" }
+qv-core = { path = "../crates/qv-core" }
+qv-script = { path = "../crates/qv-script" }
+qv-consensus = { path = "../crates/qv-consensus" }
+qv-storage = { path = "../crates/qv-storage" }
+qv-net = { path = "../crates/qv-net" }
+qv-mempool = { path = "../crates/qv-mempool" }
+qv-privacy = { path = "../crates/qv-privacy" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[[bin]]
+name = "tx_parser"
+path = "fuzz_targets/tx_parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "script_vm"
+path = "fuzz_targets/script_vm.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "network_envelope"
+path = "fuzz_targets/network_envelope.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "utxo_apply"
+path = "fuzz_targets/utxo_apply.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "stealth_scan"
+path = "fuzz_targets/stealth_scan.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "block_parsing"
+path = "fuzz_targets/block_parsing.rs"
+test = false
+doc = false

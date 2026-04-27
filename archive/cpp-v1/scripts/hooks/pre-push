@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+# pre-push — Git pre-push hook for QuantumVault
+#
+# Ensures all tests pass before pushing to remote.
+# Fails the push if any test fails.
+#
+
+set -euo pipefail
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+BUILD_DIR="${PROJECT_ROOT}/build"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+print_header() {
+    echo -e "${YELLOW}[PRE-PUSH]${NC} $1"
+}
+
+print_pass() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_fail() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+# ============================================================================
+# Verify build directory exists
+# ============================================================================
+if [[ ! -d "${BUILD_DIR}" ]]; then
+    print_fail "Build directory not found at ${BUILD_DIR}"
+    echo ""
+    echo "  Build the project first:"
+    echo "    ./scripts/build.sh --preset dev"
+    exit 1
+fi
+
+# ============================================================================
+# Run all tests
+# ============================================================================
+print_header "Running test suite..."
+echo ""
+
+if ! ctest --test-dir "${BUILD_DIR}" --output-on-failure; then
+    print_fail "Test suite failed"
+    echo ""
+    echo "  Fix failing tests before pushing:"
+    echo "    ctest --test-dir ${BUILD_DIR} --output-on-failure -V"
+    echo ""
+    echo "  Or bypass this check with:"
+    echo "    git push --no-verify"
+    exit 1
+fi
+
+echo ""
+print_pass "All tests passed"
+print_header "Ready to push"
+exit 0

@@ -1,0 +1,22 @@
+[package]
+name         = "qv-privacy"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+description  = "Stealth addresses + opt-in confidential amounts."
+
+[lints]
+workspace = true
+
+[dependencies]
+qv-common  = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+serde      = { workspace = true }
+qv-core    = { path = "../qv-core" }
+qv-crypto  = { path = "../qv-crypto" }
+
+[dev-dependencies]
+proptest = { workspace = true }

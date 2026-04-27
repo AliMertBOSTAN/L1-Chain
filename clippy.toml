@@ -1,0 +1,12 @@
+# Clippy configuration for QuantumVault.
+# Fine-tune thresholds appropriate for a cryptographic/blockchain codebase.
+
+avoid-breaking-exported-api      = false
+msrv                             = "1.78"
+cognitive-complexity-threshold   = 30
+too-many-lines-threshold         = 150
+type-complexity-threshold        = 250
+# Large struct passing is normal in crypto (keypairs).
+pass-by-value-size-limit         = 512
+# Disallow explicit float operations — we're in integer land.
+allowed-duplicate-crates         = []

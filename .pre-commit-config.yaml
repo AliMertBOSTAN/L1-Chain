@@ -1,0 +1,48 @@
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
+
+repos:
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: rustfmt
+        entry: cargo fmt --all -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: clippy
+        name: clippy
+        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: reject-todo-before-merge
+        name: reject TODO_BEFORE_MERGE markers
+        entry: bash -c 'if git diff --cached | grep -E "TODO_BEFORE_MERGE|FIXME_BEFORE_MERGE"; then echo "✗ blocking marker found"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: forbid-unsafe
+        name: no unsafe without justification
+        entry: bash -c 'git diff --cached -- "*.rs" | grep -E "^\\+\\s*unsafe\\b" | grep -v "SAFETY:" && { echo "✗ unsafe block without SAFETY comment"; exit 1; } || exit 0'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: tests
+        name: nextest
+        entry: cargo nextest run --workspace --all-features
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: []

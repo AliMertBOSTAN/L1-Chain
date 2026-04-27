@@ -1,0 +1,25 @@
+[package]
+name         = "qv-script"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+description  = "Covenant-capable script VM (stack-based, introspection, deterministic)."
+
+[lints]
+workspace = true
+
+[dependencies]
+qv-common  = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+serde      = { workspace = true }
+hex        = { workspace = true }
+bincode    = { workspace = true }
+qv-core    = { path = "../qv-core" }
+qv-crypto  = { path = "../qv-crypto" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+bincode  = { workspace = true }

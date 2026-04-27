@@ -1,0 +1,86 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base",
+      "description": "Base configuration for all presets",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "20",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "dev",
+      "displayName": "Development Build",
+      "description": "Debug build with all development features",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-Wall -Wextra -Wpedantic -g -O0 -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release Build",
+      "description": "Optimized release build",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "-Wall -Wextra -Wpedantic -O3 -march=native -flto"
+      }
+    },
+    {
+      "name": "sanitize",
+      "displayName": "Sanitizer Build",
+      "description": "Debug build with AddressSanitizer and UBSanitizer",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-Wall -Wextra -Wpedantic -g -O1 -fsanitize=address -fsanitize=undefined"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "jobs": 0
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "jobs": 0
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
+      "jobs": 0
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "stopOnFailure": false
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "stopOnFailure": false
+      }
+    }
+  ]
+}

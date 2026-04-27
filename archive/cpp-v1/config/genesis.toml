@@ -1,0 +1,161 @@
+# QuantumVault Genesis Configuration
+# L1 Blockchain with Post-Quantum Cryptography
+
+[network]
+name = "QuantumVault Mainnet"
+chain_id = "qvault-1"
+version = "1.0.0"
+genesis_time = "2025-01-01T00:00:00Z"
+
+[consensus]
+type = "HybridPoW-PoS"
+description = "Hybrid Proof-of-Work and Proof-of-Stake consensus with quantum-resistant signatures"
+
+[consensus.pow]
+algorithm = "Blake3"
+difficulty_adjustment_interval = 2016
+min_difficulty = 1
+max_difficulty = 340282366920938463463374607431768211455
+
+[consensus.pos]
+enabled = true
+min_stake = 1000
+max_validators = 256
+epoch_duration_blocks = 32400
+unbonding_period_blocks = 21600
+slash_fraction = 0.1
+
+[blockchain]
+# Fixed supply like Bitcoin, quantum-resistant
+total_supply = 21_000_000
+decimals = 8
+
+# Mining/Block rewards
+initial_block_reward = 50.0
+halving_interval_blocks = 210_000
+halving_count = 0
+
+# Block parameters
+block_time_target_seconds = 10
+block_size_max_bytes = 4_000_000
+transaction_size_max_bytes = 1_000_000
+
+[transaction]
+min_fee_satoshis = 1
+fee_per_byte = 1
+
+[cryptography]
+# Post-Quantum Cryptography Algorithms
+
+[cryptography.signature]
+primary = "CRYSTALS-Dilithium"
+fallback = "FALCON"
+legacy_support = "Ed25519"
+description = "NIST PQC standardized algorithms for digital signatures"
+
+# Dilithium: Strong security, larger signatures
+# FALCON: Smaller signatures, faster verification
+# Ed25519: Legacy support for interoperability
+
+[cryptography.key_encapsulation]
+primary = "CRYSTALS-Kyber"
+fallback = "NTRU-Prime"
+description = "NIST PQC standardized algorithms for key agreement and encryption"
+
+# Kyber: Post-quantum key encapsulation, IND-CCA2 secure
+# NTRU-Prime: Alternative KEM for diversity
+
+[cryptography.hash]
+algorithm = "Blake3"
+output_size_bytes = 32
+description = "Blake3 cryptographic hash function (resistant to quantum attacks)"
+
+[cryptography.commitment]
+algorithm = "Pedersen"
+security_parameter_bits = 256
+description = "Pedersen commitments for zero-knowledge proofs"
+
+[privacy]
+enabled = true
+
+[privacy.confidential_transactions]
+enabled = true
+algorithm = "Bulletproofs"
+description = "Zero-knowledge range proofs for transaction amounts"
+
+[privacy.anonymity]
+enabled = true
+algorithm = "Monero-style"
+ring_size = 16
+stealth_address_support = true
+description = "Ring signatures and stealth addresses for transaction privacy"
+
+[privacy.zero_knowledge_proofs]
+enabled = true
+scheme = "Plonk"
+description = "Plonk zero-knowledge proof system for privacy-preserving computations"
+
+[data_availability]
+type = "Erasure-Coded-DA"
+description = "Quantum-resistant data availability sampling"
+
+[data_availability.sampling]
+sample_count = 100
+sample_verification_algorithm = "FRI"
+min_data_recovery_ratio = 0.5
+
+[smart_contracts]
+enabled = true
+vm_type = "WASM"
+bytecode_format = "WebAssembly"
+description = "WASM-based smart contracts with quantum-resistant operations"
+
+[smart_contracts.gas]
+enabled = true
+min_gas_price = 1
+gas_limit_per_block = 30_000_000
+gas_limit_per_transaction = 10_000_000
+
+[state]
+root_hash_algorithm = "Merkle-Blake3"
+state_merkle_tree_type = "Binary"
+description = "Merkle tree rooted hash for state verification"
+
+[accounts]
+address_prefix = "qv"
+address_encoding = "Bech32"
+description = "Bech32-encoded addresses for human readability"
+
+[governance]
+enabled = true
+governance_token = "QV"
+min_proposal_stake = 100
+voting_period_blocks = 50400
+description = "On-chain governance with quantum-resistant voting"
+
+[inflation]
+enabled = true
+inflation_rate_percent = 0.0
+description = "Fixed supply - no inflation after all halving periods"
+
+[upgrades]
+enabled = true
+upgrade_proposal_voting_period = 50400
+description = "Network upgrade governance using on-chain voting"
+
+# Development/Test Settings
+[development]
+# Disable for mainnet
+debug_mode = false
+test_faucet_enabled = false
+instant_finality = false
+
+[logging]
+level = "info"
+format = "json"
+targets = ["file", "console"]
+
+[metrics]
+prometheus_enabled = true
+prometheus_port = 9090
+description = "Prometheus metrics for monitoring"

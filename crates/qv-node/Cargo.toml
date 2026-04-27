@@ -1,0 +1,54 @@
+[package]
+name         = "qv-node"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+description  = "QuantumVault full node daemon."
+
+[lints]
+workspace = true
+
+[lib]
+name = "qv_node"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qv-node"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+qv-common    = { workspace = true }
+qv-core      = { workspace = true }
+qv-crypto    = { workspace = true }
+qv-consensus = { workspace = true }
+qv-storage   = { workspace = true }
+qv-net       = { workspace = true }
+qv-mempool   = { workspace = true }
+
+# Async runtime
+tokio          = { workspace = true }
+futures        = { workspace = true }
+
+# Logging and error handling
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror          = { workspace = true }
+anyhow             = { workspace = true }
+
+# CLI and config
+clap = { workspace = true }
+toml = { workspace = true }
+config = { workspace = true }
+
+# RPC and serialization
+jsonrpsee = { workspace = true }
+async-trait = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Metrics
+metrics = "0.22"
+metrics-exporter-prometheus = "0.14"

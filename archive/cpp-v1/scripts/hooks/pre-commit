@@ -1,0 +1,235 @@
+#!/bin/bash
+#
+# pre-commit — Git pre-commit hook for QuantumVault
+#
+# Enforces code quality standards before commit:
+# 1. Code formatting (clang-format)
+# 2. Static analysis (clang-tidy, if build exists)
+# 3. Rejects merge markers and FIXME/TODO tags
+# 4. Enforces RAII: rejects raw new/delete
+# 5. Rejects "using namespace std;"
+#
+# Bypass with: git commit --no-verify
+#
+
+set -euo pipefail
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+BUILD_DIR="${PROJECT_ROOT}/build"
+FAILED_CHECKS=0
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+print_header() {
+    echo -e "${YELLOW}[PRE-COMMIT]${NC} $1"
+}
+
+print_pass() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_fail() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+# Get list of staged C++ files (added, modified, or renamed)
+get_staged_cpp_files() {
+    git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|hpp)$' || true
+}
+
+# ============================================================================
+# CHECK 1: Code Formatting with clang-format
+# ============================================================================
+print_header "Check 1: Code Formatting (clang-format)"
+
+STAGED_FILES=$(get_staged_cpp_files)
+
+if [[ -z "${STAGED_FILES}" ]]; then
+    print_pass "No C++ files staged, skipping format check"
+else
+    FORMAT_FAILED=0
+    BAD_FORMAT_FILES=()
+
+    for file in ${STAGED_FILES}; do
+        # Get the staged content
+        staged_content=$(git show ":${file}")
+        formatted_content=$(echo "${staged_content}" | clang-format)
+
+        if [[ "${staged_content}" != "${formatted_content}" ]]; then
+            BAD_FORMAT_FILES+=("${file}")
+            FORMAT_FAILED=1
+        fi
+    done
+
+    if [[ ${FORMAT_FAILED} -eq 1 ]]; then
+        print_fail "Code formatting check failed"
+        echo "  The following files need formatting:"
+        for file in "${BAD_FORMAT_FILES[@]}"; do
+            echo "    - ${file}"
+        done
+        echo ""
+        echo "  Fix with: ./scripts/format-all.sh"
+        ((FAILED_CHECKS++))
+    else
+        print_pass "All staged files are properly formatted"
+    fi
+fi
+
+# ============================================================================
+# CHECK 2: Static Analysis with clang-tidy
+# ============================================================================
+print_header "Check 2: Static Analysis (clang-tidy)"
+
+if [[ ! -d "${BUILD_DIR}" ]]; then
+    print_fail "Build directory not found at ${BUILD_DIR}"
+    echo "  Skipping clang-tidy (run cmake --preset dev first)"
+else
+    TIDY_FAILED=0
+    TIDY_ISSUES=()
+
+    if ! command -v clang-tidy &> /dev/null; then
+        print_fail "clang-tidy not installed, skipping static analysis"
+    else
+        for file in ${STAGED_FILES}; do
+            # Only check if file exists in build (may not if newly created)
+            if [[ -f "${file}" ]]; then
+                # Run clang-tidy and capture warnings
+                tidy_output=$(clang-tidy -p "${BUILD_DIR}" "${file}" 2>&1 || true)
+                if echo "${tidy_output}" | grep -q "warning:"; then
+                    TIDY_FAILED=1
+                    TIDY_ISSUES+=("${file}")
+                fi
+            fi
+        done
+
+        if [[ ${TIDY_FAILED} -eq 1 ]]; then
+            print_fail "clang-tidy found issues"
+            echo "  Files with warnings:"
+            for file in "${TIDY_ISSUES[@]}"; do
+                echo "    - ${file}"
+            done
+            echo ""
+            echo "  Review and fix tidy warnings: clang-tidy -p build <file>"
+            # Note: clang-tidy warnings don't fail the commit by default
+            # Uncomment the line below to make them fail:
+            # ((FAILED_CHECKS++))
+        else
+            print_pass "clang-tidy found no issues"
+        fi
+    fi
+fi
+
+# ============================================================================
+# CHECK 3: Reject TODO_BEFORE_MERGE and FIXME_BEFORE_MERGE
+# ============================================================================
+print_header "Check 3: Blocking Markers (TODO_BEFORE_MERGE, FIXME_BEFORE_MERGE)"
+
+BLOCKING_MARKER_FAILED=0
+BLOCKING_FILES=()
+
+for file in ${STAGED_FILES}; do
+    staged_content=$(git show ":${file}" 2>/dev/null || true)
+    if echo "${staged_content}" | grep -E 'TODO_BEFORE_MERGE|FIXME_BEFORE_MERGE' > /dev/null; then
+        BLOCKING_FILES+=("${file}")
+        BLOCKING_MARKER_FAILED=1
+    fi
+done
+
+if [[ ${BLOCKING_MARKER_FAILED} -eq 1 ]]; then
+    print_fail "Found blocking markers (TODO_BEFORE_MERGE or FIXME_BEFORE_MERGE)"
+    echo "  Files with blocking markers:"
+    for file in "${BLOCKING_FILES[@]}"; do
+        echo "    - ${file}"
+    done
+    echo ""
+    echo "  Remove or rename the blocking markers before committing."
+    ((FAILED_CHECKS++))
+else
+    print_pass "No blocking markers found"
+fi
+
+# ============================================================================
+# CHECK 4: RAII Enforcement (reject raw new/delete)
+# ============================================================================
+print_header "Check 4: RAII Policy (no raw new/delete)"
+
+RAII_FAILED=0
+RAII_FILES=()
+
+for file in ${STAGED_FILES}; do
+    staged_content=$(git show ":${file}" 2>/dev/null || true)
+    # Look for new/delete that aren't in comments
+    # This is a simple heuristic: reject "new " or "delete " in code
+    if echo "${staged_content}" | grep -E '\b(new|delete)\s+' | grep -v '//' | grep -v '\*' > /dev/null; then
+        # More careful check: see if there are actual new/delete outside of comments
+        lines=$(echo "${staged_content}" | grep -E '\b(new|delete)\s+' | grep -v '//')
+        if [[ ! -z "${lines}" ]]; then
+            RAII_FILES+=("${file}")
+            RAII_FAILED=1
+        fi
+    fi
+done
+
+if [[ ${RAII_FAILED} -eq 1 ]]; then
+    print_fail "Found raw new/delete (RAII violation)"
+    echo "  Files with potential RAII violations:"
+    for file in "${RAII_FILES[@]}"; do
+        echo "    - ${file}"
+    done
+    echo ""
+    echo "  Use std::unique_ptr or std::make_unique instead of raw new/delete."
+    ((FAILED_CHECKS++))
+else
+    print_pass "No raw new/delete found"
+fi
+
+# ============================================================================
+# CHECK 5: Reject "using namespace std;"
+# ============================================================================
+print_header "Check 5: No Unqualified Namespace Usage (using namespace std;)"
+
+NAMESPACE_FAILED=0
+NAMESPACE_FILES=()
+
+for file in ${STAGED_FILES}; do
+    staged_content=$(git show ":${file}" 2>/dev/null || true)
+    if echo "${staged_content}" | grep -E '^using\s+namespace\s+std\s*;' > /dev/null; then
+        NAMESPACE_FILES+=("${file}")
+        NAMESPACE_FAILED=1
+    fi
+done
+
+if [[ ${NAMESPACE_FAILED} -eq 1 ]]; then
+    print_fail "Found 'using namespace std;' declaration"
+    echo "  Files with namespace pollution:"
+    for file in "${NAMESPACE_FILES[@]}"; do
+        echo "    - ${file}"
+    done
+    echo ""
+    echo "  Remove 'using namespace std;' and use std:: qualification instead."
+    ((FAILED_CHECKS++))
+else
+    print_pass "No unqualified namespace usage found"
+fi
+
+# ============================================================================
+# SUMMARY AND EXIT
+# ============================================================================
+echo ""
+print_header "Summary"
+
+if [[ ${FAILED_CHECKS} -eq 0 ]]; then
+    print_pass "All pre-commit checks passed"
+    exit 0
+else
+    print_fail "${FAILED_CHECKS} check(s) failed"
+    echo ""
+    echo "  To bypass pre-commit checks in case of emergency:"
+    echo "    git commit --no-verify"
+    echo ""
+    exit 1
+fi

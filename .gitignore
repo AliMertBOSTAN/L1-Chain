@@ -1,0 +1,46 @@
+# Rust build artifacts
+/target
+**/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Cargo output
+**/lcov.info
+**/*.profraw
+
+# IDE
+/.idea
+/.vscode
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Nix
+/result
+/result-*
+
+# Local env
+.env
+.env.local
+
+# Data directories (node state)
+/data
+/devnet-data
+*.sled
+*.db
+
+# Fuzz artifacts
+**/fuzz/artifacts
+**/fuzz/corpus
+**/fuzz/coverage
+
+# Benchmark output
+**/criterion
+
+# Docs build
+/book
+/target/doc
+
+# Allow v1 archive
+!/archive/

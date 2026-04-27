@@ -1,0 +1,9 @@
+# Default reviewers for the QuantumVault repository.
+# Update when core maintainers are onboarded.
+
+*                       @quantumvault/core
+/crates/qv-crypto/      @quantumvault/crypto
+/crates/qv-consensus/   @quantumvault/consensus
+/crates/qv-privacy/     @quantumvault/crypto
+/crates/qv-defi/        @quantumvault/defi
+/docs/ADR/              @quantumvault/core

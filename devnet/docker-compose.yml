@@ -1,0 +1,165 @@
+version: '3.8'
+
+services:
+  pool0:
+    image: qv:dev
+    container_name: qv-pool0
+    command:
+      - qv-node
+      - --network=devnet
+      - --listen=0.0.0.0:30303
+      - --rpc-addr=0.0.0.0:9944
+      - --metrics-addr=0.0.0.0:9100
+      - --data-dir=/data/pool0
+      - --log-level=info
+    environment:
+      QV_NETWORK: devnet
+      QV_BOOTSTRAP: /bootstrap/bootstrap.peers
+    ports:
+      - "30303:30303"
+      - "9944:9944"
+      - "9100:9100"
+    volumes:
+      - pool0_data:/data/pool0
+      - ./genesis:/genesis:ro
+      - ./bootstrap:/bootstrap:ro
+    networks:
+      - devnet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9944/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      - faucet
+
+  pool1:
+    image: qv:dev
+    container_name: qv-pool1
+    command:
+      - qv-node
+      - --network=devnet
+      - --listen=0.0.0.0:30304
+      - --rpc-addr=0.0.0.0:9945
+      - --metrics-addr=0.0.0.0:9101
+      - --data-dir=/data/pool1
+      - --log-level=info
+    environment:
+      QV_NETWORK: devnet
+      QV_BOOTSTRAP: /bootstrap/bootstrap.peers
+    ports:
+      - "30304:30304"
+      - "9945:9945"
+      - "9101:9101"
+    volumes:
+      - pool1_data:/data/pool1
+      - ./genesis:/genesis:ro
+      - ./bootstrap:/bootstrap:ro
+    networks:
+      - devnet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9945/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  pool2:
+    image: qv:dev
+    container_name: qv-pool2
+    command:
+      - qv-node
+      - --network=devnet
+      - --listen=0.0.0.0:30305
+      - --rpc-addr=0.0.0.0:9946
+      - --metrics-addr=0.0.0.0:9102
+      - --data-dir=/data/pool2
+      - --log-level=info
+    environment:
+      QV_NETWORK: devnet
+      QV_BOOTSTRAP: /bootstrap/bootstrap.peers
+    ports:
+      - "30305:30305"
+      - "9946:9946"
+      - "9102:9102"
+    volumes:
+      - pool2_data:/data/pool2
+      - ./genesis:/genesis:ro
+      - ./bootstrap:/bootstrap:ro
+    networks:
+      - devnet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9946/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  explorer:
+    image: qv:dev
+    container_name: qv-explorer
+    command:
+      - python3
+      - /explorer/explorer.py
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./scripts/explorer.py:/explorer/explorer.py:ro
+    networks:
+      - devnet
+    environment:
+      FLASK_ENV: production
+      RPC_ENDPOINT: http://pool0:9944
+    depends_on:
+      pool0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  faucet:
+    image: qv:dev
+    container_name: qv-faucet
+    command:
+      - python3
+      - /faucet/faucet.py
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./scripts/faucet.py:/faucet/faucet.py:ro
+      - faucet_logs:/faucet/logs
+    networks:
+      - devnet
+    environment:
+      FLASK_ENV: production
+      RPC_ENDPOINT: http://pool0:9944
+      FAUCET_ADDRESS: devnet1faucet0000000000000000000000000000000
+      LOG_DIR: /faucet/logs
+    depends_on:
+      pool0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  pool0_data:
+    driver: local
+  pool1_data:
+    driver: local
+  pool2_data:
+    driver: local
+  faucet_logs:
+    driver: local
+
+networks:
+  devnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

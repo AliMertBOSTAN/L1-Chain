@@ -1,0 +1,27 @@
+[package]
+name         = "qv-net"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+description  = "P2P transport (libp2p) with hybrid-KEM handshake and gossip."
+
+[lints]
+workspace = true
+
+[dependencies]
+qv-common  = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+serde      = { workspace = true }
+bincode    = { workspace = true }
+qv-core    = { path = "../qv-core" }
+qv-crypto  = { path = "../qv-crypto" }
+libp2p     = { workspace = true }
+tokio      = { workspace = true }
+futures    = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio    = { workspace = true }

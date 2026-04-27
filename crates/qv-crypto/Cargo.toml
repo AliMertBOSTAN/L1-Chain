@@ -1,0 +1,46 @@
+[package]
+name         = "qv-crypto"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+description  = "Post-quantum + classical cryptographic primitives (hash, PQC signatures, hybrid KEM, VRF)."
+
+[lints]
+workspace = true
+
+[dependencies]
+qv-common           = { workspace = true }
+
+# Hashes
+sha3                = { workspace = true }
+blake3              = { workspace = true }
+
+# Classical asymmetric
+x25519-dalek        = { workspace = true }
+
+# Post-quantum
+pqcrypto-dilithium  = { workspace = true }
+pqcrypto-kyber      = { workspace = true }
+pqcrypto-traits     = { workspace = true }
+
+# Secret-material hygiene
+zeroize             = { workspace = true }
+subtle              = { workspace = true }
+
+# RNG (OsRng) — rand_core is lighter than rand and enough for our needs.
+rand_core           = { workspace = true, features = ["getrandom"] }
+
+# Errors / serde / display
+thiserror           = { workspace = true }
+hex                 = { workspace = true }
+serde               = { workspace = true }
+
+[dev-dependencies]
+proptest  = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name    = "crypto_bench"
+harness = false

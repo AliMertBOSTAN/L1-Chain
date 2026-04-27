@@ -1,0 +1,84 @@
+---
+Checks: >
+  bugprone-*,
+  cert-*,
+  cppcoreguidelines-*,
+  clang-analyzer-*,
+  concurrency-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  misc-*,
+  -modernize-use-trailing-return-type,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-identifier-length,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -readability-convert-member-functions-to-static,
+  -cppcoreguidelines-pro-type-union-access,
+  -misc-non-private-member-variables-in-classes
+
+WarningsAsErrors: >
+  cert-*,
+  bugprone-use-after-move,
+  bugprone-undefined-memory-manipulation,
+  bugprone-infinite-loop,
+  bugprone-misplaced-operator-in-strlen-comparison,
+  clang-analyzer-core.DivideZero,
+  clang-analyzer-core.NullDereference,
+  clang-analyzer-deadcode.DeadStores,
+  concurrency-mt-unsafe
+
+CheckOptions:
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassCase
+    value: PascalCase
+  - key: readability-identifier-naming.StructCase
+    value: PascalCase
+  - key: readability-identifier-naming.EnumCase
+    value: PascalCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: _
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: _
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ConstexprFunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.TypedefCase
+    value: PascalCase
+  - key: readability-identifier-naming.MacroCase
+    value: UPPER_CASE
+  - key: modernize-use-auto.MinTypeNameLength
+    value: 10
+  - key: modernize-use-auto.RemoveStars
+    value: false
+  - key: cppcoreguidelines-init-variables.IncludeStyle
+    value: llvm
+  - key: cppcoreguidelines-explicit-virtual-functions.IgnoreDestructors
+    value: true
+  - key: bugprone-argument-comment.StrictMode
+    value: false
+  - key: misc-definitions-in-headers.HeaderFileExtensions
+    value: h,hpp
+
+HeaderFilterRegex: '^.*include/(qv|crypto|core|consensus|net|privacy|da|vm|storage|rpc).*\.h(pp)?$'
+
+FormatStyle: LLVM
