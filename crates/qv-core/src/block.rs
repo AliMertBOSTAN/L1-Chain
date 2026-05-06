@@ -1,23 +1,23 @@
-//\! Blocks, block headers, and the Merkle tree that commits to their bodies.
-//\!
-//\! A [`Block`] is a [`BlockHeader`] plus a list of [`Transaction`]s. The
-//\! header commits to the body via [`BlockHeader::merkle_root`], so any
-//\! tampering with the transaction list is detected by header-only peers.
-//\!
-//\! # Merkle construction
-//\!
-//\! [`merkle_root`] constructs a binary Merkle tree over the transactions'
-//\! `TxId`s, padding the last level by **duplicating the rightmost leaf**
-//\! until the level's length is a power of two. This is the same scheme as
-//\! Bitcoin; it has a well-known "CVE-2012-2459" duplicate-txn malleability,
-//\! which we mitigate at the ledger level by rejecting blocks containing
-//\! duplicate `TxId`s (see [`Block::validate_structure`]).
-//\!
-//\! Internal nodes use `SHA3-256(left || right)`. Leaves are the raw 32-byte
-//\! `TxId`s; we do *not* double-hash leaves because our leaf inputs are
-//\! already the output of a cryptographic hash.
-//\!
-//\! The empty block's Merkle root is [`MerkleRoot::ZERO`] by convention.
+//! Blocks, block headers, and the Merkle tree that commits to their bodies.
+//!
+//! A [`Block`] is a [`BlockHeader`] plus a list of [`Transaction`]s. The
+//! header commits to the body via [`BlockHeader::merkle_root`], so any
+//! tampering with the transaction list is detected by header-only peers.
+//!
+//! # Merkle construction
+//!
+//! [`merkle_root`] constructs a binary Merkle tree over the transactions'
+//! `TxId`s, padding the last level by **duplicating the rightmost leaf**
+//! until the level's length is a power of two. This is the same scheme as
+//! Bitcoin; it has a well-known "CVE-2012-2459" duplicate-txn malleability,
+//! which we mitigate at the ledger level by rejecting blocks containing
+//! duplicate `TxId`s (see [`Block::validate_structure`]).
+//!
+//! Internal nodes use `SHA3-256(left || right)`. Leaves are the raw 32-byte
+//! `TxId`s; we do *not* double-hash leaves because our leaf inputs are
+//! already the output of a cryptographic hash.
+//!
+//! The empty block's Merkle root is [`MerkleRoot::ZERO`] by convention.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -168,15 +168,33 @@ impl Block {
     }
 
     /// Structural validation that does not require consensus state:
-    /// - every tx is structurally valid
+    /// - every tx is structurally valid (or is the genesis transaction)
     /// - no duplicate `TxId`s
     /// - `header.merkle_root` matches the recomputed Merkle root
     pub fn validate_structure(&self) -> Result<(), BlockError> {
         // 1. Per-tx validation + id collection
         let mut ids = Vec::with_capacity(self.transactions.len());
         for (index, tx) in self.transactions.iter().enumerate() {
-            tx.validate_structure()
-                .map_err(|source| BlockError::InvalidTransaction { index, source })?;
+            // Genesis transactions (empty inputs, non-empty outputs) are allowed
+            // only in genesis blocks (height=0). They bypass the normal input
+            // validation but still require non-empty outputs.
+            let is_genesis_block = self.header.height == Height::GENESIS;
+            let is_genesis_tx = tx.inputs.is_empty() && !tx.outputs.is_empty();
+
+            if is_genesis_tx && !is_genesis_block {
+                // Genesis transaction in a non-genesis block is invalid
+                return Err(BlockError::InvalidTransaction {
+                    index,
+                    source: TransactionError::NoInputs,
+                });
+            }
+
+            if !(is_genesis_tx && is_genesis_block) {
+                // Non-genesis transactions must pass normal validation
+                tx.validate_structure()
+                    .map_err(|source| BlockError::InvalidTransaction { index, source })?;
+            }
+
             ids.push(
                 tx.id()
                     .map_err(|source| BlockError::InvalidTransaction { index, source })?,
@@ -195,7 +213,7 @@ impl Block {
 
         // 3. Merkle root consistency
         let computed = merkle_root_of(&ids);
-        if computed \!= self.header.merkle_root {
+        if computed != self.header.merkle_root {
             return Err(BlockError::MerkleRootMismatch);
         }
 
@@ -273,10 +291,10 @@ mod tests {
 
     fn tx_with_marker(byte: u8) -> Transaction {
         Transaction::new(
-            vec\![TxInput::new(OutPoint::new(TxId::from_bytes([byte; 32]), 0))],
-            vec\![TxOutput::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([byte; 32]), 0))],
+            vec![TxOutput::new(
                 Amount::from(u64::from(byte)),
-                Script::new(vec\![byte]),
+                Script::new(vec![byte]),
             )],
         )
     }
@@ -286,14 +304,14 @@ mod tests {
     #[test]
     fn merkle_empty_is_zero() {
         let r = merkle_root_of(&[]);
-        assert_eq\!(r, MerkleRoot::ZERO);
+        assert_eq!(r, MerkleRoot::ZERO);
     }
 
     #[test]
     fn merkle_single_leaf_is_leaf() {
         let leaf = TxId::from_bytes([7u8; 32]);
         let r = merkle_root_of(&[leaf]);
-        assert_eq\!(r.to_bytes(), leaf.to_bytes());
+        assert_eq!(r.to_bytes(), leaf.to_bytes());
     }
 
     #[test]
@@ -306,7 +324,7 @@ mod tests {
         let expect = sha3_256(&buf);
 
         let r = merkle_root_of(&[a, b]);
-        assert_eq\!(r.to_bytes(), expect);
+        assert_eq!(r.to_bytes(), expect);
     }
 
     #[test]
@@ -328,7 +346,7 @@ mod tests {
         let expect = sha3_256(&buf);
 
         let r = merkle_root_of(&[a, b, c]);
-        assert_eq\!(r.to_bytes(), expect);
+        assert_eq!(r.to_bytes(), expect);
     }
 
     #[test]
@@ -337,7 +355,7 @@ mod tests {
         // sanity: root is deterministic
         let a = merkle_root_of(&leaves);
         let b = merkle_root_of(&leaves);
-        assert_eq\!(a, b);
+        assert_eq!(a, b);
     }
 
     #[test]
@@ -346,7 +364,7 @@ mod tests {
         let b = TxId::from_bytes([2u8; 32]);
         let r1 = merkle_root_of(&[a, b]);
         let r2 = merkle_root_of(&[b, a]);
-        assert_ne\!(r1, r2);
+        assert_ne!(r1, r2);
     }
 
     // ---- BlockHeader ----
@@ -356,7 +374,7 @@ mod tests {
         let h = BlockHeader::genesis_template();
         let a = h.hash().unwrap();
         let b = h.hash().unwrap();
-        assert_eq\!(a, b);
+        assert_eq!(a, b);
     }
 
     #[test]
@@ -365,26 +383,26 @@ mod tests {
         let id1 = h.hash().unwrap();
         h.slot = Slot::from(1);
         let id2 = h.hash().unwrap();
-        assert_ne\!(id1, id2);
+        assert_ne!(id1, id2);
     }
 
     #[test]
     fn header_canonical_bytes_roundtrip() {
         let h = BlockHeader {
-            vrf_proof: vec\![0x01, 0x02, 0x03],
-            kes_sig: vec\![0xAA; 64],
+            vrf_proof: vec![0x01, 0x02, 0x03],
+            kes_sig: vec![0xAA; 64],
             ..BlockHeader::genesis_template()
         };
         let bytes = h.canonical_bytes().unwrap();
         let back: BlockHeader = bincode::deserialize(&bytes).unwrap();
-        assert_eq\!(h, back);
+        assert_eq!(h, back);
     }
 
     // ---- Block structural validation ----
 
     #[test]
     fn block_validates_with_matching_merkle_root() {
-        let txs = vec\![tx_with_marker(1), tx_with_marker(2)];
+        let txs = vec![tx_with_marker(1), tx_with_marker(2)];
         let ids: Vec<TxId> = txs.iter().map(|t| t.id().unwrap()).collect();
         let root = merkle_root_of(&ids);
 
@@ -398,13 +416,13 @@ mod tests {
 
     #[test]
     fn block_rejects_merkle_mismatch() {
-        let txs = vec\![tx_with_marker(1), tx_with_marker(2)];
+        let txs = vec![tx_with_marker(1), tx_with_marker(2)];
         let header = BlockHeader {
             merkle_root: MerkleRoot::from_bytes([0xFF; 32]),
             ..BlockHeader::genesis_template()
         };
         let block = Block::new(header, txs);
-        assert\!(matches\!(
+        assert!(matches!(
             block.validate_structure(),
             Err(BlockError::MerkleRootMismatch)
         ));
@@ -414,14 +432,14 @@ mod tests {
     fn block_rejects_duplicate_txids() {
         // Two identical transactions -> identical TxIds.
         let tx = tx_with_marker(1);
-        let txs = vec\![tx.clone(), tx.clone()];
+        let txs = vec![tx.clone(), tx.clone()];
         let ids: Vec<TxId> = txs.iter().map(|t| t.id().unwrap()).collect();
         let header = BlockHeader {
             merkle_root: merkle_root_of(&ids),
             ..BlockHeader::genesis_template()
         };
         let block = Block::new(header, txs);
-        assert\!(matches\!(
+        assert!(matches!(
             block.validate_structure(),
             Err(BlockError::DuplicateTx)
         ));
@@ -429,21 +447,59 @@ mod tests {
 
     #[test]
     fn block_rejects_structurally_invalid_tx() {
-        // Inner tx with zero inputs should cause BlockError::InvalidTransaction.
+        // Transaction with zero outputs should cause BlockError::InvalidTransaction,
+        // even in a genesis block (since genesis txs still need outputs).
         let bad = Transaction::new(
-            vec\![],
-            vec\![TxOutput::new(Amount::from(1), Script::default())],
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![],  // zero outputs
         );
-        let ids = vec\![bad.id().unwrap()];
+        let ids = vec![bad.id().unwrap()];
         let header = BlockHeader {
             merkle_root: merkle_root_of(&ids),
             ..BlockHeader::genesis_template()
         };
-        let block = Block::new(header, vec\![bad]);
+        let block = Block::new(header, vec![bad]);
         let err = block.validate_structure().unwrap_err();
-        assert\!(
-            matches\!(err, BlockError::InvalidTransaction { index: 0, .. }),
+        assert!(
+            matches!(err, BlockError::InvalidTransaction { index: 0, .. }),
             "expected InvalidTransaction, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn genesis_block_accepts_genesis_tx() {
+        // A genesis block (height=0) should accept transactions with zero inputs
+        // as long as they have outputs.
+        let genesis_tx = Transaction::genesis(
+            vec![TxOutput::new(Amount::from(100), Script::default())],
+        );
+        let ids = vec![genesis_tx.id().unwrap()];
+        let header = BlockHeader {
+            merkle_root: merkle_root_of(&ids),
+            ..BlockHeader::genesis_template()
+        };
+        let block = Block::new(header, vec![genesis_tx]);
+        block.validate_structure().expect("genesis block with genesis tx should validate");
+    }
+
+    #[test]
+    fn non_genesis_block_rejects_genesis_tx() {
+        // A non-genesis block should reject transactions with zero inputs,
+        // even if they have outputs.
+        let genesis_tx = Transaction::genesis(
+            vec![TxOutput::new(Amount::from(100), Script::default())],
+        );
+        let ids = vec![genesis_tx.id().unwrap()];
+        let header = BlockHeader {
+            height: Height::from(1),  // non-genesis height
+            merkle_root: merkle_root_of(&ids),
+            ..BlockHeader::genesis_template()
+        };
+        let block = Block::new(header, vec![genesis_tx]);
+        let err = block.validate_structure().unwrap_err();
+        assert!(
+            matches!(err, BlockError::InvalidTransaction { index: 0, .. }),
+            "non-genesis block should reject genesis tx, got {err:?}"
         );
     }
 
@@ -453,7 +509,7 @@ mod tests {
             merkle_root: MerkleRoot::ZERO,
             ..BlockHeader::genesis_template()
         };
-        let block = Block::new(header, vec\![]);
+        let block = Block::new(header, vec![]);
         block.validate_structure().expect("empty block is valid");
     }
 }

@@ -42,5 +42,4 @@ Thumbs.db
 /book
 /target/doc
 
-# Allow v1 archive
-!/archive/
+/devnet/work

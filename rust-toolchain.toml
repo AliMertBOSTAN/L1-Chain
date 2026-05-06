@@ -1,4 +1,9 @@
 [toolchain]
-channel    = "1.78"
+# Bumped to 1.86 because the `icu_*` family (transitively pulled by
+# `idna`/`url`/`reqwest`) ships a newer MSRV. The story so far:
+#   1.78 -> 1.85: `indexmap >= 2.14` requires `edition2024` (1.85+).
+#   1.85 -> 1.86: `icu_normalizer/properties/provider 2.2.0` require 1.86.
+# Workspace `rust-version` mirrors this. Bump again when deps push higher.
+channel    = "1.86"
 components = ["rustfmt", "clippy", "rust-src", "rust-docs"]
 profile    = "default"

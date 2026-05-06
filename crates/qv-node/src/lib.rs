@@ -36,12 +36,17 @@
 
 #![forbid(unsafe_code)]
 
+pub mod ceremony;
 pub mod cli;
 pub mod config;
+pub mod genesis;
 pub mod metrics;
+pub mod network_handler;
 pub mod node;
 pub mod rpc;
 pub mod signals;
+pub mod slot_ticker;
+pub mod validation;
 
 use thiserror::Error;
 
@@ -90,7 +95,7 @@ pub enum NodeError {
 }
 
 /// Result alias for node operations.
-pub type NodeResult<T> = core::result::Result<T, NodeError>;
+pub type NodeResult<T> = Result<T, NodeError>;
 
 // Re-export headline types at crate root for ergonomic imports.
 pub use cli::CliArgs;

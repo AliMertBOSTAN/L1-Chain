@@ -6,7 +6,7 @@
 
 use crate::{MinerError, MinerResult};
 use qv_consensus::{
-    check_leadership, vrf_input, PoolId, VrfEvaluator, VrfOutput,
+    PoolId, VrfEvaluator, VrfOutput,
 };
 use qv_core::Epoch;
 
@@ -38,7 +38,7 @@ use qv_core::Epoch;
 pub fn is_committee_member(
     vrf: &dyn VrfEvaluator,
     pool_id: &PoolId,
-    epoch_nonce: &[u8],
+    _epoch_nonce: &[u8],
     epoch: Epoch,
     committee_size: u32,
     committee_threshold: u32,
@@ -90,7 +90,7 @@ pub struct DecryptionShare {
     pub share_data: Vec<u8>,
 
     /// The epoch this share is for.
-    pub epoch: qv_core::Epoch,
+    pub epoch: Epoch,
 }
 
 impl DecryptionShare {
@@ -99,7 +99,7 @@ impl DecryptionShare {
         pool_id: PoolId,
         share_index: u32,
         share_data: Vec<u8>,
-        epoch: qv_core::Epoch,
+        epoch: Epoch,
     ) -> Self {
         Self {
             pool_id,

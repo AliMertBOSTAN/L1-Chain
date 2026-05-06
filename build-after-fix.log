@@ -1,0 +1,726 @@
+﻿cargo :    Compiling qv-core v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-core)
+At line:1 char:1
++ cargo build --release --workspace 2>&1 | Out-File -FilePath build-aft ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling qv...crates\qv-core):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling qv-script v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-script)
+   Compiling qv-consensus v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-consensus)
+   Compiling qv-privacy v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-privacy)
+   Compiling qv-net v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-net)
+   Compiling qv-mempool v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-mempool)
+   Compiling qv-defi v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-defi)
+   Compiling qv-wallet v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-wallet)
+   Compiling qv-storage v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-storage)
+warning: unused import: `ReadableTable`
+  --> crates\qv-storage\src\kv.rs:15:22
+   |
+15 | use redb::{Database, ReadableTable, TableDefinition};
+   |                      ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: trivial numeric cast: `u128` as `u128`
+   --> crates\qv-defi\src\oracle.rs:223:13
+    |
+223 |             ((max_price - min_price) as u128)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: cast can be replaced by coercion; this might require a temporary variable
+    = note: requested on the command line with `-W trivial-numeric-casts`
+
+warning: trivial numeric cast: `u128` as `u128`
+   --> crates\qv-defi\src\oracle.rs:225:45
+    |
+225 |                 .and_then(|d| d.checked_div(min_price as u128))
+    |                                             ^^^^^^^^^^^^^^^^^
+    |
+    = help: cast can be replaced by coercion; this might require a temporary variable
+
+warning: trivial numeric cast: `u128` as `u128`
+   --> crates\qv-defi\src\oracle.rs:297:25
+    |
+297 |     let deviation_bps = ((max_price - min_price) as u128)
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: cast can be replaced by coercion; this might require a temporary variable
+
+warning: trivial numeric cast: `u128` as `u128`
+   --> crates\qv-defi\src\oracle.rs:299:37
+    |
+299 |         .and_then(|d| d.checked_div(min_price as u128))
+    |                                     ^^^^^^^^^^^^^^^^^
+    |
+    = help: cast can be replaced by coercion; this might require a temporary variable
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:28:29
+   |
+28 |     InsufficientLiquidity { pool_id: Hash256 },
+   |                             ^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> crates\qv-defi\src\lib.rs:21:9
+   |
+21 | #![warn(missing_docs)]
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:32:24
+   |
+32 |     SlippageExceeded { expected: u64, actual: u64 },
+   |                        ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:32:39
+   |
+32 |     SlippageExceeded { expected: u64, actual: u64 },
+   |                                       ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:36:19
+   |
+36 |     InvalidPool { pool_id: Hash256 },
+   |                   ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:44:23
+   |
+44 |     LpTokenMismatch { expected: u64, actual: u64 },
+   |                       ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:44:38
+   |
+44 |     LpTokenMismatch { expected: u64, actual: u64 },
+   |                                      ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:52:25
+   |
+52 |     InvariantViolated { old_product: u128, new_product: u128 },
+   |                         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:52:44
+   |
+52 |     InvariantViolated { old_product: u128, new_product: u128 },
+   |                                            ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:56:18
+   |
+56 |     InvalidFee { fee_bps: u16 },
+   |                  ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\intents.rs:25:15
+   |
+25 |     Expired { deadline: u64 },
+   |               ^^^^^^^^^^^^^
+
+warning: missing documentation for a type alias
+  --> crates\qv-defi\src\intents.rs:40:1
+   |
+40 | pub type Result<T> = core::result::Result<T, IntentError>;
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\lending.rs:36:9
+   |
+36 |         collateral_value: u64,
+   |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\lending.rs:37:9
+   |
+37 |         debt: u64,
+   |         ^^^^^^^^^
+
+warning: missing documentation for a type alias
+  --> crates\qv-defi\src\lending.rs:61:1
+   |
+61 | pub type Result<T> = core::result::Result<T, LendingError>;
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\oracle.rs:26:32
+   |
+26 |     InsufficientObservations { have: usize, need: usize },
+   |                                ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\oracle.rs:26:45
+   |
+26 |     InsufficientObservations { have: usize, need: usize },
+   |                                             ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\oracle.rs:34:28
+   |
+34 |     ManipulationDetected { pct_change: u16 },
+   |                            ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a type alias
+  --> crates\qv-defi\src\oracle.rs:49:1
+   |
+49 | pub type Result<T> = core::result::Result<T, OracleError>;
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:22:5
+   |
+22 |     Keystore(String),
+   |     ^^^^^^^^
+   |
+note: the lint level is defined here
+  --> crates\qv-wallet\src\lib.rs:7:9
+   |
+ 7 | #![warn(missing_docs)]
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:24:5
+   |
+24 |     Mnemonic(String),
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:26:5
+   |
+26 |     HdDerivation(String),
+   |     ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:28:5
+   |
+28 |     TxBuilder(String),
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:30:5
+   |
+30 |     CoinSelection(String),
+   |     ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:32:5
+   |
+32 |     Scanner(String),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:34:5
+   |
+34 |     Rpc(String),
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:36:5
+   |
+36 |     Crypto(String),
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:38:5
+   |
+38 |     Privacy(String),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:40:5
+   |
+40 |     Core(String),
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:42:5
+   |
+42 |     Script(String),
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:44:5
+   |
+44 |     Io(#[from] std::io::Error),
+   |     ^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:46:5
+   |
+46 |     Json(#[from] serde_json::Error),
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:48:5
+   |
+48 |     Bincode(#[from] bincode::Error),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:50:5
+   |
+50 |     InvalidArg(String),
+   |     ^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\cli.rs:7:1
+  |
+7 | pub struct Cli {
+  | ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\cli.rs:9:5
+  |
+9 |     pub keystore: PathBuf,
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:11:5
+   |
+11 |     pub rpc: String,
+   |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:13:5
+   |
+13 |     pub command: Commands,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+  --> crates\qv-wallet\src\cli.rs:17:1
+   |
+17 | pub enum Commands {
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:18:5
+   |
+18 |     Init {
+   |     ^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:20:9
+   |
+20 |         out: Option<PathBuf>,
+   |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:22:5
+   |
+22 |     ImportMnemonic {
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:23:9
+   |
+23 |         phrase: String,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:25:9
+   |
+25 |         out: Option<PathBuf>,
+   |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:27:5
+   |
+27 |     Address {
+   |     ^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:29:9
+   |
+29 |         account: u32,
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:31:5
+   |
+31 |     Scan {
+   |     ^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:33:9
+   |
+33 |         from: u64,
+   |         ^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:35:9
+   |
+35 |         to: u64,
+   |         ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:37:5
+   |
+37 |     Balance,
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:38:5
+   |
+38 |     Send {
+   |     ^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:39:9
+   |
+39 |         to: String,
+   |         ^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:40:9
+   |
+40 |         amount: u64,
+   |         ^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\coin_select.rs:7:1
+  |
+7 | pub struct CoinSelection {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\coin_select.rs:8:5
+  |
+8 |     pub selected: Vec<OutPoint>,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\coin_select.rs:9:5
+  |
+9 |     pub total: Amount,
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\coin_select.rs:10:5
+   |
+10 |     pub change: Option<Amount>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\coin_select.rs:13:1
+   |
+13 | pub struct CoinSelector {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\coin_select.rs:14:5
+   |
+14 |     pub utxos: BTreeMap<OutPoint, Amount>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\coin_select.rs:15:5
+   |
+15 |     pub fee_per_byte: u64,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\coin_select.rs:19:5
+   |
+19 |     pub fn new(utxos: BTreeMap<OutPoint, Amount>, fee_per_byte: u64) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\coin_select.rs:23:5
+   |
+23 |     pub fn select(&self, target: Amount) -> WalletResult<CoinSelection> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a trait
+ --> crates\qv-wallet\src\hd.rs:5:1
+  |
+5 | pub trait SeedDeriver: Send + Sync {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+ --> crates\qv-wallet\src\hd.rs:6:5
+  |
+6 |     fn derive_account(&self, seed: &[u8; 64], account_idx: u32) -> WalletResult<StealthKeys>;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\hd.rs:9:1
+  |
+9 | pub struct DefaultSeedDeriver;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:11:1
+   |
+11 | pub struct WalletSecret {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:12:5
+   |
+12 |     pub mnemonic: Mnemonic,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:13:5
+   |
+13 |     pub metadata: WalletMetadata,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:17:1
+   |
+17 | pub struct WalletMetadata {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:18:5
+   |
+18 |     pub next_account: u32,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:19:5
+   |
+19 |     pub created_at: u64,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:23:1
+   |
+23 | pub struct WalletKeystore {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:24:5
+   |
+24 |     pub version: u32,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:25:5
+   |
+25 |     pub kdf: KdfParams,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:26:5
+   |
+26 |     pub cipher: CipherParams,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:30:1
+   |
+30 | pub struct KdfParams {
+   | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:31:5
+   |
+31 |     pub algo: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:32:5
+   |
+32 |     pub params: String,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:33:5
+   |
+33 |     pub salt: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:37:1
+   |
+37 | pub struct CipherParams {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:38:5
+   |
+38 |     pub algo: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:39:5
+   |
+39 |     pub iv: String,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:40:5
+   |
+40 |     pub ciphertext: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:41:5
+   |
+41 |     pub tag: String,
+   |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\keystore.rs:45:5
+   |
+45 |     pub fn save(path: &Path, secret: &WalletSecret, password: &str) -> WalletResult<()> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\keystore.rs:86:5
+   |
+86 |     pub fn load(path: &Path, _password: &str) -> WalletResult<WalletSecret> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\keystore.rs:93:5
+   |
+93 |     pub fn change_password(path: &Path, old_password: &str, new_password: &str) -> WalletResult<()> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\mnemonic.rs:12:1
+   |
+12 | pub struct Mnemonic {
+   | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\mnemonic.rs:38:5
+   |
+38 |     pub fn phrase(&self) -> &str {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\rpc_client.rs:6:1
+  |
+6 | pub struct RpcClient {
+  | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\rpc_client.rs:18:5
+   |
+18 |     pub fn new(url: impl Into<String>) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\rpc_client.rs:25:5
+   |
+25 |     pub async fn call(&self, method: &str, params: Vec<Value>) -> WalletResult<Value> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a trait
+ --> crates\qv-wallet\src\scanner.rs:6:1
+  |
+6 | pub trait MatchStore: Send + Sync {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+ --> crates\qv-wallet\src\scanner.rs:7:5
+  |
+7 |     fn add_match(&mut self, outpoint: OutPoint, amount: Amount) -> WalletResult<()>;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+ --> crates\qv-wallet\src\scanner.rs:8:5
+  |
+8 |     fn get_matches(&self) -> WalletResult<BTreeMap<OutPoint, Amount>>;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\scanner.rs:12:1
+   |
+12 | pub struct MemoryMatchStore {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\scanner.rs:17:5
+   |
+17 |     pub fn new() -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\tx_builder.rs:6:1
+  |
+6 | pub struct TxBuilder {
+  | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\tx_builder.rs:7:5
+  |
+7 |     pub inputs: Vec<TxInput>,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\tx_builder.rs:8:5
+  |
+8 |     pub outputs: Vec<TxOutput>,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\tx_builder.rs:9:5
+  |
+9 |     pub validity: ValidityInterval,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\tx_builder.rs:13:5
+   |
+13 |     pub fn new(validity: ValidityInterval) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\tx_builder.rs:21:5
+   |
+21 |     pub fn add_input(&mut self, input: TxInput) -> &mut Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\tx_builder.rs:26:5
+   |
+26 |     pub fn add_output(&mut self, output: TxOutput) -> &mut Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\tx_builder.rs:31:5
+   |
+31 |     pub fn build_unsigned(&self) -> WalletResult<Transaction> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\tx_builder.rs:44:5
+   |
+44 |     pub fn serialize(&self) -> WalletResult<Vec<u8>> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling qv-node v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-node)
+   Compiling qv-miner v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-miner)
+warning: `qv-storage` (lib) generated 1 warning
+warning: `qv-defi` (lib) generated 22 warnings
+warning: field `rpc_url` is never read
+   --> crates\qv-miner\src\block_producer.rs:142:5
+    |
+141 | pub struct RpcMempoolProvider {
+    |            ------------------ field in this struct
+142 |     rpc_url: String,
+    |     ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `config` is never read
+  --> crates\qv-node\src\node.rs:31:5
+   |
+30 | pub struct Node {
+   |            ---- field in this struct
+31 |     config: NodeConfig,
+   |     ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `qv-wallet` (lib) generated 87 warnings
+warning: `qv-miner` (lib) generated 1 warning
+warning: `qv-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 2m 39s

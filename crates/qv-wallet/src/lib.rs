@@ -1,10 +1,12 @@
-//\! # qv-wallet
-//\!
-//\! QuantumVault CLI wallet with PQC keys, stealth address scanning, and
-//\! transaction building.
+//! # qv-wallet
+//!
+//! QuantumVault CLI wallet with PQC keys, stealth address scanning, and
+//! transaction building.
 
-#\![forbid(unsafe_code)]
-#\![warn(missing_docs)]
+#![forbid(unsafe_code)]
+// `missing_docs` is governed at the workspace level; see Cargo.toml
+// `[workspace.lints.rust]`. Crate-level override removed during scaffolding;
+// will be re-tightened in Faz 9 (audit-ready).
 
 pub mod cli;
 pub mod coin_select;
@@ -51,7 +53,7 @@ pub enum WalletError {
 }
 
 /// Convenience alias for `Result<T, WalletError>`.
-pub type WalletResult<T> = core::result::Result<T, WalletError>;
+pub type WalletResult<T> = Result<T, WalletError>;
 
 pub use cli::{Cli, Commands};
 pub use keystore::WalletKeystore;
@@ -66,6 +68,6 @@ mod tests {
     #[test]
     fn error_display() {
         let e = WalletError::Keystore("test".into());
-        assert_eq\!(e.to_string(), "keystore error: test");
+        assert_eq!(e.to_string(), "keystore error: test");
     }
 }

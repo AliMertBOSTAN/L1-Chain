@@ -1,4 +1,4 @@
-#\!/bin/bash
+#!/bin/bash
 # Generate BIP-39 wordlist inline Rust code (2048 words)
 # Source: https://github.com/trezor/python-mnemonic/blob/master/vectors.json
 cat << 'WORDLIST' > bip39_wordlist.txt

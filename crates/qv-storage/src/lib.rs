@@ -57,7 +57,7 @@ pub enum StorageError {
 }
 
 /// Storage result alias.
-pub type StorageResult<T> = core::result::Result<T, StorageError>;
+pub type StorageResult<T> = Result<T, StorageError>;
 
 /// Encode a value with canonical bincode serialization.
 pub(crate) fn encode<T: Serialize>(value: &T) -> StorageResult<Vec<u8>> {

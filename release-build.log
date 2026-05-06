@@ -1,0 +1,1547 @@
+﻿cargo :    Compiling proc-macro2 v1.0.106
+At line:1 char:1
++ cargo build --workspace --release 2>&1 | Out-File -FilePath release-b ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling proc-macro2 v1.0.106:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling cfg-if v1.0.4
+   Compiling version_check v0.9.5
+   Compiling windows-link v0.2.1
+   Compiling once_cell v1.21.4
+   Compiling memchr v2.8.0
+   Compiling getrandom v0.2.17
+   Compiling pin-project-lite v0.2.17
+   Compiling getrandom v0.3.4
+   Compiling serde_core v1.0.228
+   Compiling rand_core v0.6.4
+   Compiling generic-array v0.14.7
+   Compiling subtle v2.6.1
+   Compiling typenum v1.20.0
+   Compiling smallvec v1.15.1
+   Compiling futures-core v0.3.32
+   Compiling log v0.4.29
+   Compiling futures-sink v0.3.32
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling windows-sys v0.61.2
+   Compiling serde v1.0.228
+   Compiling jobserver v0.1.34
+   Compiling zerocopy v0.8.48
+   Compiling cc v1.2.60
+   Compiling crypto-common v0.1.7
+   Compiling syn v2.0.117
+   Compiling futures-io v0.3.32
+   Compiling futures-channel v0.3.32
+   Compiling parking_lot_core v0.9.12
+   Compiling tracing-core v0.1.36
+   Compiling scopeguard v1.2.0
+   Compiling slab v0.4.12
+   Compiling lock_api v0.4.14
+   Compiling bytes v1.11.1
+   Compiling futures-task v0.3.32
+   Compiling parking_lot v0.12.5
+   Compiling block-buffer v0.10.4
+   Compiling cpufeatures v0.2.17
+   Compiling itoa v1.0.18
+   Compiling digest v0.10.7
+   Compiling equivalent v1.0.2
+   Compiling thiserror v1.0.69
+   Compiling stable_deref_trait v1.2.1
+   Compiling rustversion v1.0.22
+   Compiling semver v1.0.28
+   Compiling wasm-bindgen-shared v0.2.118
+   Compiling percent-encoding v2.3.2
+   Compiling rustc_version v0.4.1
+   Compiling libc v0.2.185
+   Compiling litemap v0.8.2
+   Compiling synstructure v0.13.2
+   Compiling curve25519-dalek v4.1.3
+   Compiling writeable v0.6.3
+   Compiling icu_properties_data v2.2.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.2.0
+   Compiling bumpalo v3.20.2
+   Compiling wasm-bindgen v0.2.118
+   Compiling wasm-bindgen-macro-support v0.2.118
+   Compiling socket2 v0.6.3
+   Compiling mio v1.2.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling fnv v1.0.7
+   Compiling serde_derive v1.0.228
+   Compiling futures-macro v0.3.32
+   Compiling tracing-attributes v0.1.31
+   Compiling zeroize_derive v1.4.3
+   Compiling zerofrom-derive v0.1.7
+   Compiling thiserror-impl v1.0.69
+   Compiling yoke-derive v0.8.2
+   Compiling zeroize v1.8.2
+   Compiling futures-util v0.3.32
+   Compiling tokio-macros v2.7.0
+   Compiling tracing v0.1.44
+   Compiling zerofrom v0.1.7
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.5
+   Compiling yoke v0.8.2
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling tokio v1.52.1
+   Compiling rand_chacha v0.3.1
+   Compiling wasm-bindgen-macro v0.2.118
+   Compiling zerotrie v0.2.4
+   Compiling rand v0.8.6
+   Compiling pin-project-internal v1.1.11
+   Compiling zerovec v0.11.6
+   Compiling futures-executor v0.3.32
+   Compiling arrayref v0.3.9
+   Compiling glob v0.3.3
+   Compiling futures v0.3.32
+   Compiling tinystr v0.8.3
+   Compiling potential_utf v0.1.5
+   Compiling form_urlencoded v1.2.2
+   Compiling icu_locale_core v2.2.0
+   Compiling icu_collections v2.2.0
+   Compiling pin-project v1.1.11
+   Compiling hashbrown v0.17.0
+   Compiling send_wrapper v0.4.0
+   Compiling allocator-api2 v0.2.21
+   Compiling zmij v1.0.21
+   Compiling serde_json v1.0.149
+   Compiling js-sys v0.3.95
+   Compiling static_assertions v1.1.0
+   Compiling indexmap v2.14.0
+   Compiling icu_provider v2.2.0
+   Compiling ring v0.17.14
+   Compiling heck v0.5.0
+   Compiling icu_normalizer v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling byteorder v1.5.0
+   Compiling http v1.4.0
+   Compiling dunce v1.0.5
+   Compiling thiserror v2.0.18
+   Compiling unsigned-varint v0.8.0
+   Compiling idna_adapter v1.2.1
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling idna v1.1.0
+   Compiling signature v2.2.0
+   Compiling data-encoding v2.10.0
+   Compiling url v2.5.8
+   Compiling ed25519 v2.2.3
+   Compiling pqcrypto-internals v0.2.11
+   Compiling quick-protobuf v0.8.1
+   Compiling data-encoding-macro-internal v0.1.17
+   Compiling thiserror-impl v2.0.18
+   Compiling match-lookup v0.1.2
+   Compiling hmac v0.12.1
+   Compiling sha2 v0.10.9
+   Compiling no_std_io2 v0.8.1
+   Compiling untrusted v0.9.0
+   Compiling arrayvec v0.7.6
+   Compiling either v1.15.0
+   Compiling const-str v0.4.3
+   Compiling multihash v0.19.4
+   Compiling gloo-timers v0.2.6
+   Compiling data-encoding-macro v0.1.19
+   Compiling futures-timer v3.0.3
+   Compiling base256emoji v1.0.2
+   Compiling ed25519-dalek v2.2.0
+   Compiling hkdf v0.12.4
+   Compiling base-x v0.2.11
+   Compiling base64 v0.22.1
+   Compiling bs58 v0.5.1
+   Compiling windows-targets v0.52.6
+   Compiling unsigned-varint v0.7.2
+   Compiling multibase v0.9.2
+   Compiling libp2p-identity v0.2.13
+   Compiling hex v0.4.3
+   Compiling web-time v1.1.0
+   Compiling multistream-select v0.13.0
+   Compiling http-body v1.0.1
+   Compiling tokio-util v0.7.18
+   Compiling multiaddr v0.18.2
+   Compiling rw-stream-sink v0.4.0
+   Compiling httparse v1.10.1
+   Compiling ipnet v2.12.0
+   Compiling void v1.0.2
+   Compiling libp2p-core v0.42.0
+   Compiling pqcrypto-kyber v0.8.1
+   Compiling pqcrypto-dilithium v0.5.0
+   Compiling x25519-dalek v2.0.1
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling blake3 v1.5.4
+   Compiling ahash v0.8.12
+   Compiling toml_write v0.1.2
+   Compiling winnow v0.7.15
+   Compiling foldhash v0.1.5
+   Compiling pqcrypto-traits v0.3.5
+   Compiling hashbrown v0.15.5
+   Compiling bitflags v2.11.1
+   Compiling constant_time_eq v0.3.1
+   Compiling keccak v0.1.6
+   Compiling lru v0.12.5
+   Compiling sha3 v0.10.9
+   Compiling qv-common v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-common)
+   Compiling rustls-pki-types v1.14.0
+   Compiling tower-service v0.3.3
+   Compiling toml_edit v0.22.27
+   Compiling libp2p-swarm-derive v0.35.0
+   Compiling bincode v1.3.3
+   Compiling async-trait v0.1.89
+   Compiling rustls v0.23.38
+   Compiling atomic-waker v1.1.2
+   Compiling try-lock v0.2.5
+   Compiling libp2p-swarm v0.45.1
+   Compiling want v0.3.1
+   Compiling h2 v0.4.13
+   Compiling rustls-webpki v0.103.13
+   Compiling hashbrown v0.14.5
+   Compiling http-body-util v0.1.3
+   Compiling toml v0.8.23
+   Compiling clang-sys v1.8.1
+   Compiling windows-implement v0.60.2
+   Compiling windows-interface v0.59.3
+   Compiling aho-corasick v1.1.4
+   Compiling windows-strings v0.5.1
+   Compiling windows-result v0.4.1
+   Compiling httpdate v1.0.3
+   Compiling regex-syntax v0.8.10
+   Compiling windows-core v0.62.2
+   Compiling hyper v1.9.0
+   Compiling minimal-lexical v0.2.1
+   Compiling regex-automata v0.4.14
+   Compiling winapi v0.3.9
+   Compiling libloading v0.8.9
+   Compiling hyper-util v0.1.20
+   Compiling nom v7.1.3
+   Compiling windows-sys v0.59.0
+   Compiling asynchronous-codec v0.7.0
+   Compiling crunchy v0.2.4
+   Compiling tower-layer v0.3.3
+   Compiling bindgen v0.69.5
+   Compiling itertools v0.12.1
+   Compiling cexpr v0.6.0
+   Compiling regex v1.12.3
+   Compiling tokio-rustls v0.26.4
+   Compiling rand_core v0.9.5
+   Compiling lz4-sys v1.11.1+lz4-1.10.0
+   Compiling windows-threading v0.2.1
+   Compiling tiny-keccak v2.0.2
+   Compiling lazy_static v1.5.0
+   Compiling rustc-hash v1.1.0
+   Compiling once_cell_polyfill v1.70.2
+   Compiling lazycell v1.3.0
+   Compiling utf8parse v0.2.2
+   Compiling anstyle v1.0.14
+   Compiling anstyle-parse v1.0.0
+   Compiling anstyle-wincon v3.0.11
+   Compiling windows-future v0.3.2
+   Compiling rand_chacha v0.9.0
+   Compiling quick-protobuf-codec v0.3.1
+   Compiling windows-collections v0.3.2
+   Compiling windows-numerics v0.3.1
+   Compiling futures-bounded v0.2.4
+   Compiling anstyle-query v1.1.5
+   Compiling snow v0.9.6
+   Compiling prometheus-client v0.22.3
+   Compiling nohash-hasher v0.2.0
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling windows v0.62.2
+   Compiling anstream v1.0.0
+   Compiling rand v0.9.4
+   Compiling webpki-roots v1.0.7
+   Compiling tokio-stream v0.1.18
+   Compiling windows-sys v0.52.0
+   Compiling jsonrpsee-types v0.24.10
+   Compiling prometheus-client-derive-encode v0.4.2
+   Compiling if-addrs v0.15.0
+   Compiling librocksdb-sys v0.16.0+8.10.0
+   Compiling strsim v0.11.1
+   Compiling dtoa v1.0.11
+   Compiling clap_lex v1.1.0
+   Compiling ryu v1.0.23
+   Compiling unicode-segmentation v1.13.2
+   Compiling ucd-trie v0.1.7
+   Compiling rustc-hash v2.1.2
+   Compiling anyhow v1.0.102
+   Compiling crossbeam-utils v0.8.21
+   Compiling sharded-slab v0.1.7
+   Compiling jsonrpsee-core v0.24.10
+   Compiling pest v2.8.6
+   Compiling const-random-macro v0.1.16
+   Compiling if-watch v3.2.2
+   Compiling clap_builder v4.6.0
+   Compiling socket2 v0.5.10
+   Compiling yamux v0.13.10
+   Compiling hyper-rustls v0.27.9
+   Compiling uint v0.9.5
+   Compiling yamux v0.12.1
+   Compiling matchers v0.2.0
+   Compiling futures-ticker v0.0.3
+   Compiling clap_derive v4.6.1
+   Compiling tracing-serde v0.2.0
+   Compiling nu-ansi-term v0.50.3
+   Compiling sha1 v0.10.6
+   Compiling tracing-log v0.2.0
+   Compiling thread_local v1.1.9
+   Compiling redb v2.1.3
+   Compiling winnow v1.0.2
+   Compiling native-tls v0.2.18
+   Compiling hex_fmt v0.3.0
+   Compiling libp2p-gossipsub v0.47.0
+   Compiling clap v4.6.1
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling tracing-subscriber v0.3.23
+   Compiling soketto v0.8.1
+   Compiling libp2p-yamux v0.46.0
+   Compiling libp2p-noise v0.45.0
+   Compiling libp2p-kad v0.46.2
+   Compiling libp2p-tcp v0.42.0
+   Compiling pest_meta v2.8.6
+   Compiling const-random v0.1.18
+   Compiling rustls-platform-verifier v0.5.3
+   Compiling libp2p-identify v0.45.0
+   Compiling libp2p-request-response v0.27.0
+   Compiling libp2p-allow-block-list v0.4.0
+   Compiling libp2p-connection-limits v0.4.0
+   Compiling libp2p-ping v0.45.0
+   Compiling schannel v0.1.29
+   Compiling inout v0.1.4
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling libp2p v0.54.1
+   Compiling toml_edit v0.25.11+spec-1.1.0
+   Compiling cipher v0.4.4
+   Compiling pest_generator v2.8.6
+   Compiling dlv-list v0.5.2
+   Compiling tower v0.4.13
+   Compiling dashmap v5.5.3
+   Compiling raw-cpuid v11.6.0
+   Compiling universal-hash v0.5.1
+   Compiling sync_wrapper v1.0.2
+   Compiling getrandom v0.4.2
+   Compiling paste v1.0.15
+   Compiling tinyvec_macros v0.1.1
+   Compiling opaque-debug v0.3.1
+   Compiling tinyvec v1.11.0
+   Compiling quanta v0.12.6
+   Compiling polyval v0.6.2
+   Compiling tower v0.5.3
+   Compiling pest_derive v2.8.6
+   Compiling proc-macro-crate v3.5.0
+   Compiling ordered-multimap v0.7.3
+   Compiling tokio-native-tls v0.3.1
+   Compiling jsonrpsee-client-transport v0.24.10
+   Compiling crossbeam-epoch v0.9.18
+   Compiling crossterm_winapi v0.9.1
+   Compiling hashlink v0.8.4
+   Compiling metrics v0.22.4
+   Compiling itertools v0.13.0
+   Compiling hex-conservative v0.2.2
+   Compiling strum_macros v0.26.4
+   Compiling castaway v0.2.4
+   Compiling encoding_rs v0.8.35
+   Compiling num_cpus v1.17.0
+   Compiling iri-string v0.7.12
+   Compiling arraydeque v0.5.1
+   Compiling base64 v0.21.7
+   Compiling unicode-width v0.1.14
+   Compiling sketches-ddsketch v0.2.2
+   Compiling route-recognizer v0.3.1
+   Compiling base64ct v1.8.3
+   Compiling strum v0.26.3
+   Compiling password-hash v0.5.0
+   Compiling tower-http v0.6.8
+   Compiling jsonrpsee-server v0.24.10
+   Compiling metrics-util v0.16.3
+   Compiling ron v0.8.1
+   Compiling unicode-truncate v1.1.0
+   Compiling yaml-rust2 v0.8.1
+   Compiling compact_str v0.7.1
+   Compiling bitcoin_hashes v0.14.1
+   Compiling jsonrpsee-ws-client v0.24.10
+   Compiling crossterm v0.27.0
+   Compiling hyper-tls v0.6.0
+   Compiling json5 v0.4.1
+   Compiling jsonrpsee-proc-macros v0.24.10
+   Compiling rust-ini v0.20.0
+   Compiling ghash v0.5.1
+   Compiling unicode-normalization v0.1.25
+   Compiling jsonrpsee-http-client v0.24.10
+   Compiling ctr v0.9.2
+   Compiling aes v0.8.4
+   Compiling convert_case v0.6.0
+   Compiling serde_urlencoded v0.7.1
+   Compiling rtoolbox v0.0.5
+   Compiling stability v0.2.1
+   Compiling blake2 v0.10.6
+   Compiling aead v0.5.2
+   Compiling fastrand v2.4.1
+   Compiling cassowary v0.3.0
+   Compiling jsonrpsee-wasm-client v0.24.10
+   Compiling pathdiff v0.2.3
+   Compiling tempfile v3.27.0
+   Compiling jsonrpsee v0.24.10
+   Compiling argon2 v0.5.3
+   Compiling aes-gcm v0.10.3
+   Compiling ratatui v0.27.0
+   Compiling config v0.14.1
+   Compiling reqwest v0.12.28
+   Compiling rpassword v7.5.1
+   Compiling bip39 v2.2.2
+   Compiling metrics-exporter-prometheus v0.14.0
+   Compiling qv-crypto v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-crypto)
+   Compiling qv-core v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-core)
+warning: unnecessary qualification
+   --> crates\qv-core\src\lib.rs:130:26
+    |
+130 | pub type CoreResult<T> = core::result::Result<T, CoreError>;
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: requested on the command line with `-W unused-qualifications`
+help: remove the unnecessary path segments
+    |
+130 - pub type CoreResult<T> = core::result::Result<T, CoreError>;
+130 + pub type CoreResult<T> = Result<T, CoreError>;
+    |
+
+warning: `qv-core` (lib) generated 1 warning (run `cargo fix --lib -p qv-core` to apply 1 suggestion)
+   Compiling qv-consensus v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-consensus)
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\block_validator.rs:82:24
+   |
+82 |     SlotNotMonotonic { block_slot: u64, parent_slot: u64 },
+   |                        ^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\block_validator.rs:82:41
+   |
+82 |     SlotNotMonotonic { block_slot: u64, parent_slot: u64 },
+   |                                         ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\block_validator.rs:87:9
+   |
+87 |         block_height: u64,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\block_validator.rs:88:9
+   |
+88 |         parent_height: u64,
+   |         ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\block_validator.rs:98:9
+   |
+98 |         slot: u64,
+   |         ^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\block_validator.rs:99:9
+   |
+99 |         timestamp: u64,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates\qv-consensus\src\block_validator.rs:100:9
+    |
+100 |         slot_start: u64,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates\qv-consensus\src\block_validator.rs:101:9
+    |
+101 |         slot_end: u64,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\chain_state.rs:67:9
+   |
+67 |         fork_height: u64,
+   |         ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\chain_state.rs:68:9
+   |
+68 |         tip_height: u64,
+   |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\chain_state.rs:69:9
+   |
+69 |         k: u64,
+   |         ^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\stake.rs:74:5
+   |
+74 |     pub margin_den: u32,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\stake.rs:96:21
+   |
+96 |     InvalidMargin { num: u32, den: u32 },
+   |                     ^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-consensus\src\stake.rs:96:31
+   |
+96 |     InvalidMargin { num: u32, den: u32 },
+   |                               ^^^^^^^^
+
+warning: `qv-consensus` (lib) generated 14 warnings
+   Compiling qv-script v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-script)
+warning: unused imports: `Amount` and `Script as CoreScript`
+  --> crates\qv-script\src\interpreter.rs:19:15
+   |
+19 | use qv_core::{Amount, Datum, Script as CoreScript, Slot, Transaction, TxOutput};
+   |               ^^^^^^         ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `OpcodeError`
+  --> crates\qv-script\src\script.rs:16:70
+   |
+16 | use crate::opcode::{decode_script, encode_instructions, Instruction, OpcodeError};
+   |                                                                      ^^^^^^^^^^^
+
+warning: unnecessary qualification
+  --> crates\qv-script\src\lib.rs:86:28
+   |
+86 | pub type ScriptResult<T> = core::result::Result<T, ScriptCrateError>;
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W unused-qualifications`
+help: remove the unnecessary path segments
+   |
+86 - pub type ScriptResult<T> = core::result::Result<T, ScriptCrateError>;
+86 + pub type ScriptResult<T> = Result<T, ScriptCrateError>;
+   |
+
+warning: `qv-script` (lib) generated 3 warnings (run `cargo fix --lib -p qv-script` to apply 3 suggestions)
+   Compiling qv-privacy v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-privacy)
+warning: unused import: `MockCommitter`
+  --> crates\qv-privacy\src\view_key.rs:31:66
+   |
+31 | use crate::confidential::{BlindingFactor, Commitment, Committer, MockCommitter};
+   |                                                                  ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `qv-privacy` (lib) generated 1 warning (run `cargo fix --lib -p qv-privacy` to apply 1 suggestion)
+   Compiling qv-mempool v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-mempool)
+warning: missing documentation for a struct field
+  --> crates\qv-mempool\src\lib.rs:27:17
+   |
+27 |     FeeTooLow { fee: u64, min: u64 },
+   |                 ^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a struct field
+  --> crates\qv-mempool\src\lib.rs:27:27
+   |
+27 |     FeeTooLow { fee: u64, min: u64 },
+   |                           ^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-mempool\src\lib.rs:32:9
+   |
+32 |         outpoint: OutPoint,
+   |         ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-mempool\src\lib.rs:33:9
+   |
+33 |         existing_tx: TxId,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-mempool\src\lib.rs:42:18
+   |
+42 |     WrongEpoch { got: Epoch, expected: Epoch },
+   |                  ^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-mempool\src\lib.rs:42:30
+   |
+42 |     WrongEpoch { got: Epoch, expected: Epoch },
+   |                              ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-mempool\src\lib.rs:50:26
+   |
+50 |     InsufficientShares { got: u32, need: u32 },
+   |                          ^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-mempool\src\lib.rs:50:36
+   |
+50 |     InsufficientShares { got: u32, need: u32 },
+   |                                    ^^^^^^^^^
+
+warning: `qv-mempool` (lib) generated 8 warnings
+   Compiling qv-net v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-net)
+   Compiling qv-defi v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-defi)
+warning: trivial numeric cast: `u128` as `u128`
+   --> crates\qv-defi\src\oracle.rs:223:13
+    |
+223 |             ((max_price - min_price) as u128)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: cast can be replaced by coercion; this might require a temporary variable
+    = note: requested on the command line with `-W trivial-numeric-casts`
+
+warning: trivial numeric cast: `u128` as `u128`
+   --> crates\qv-defi\src\oracle.rs:225:45
+    |
+225 |                 .and_then(|d| d.checked_div(min_price as u128))
+    |                                             ^^^^^^^^^^^^^^^^^
+    |
+    = help: cast can be replaced by coercion; this might require a temporary variable
+
+warning: trivial numeric cast: `u128` as `u128`
+   --> crates\qv-defi\src\oracle.rs:297:25
+    |
+297 |     let deviation_bps = ((max_price - min_price) as u128)
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: cast can be replaced by coercion; this might require a temporary variable
+
+warning: trivial numeric cast: `u128` as `u128`
+   --> crates\qv-defi\src\oracle.rs:299:37
+    |
+299 |         .and_then(|d| d.checked_div(min_price as u128))
+    |                                     ^^^^^^^^^^^^^^^^^
+    |
+    = help: cast can be replaced by coercion; this might require a temporary variable
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:28:29
+   |
+28 |     InsufficientLiquidity { pool_id: Hash256 },
+   |                             ^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> crates\qv-defi\src\lib.rs:21:9
+   |
+21 | #![warn(missing_docs)]
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:32:24
+   |
+32 |     SlippageExceeded { expected: u64, actual: u64 },
+   |                        ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:32:39
+   |
+32 |     SlippageExceeded { expected: u64, actual: u64 },
+   |                                       ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:36:19
+   |
+36 |     InvalidPool { pool_id: Hash256 },
+   |                   ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:44:23
+   |
+44 |     LpTokenMismatch { expected: u64, actual: u64 },
+   |                       ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:44:38
+   |
+44 |     LpTokenMismatch { expected: u64, actual: u64 },
+   |                                      ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:52:25
+   |
+52 |     InvariantViolated { old_product: u128, new_product: u128 },
+   |                         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:52:44
+   |
+52 |     InvariantViolated { old_product: u128, new_product: u128 },
+   |                                            ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\amm.rs:56:18
+   |
+56 |     InvalidFee { fee_bps: u16 },
+   |                  ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\intents.rs:25:15
+   |
+25 |     Expired { deadline: u64 },
+   |               ^^^^^^^^^^^^^
+
+warning: missing documentation for a type alias
+  --> crates\qv-defi\src\intents.rs:40:1
+   |
+40 | pub type Result<T> = core::result::Result<T, IntentError>;
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\lending.rs:36:9
+   |
+36 |         collateral_value: u64,
+   |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\lending.rs:37:9
+   |
+37 |         debt: u64,
+   |         ^^^^^^^^^
+
+warning: missing documentation for a type alias
+  --> crates\qv-defi\src\lending.rs:61:1
+   |
+61 | pub type Result<T> = core::result::Result<T, LendingError>;
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\oracle.rs:26:32
+   |
+26 |     InsufficientObservations { have: usize, need: usize },
+   |                                ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\oracle.rs:26:45
+   |
+26 |     InsufficientObservations { have: usize, need: usize },
+   |                                             ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-defi\src\oracle.rs:34:28
+   |
+34 |     ManipulationDetected { pct_change: u16 },
+   |                            ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a type alias
+  --> crates\qv-defi\src\oracle.rs:49:1
+   |
+49 | pub type Result<T> = core::result::Result<T, OracleError>;
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-net\src\lib.rs:40:26
+   |
+40 |     UnsupportedVersion { got: u16, expected: u16 },
+   |                          ^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a struct field
+  --> crates\qv-net\src\lib.rs:40:36
+   |
+40 |     UnsupportedVersion { got: u16, expected: u16 },
+   |                                    ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-net\src\lib.rs:44:23
+   |
+44 |     MessageTooLarge { size: usize, limit: usize },
+   |                       ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-net\src\lib.rs:44:36
+   |
+44 |     MessageTooLarge { size: usize, limit: usize },
+   |                                    ^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+  --> crates\qv-net\src\gossip.rs:21:1
+   |
+21 | pub const TOPIC_TRANSACTIONS: &str = "/qv/tx/1";
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+  --> crates\qv-net\src\gossip.rs:22:1
+   |
+22 | pub const TOPIC_VRF_PROOFS: &str = "/qv/vrf/1";
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+  --> crates\qv-net\src\gossip.rs:23:1
+   |
+23 | pub const TOPIC_VOTES: &str = "/qv/votes/1";
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates\qv-net\src\node.rs:178:10
+    |
+178 | #[derive(NetworkBehaviour)]
+    |          ^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the derive macro `NetworkBehaviour` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: missing documentation for a struct field
+   --> crates\qv-net\src\node.rs:199:9
+    |
+199 |         source: PeerId,
+    |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates\qv-net\src\node.rs:200:9
+    |
+200 |         message: NetworkMessage,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `qv-defi` (lib) generated 22 warnings
+   Compiling qv-wallet v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-wallet)
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:22:5
+   |
+22 |     Keystore(String),
+   |     ^^^^^^^^
+   |
+note: the lint level is defined here
+  --> crates\qv-wallet\src\lib.rs:7:9
+   |
+ 7 | #![warn(missing_docs)]
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:24:5
+   |
+24 |     Mnemonic(String),
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:26:5
+   |
+26 |     HdDerivation(String),
+   |     ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:28:5
+   |
+28 |     TxBuilder(String),
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:30:5
+   |
+30 |     CoinSelection(String),
+   |     ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:32:5
+   |
+32 |     Scanner(String),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:34:5
+   |
+34 |     Rpc(String),
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:36:5
+   |
+36 |     Crypto(String),
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:38:5
+   |
+38 |     Privacy(String),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:40:5
+   |
+40 |     Core(String),
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:42:5
+   |
+42 |     Script(String),
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:44:5
+   |
+44 |     Io(#[from] std::io::Error),
+   |     ^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:46:5
+   |
+46 |     Json(#[from] serde_json::Error),
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:48:5
+   |
+48 |     Bincode(#[from] bincode::Error),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\lib.rs:50:5
+   |
+50 |     InvalidArg(String),
+   |     ^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\cli.rs:7:1
+  |
+7 | pub struct Cli {
+  | ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\cli.rs:9:5
+  |
+9 |     pub keystore: PathBuf,
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:11:5
+   |
+11 |     pub rpc: String,
+   |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:13:5
+   |
+13 |     pub command: Commands,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+  --> crates\qv-wallet\src\cli.rs:17:1
+   |
+17 | pub enum Commands {
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:18:5
+   |
+18 |     Init {
+   |     ^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:20:9
+   |
+20 |         out: Option<PathBuf>,
+   |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:22:5
+   |
+22 |     ImportMnemonic {
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:23:9
+   |
+23 |         phrase: String,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:25:9
+   |
+25 |         out: Option<PathBuf>,
+   |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:27:5
+   |
+27 |     Address {
+   |     ^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:29:9
+   |
+29 |         account: u32,
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:31:5
+   |
+31 |     Scan {
+   |     ^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:33:9
+   |
+33 |         from: u64,
+   |         ^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:35:9
+   |
+35 |         to: u64,
+   |         ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:37:5
+   |
+37 |     Balance,
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates\qv-wallet\src\cli.rs:38:5
+   |
+38 |     Send {
+   |     ^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:39:9
+   |
+39 |         to: String,
+   |         ^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\cli.rs:40:9
+   |
+40 |         amount: u64,
+   |         ^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\coin_select.rs:7:1
+  |
+7 | pub struct CoinSelection {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\coin_select.rs:8:5
+  |
+8 |     pub selected: Vec<OutPoint>,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\coin_select.rs:9:5
+  |
+9 |     pub total: Amount,
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\coin_select.rs:10:5
+   |
+10 |     pub change: Option<Amount>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\coin_select.rs:13:1
+   |
+13 | pub struct CoinSelector {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\coin_select.rs:14:5
+   |
+14 |     pub utxos: BTreeMap<OutPoint, Amount>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\coin_select.rs:15:5
+   |
+15 |     pub fee_per_byte: u64,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\coin_select.rs:19:5
+   |
+19 |     pub fn new(utxos: BTreeMap<OutPoint, Amount>, fee_per_byte: u64) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\coin_select.rs:23:5
+   |
+23 |     pub fn select(&self, target: Amount) -> WalletResult<CoinSelection> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a trait
+ --> crates\qv-wallet\src\hd.rs:5:1
+  |
+5 | pub trait SeedDeriver: Send + Sync {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+ --> crates\qv-wallet\src\hd.rs:6:5
+  |
+6 |     fn derive_account(&self, seed: &[u8; 64], account_idx: u32) -> WalletResult<StealthKeys>;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\hd.rs:9:1
+  |
+9 | pub struct DefaultSeedDeriver;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:11:1
+   |
+11 | pub struct WalletSecret {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:12:5
+   |
+12 |     pub mnemonic: Mnemonic,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:13:5
+   |
+13 |     pub metadata: WalletMetadata,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:17:1
+   |
+17 | pub struct WalletMetadata {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:18:5
+   |
+18 |     pub next_account: u32,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:19:5
+   |
+19 |     pub created_at: u64,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:23:1
+   |
+23 | pub struct WalletKeystore {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:24:5
+   |
+24 |     pub version: u32,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:25:5
+   |
+25 |     pub kdf: KdfParams,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:26:5
+   |
+26 |     pub cipher: CipherParams,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:30:1
+   |
+30 | pub struct KdfParams {
+   | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:31:5
+   |
+31 |     pub algo: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:32:5
+   |
+32 |     pub params: String,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:33:5
+   |
+33 |     pub salt: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\keystore.rs:37:1
+   |
+37 | pub struct CipherParams {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:38:5
+   |
+38 |     pub algo: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:39:5
+   |
+39 |     pub iv: String,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:40:5
+   |
+40 |     pub ciphertext: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-wallet\src\keystore.rs:41:5
+   |
+41 |     pub tag: String,
+   |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\keystore.rs:45:5
+   |
+45 |     pub fn save(path: &Path, secret: &WalletSecret, password: &str) -> WalletResult<()> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\keystore.rs:86:5
+   |
+86 |     pub fn load(path: &Path, _password: &str) -> WalletResult<WalletSecret> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\keystore.rs:93:5
+   |
+93 |     pub fn change_password(path: &Path, old_password: &str, new_password: &str) -> WalletResult<()> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\mnemonic.rs:12:1
+   |
+12 | pub struct Mnemonic {
+   | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\mnemonic.rs:38:5
+   |
+38 |     pub fn phrase(&self) -> &str {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\rpc_client.rs:6:1
+  |
+6 | pub struct RpcClient {
+  | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\rpc_client.rs:18:5
+   |
+18 |     pub fn new(url: impl Into<String>) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\rpc_client.rs:25:5
+   |
+25 |     pub async fn call(&self, method: &str, params: Vec<Value>) -> WalletResult<Value> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a trait
+ --> crates\qv-wallet\src\scanner.rs:6:1
+  |
+6 | pub trait MatchStore: Send + Sync {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+ --> crates\qv-wallet\src\scanner.rs:7:5
+  |
+7 |     fn add_match(&mut self, outpoint: OutPoint, amount: Amount) -> WalletResult<()>;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+ --> crates\qv-wallet\src\scanner.rs:8:5
+  |
+8 |     fn get_matches(&self) -> WalletResult<BTreeMap<OutPoint, Amount>>;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates\qv-wallet\src\scanner.rs:12:1
+   |
+12 | pub struct MemoryMatchStore {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\scanner.rs:17:5
+   |
+17 |     pub fn new() -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates\qv-wallet\src\tx_builder.rs:6:1
+  |
+6 | pub struct TxBuilder {
+  | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\tx_builder.rs:7:5
+  |
+7 |     pub inputs: Vec<TxInput>,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\tx_builder.rs:8:5
+  |
+8 |     pub outputs: Vec<TxOutput>,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates\qv-wallet\src\tx_builder.rs:9:5
+  |
+9 |     pub validity: ValidityInterval,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates\qv-wallet\src\tx_builder.rs:13:5
+   |
+13 |     pub fn new(validity: ValidityInterval) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\tx_builder.rs:21:5
+   |
+21 |     pub fn add_input(&mut self, input: TxInput) -> &mut Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\tx_builder.rs:26:5
+   |
+26 |     pub fn add_output(&mut self, output: TxOutput) -> &mut Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\tx_builder.rs:31:5
+   |
+31 |     pub fn build_unsigned(&self) -> WalletResult<Transaction> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates\qv-wallet\src\tx_builder.rs:44:5
+   |
+44 |     pub fn serialize(&self) -> WalletResult<Vec<u8>> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `qv-wallet` (lib) generated 87 warnings
+warning: `qv-net` (lib) generated 10 warnings
+   Compiling rocksdb v0.22.0
+   Compiling qv-storage v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-storage)
+warning: unnecessary qualification
+  --> crates\qv-storage\src\lib.rs:60:29
+   |
+60 | pub type StorageResult<T> = core::result::Result<T, StorageError>;
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W unused-qualifications`
+help: remove the unnecessary path segments
+   |
+60 - pub type StorageResult<T> = core::result::Result<T, StorageError>;
+60 + pub type StorageResult<T> = Result<T, StorageError>;
+   |
+
+warning: unused import: `ReadableTable`
+  --> crates\qv-storage\src\kv.rs:15:22
+   |
+15 | use redb::{Database, ReadableTable, TableDefinition};
+   |                      ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling qv-miner v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-miner)
+   Compiling qv-node v0.1.0 (C:\Users\mbostan\Desktop\L1\L1 Blockchain\crates\qv-node)
+warning: field `rpc_url` is never read
+   --> crates\qv-miner\src\block_producer.rs:142:5
+    |
+141 | pub struct RpcMempoolProvider {
+    |            ------------------ field in this struct
+142 |     rpc_url: String,
+    |     ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: missing documentation for a struct field
+  --> crates\qv-miner\src\cli.rs:23:5
+   |
+23 |     pub command: Command,
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: unused imports: `BlockHash`, `Hash256`, and `ProtocolParams`
+ --> crates\qv-node\src\rpc.rs:7:22
+  |
+7 | use qv_core::{Block, BlockHash, Hash256, ProtocolParams, Transaction, TxId};
+  |                      ^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::sync::Arc`
+ --> crates\qv-node\src\rpc.rs:8:5
+  |
+8 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unnecessary qualification
+  --> crates\qv-node\src\lib.rs:93:26
+   |
+93 | pub type NodeResult<T> = core::result::Result<T, NodeError>;
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W unused-qualifications`
+help: remove the unnecessary path segments
+   |
+93 - pub type NodeResult<T> = core::result::Result<T, NodeError>;
+93 + pub type NodeResult<T> = Result<T, NodeError>;
+   |
+
+warning: `qv-storage` (lib) generated 2 warnings (run `cargo fix --lib -p qv-storage` to apply 1 suggestion)
+warning: field `config` is never read
+  --> crates\qv-node\src\node.rs:31:5
+   |
+30 | pub struct Node {
+   |            ---- field in this struct
+31 |     config: NodeConfig,
+   |     ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:70:5
+   |
+70 |     pub block_hash: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:71:5
+   |
+71 |     pub height: u64,
+   |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:72:5
+   |
+72 |     pub timestamp: u64,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:79:5
+   |
+79 |     pub value: u64,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:80:5
+   |
+80 |     pub script_hash: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:81:5
+   |
+81 |     pub has_datum: bool,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:82:5
+   |
+82 |     pub has_stealth: bool,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:89:5
+   |
+89 |     pub height: u64,
+   |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:90:5
+   |
+90 |     pub tx_id: String,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:91:5
+   |
+91 |     pub output_index: u32,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:92:5
+   |
+92 |     pub value: u64,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates\qv-node\src\rpc.rs:99:5
+   |
+99 |     pub clear_pool_size: usize,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates\qv-node\src\rpc.rs:100:5
+    |
+100 |     pub encrypted_pool_size: usize,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates\qv-node\src\rpc.rs:101:5
+    |
+101 |     pub min_fee_rate: u64,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates\qv-node\src\rpc.rs:102:5
+    |
+102 |     pub total_value: u64,
+    |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: `qv-miner` (lib) generated 2 warnings
+warning: unused import: `qv_miner::MinerError`
+ --> crates\qv-miner\src\main.rs:8:5
+  |
+8 | use qv_miner::MinerError;
+  |     ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::path::Path`
+ --> crates\qv-miner\src\main.rs:9:5
+  |
+9 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused variable: `keys`
+  --> crates\qv-miner\src\main.rs:78:9
+   |
+78 |     let keys = OperatorKeys::generate().map_err(|e| anyhow::anyhow!("{e}"))?;
+   |         ^^^^ help: if this is intentional, prefix it with an underscore: `_keys`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `qv-node` (lib) generated 19 warnings (run `cargo fix --lib -p qv-node` to apply 3 suggestions)
+warning: unused variable: `bootstrap`
+  --> crates\qv-node\src\main.rs:44:21
+   |
+44 |         if let Some(bootstrap) = &args.bootstrap {
+   |                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bootstrap`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `bootstrap`
+  --> crates\qv-node\src\main.rs:70:21
+   |
+70 |         if let Some(bootstrap) = &args.bootstrap {
+   |                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bootstrap`
+
+warning: `qv-miner` (bin "qv-miner") generated 3 warnings (run `cargo fix --bin "qv-miner" -p qv-miner` to apply 3 suggestions)
+warning: `qv-node` (bin "qv-node") generated 2 warnings (run `cargo fix --bin "qv-node" -p qv-node` to apply 2 suggestions)
+    Finished `release` profile [optimized] target(s) in 22m 04s

@@ -29,7 +29,7 @@ use qv_core::{Amount, Height, MonetaryParams};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::stake::{PoolId, StakeDistribution, StakePool};
+use crate::stake::{PoolId, StakePool};
 
 // ============================================================================
 // Errors

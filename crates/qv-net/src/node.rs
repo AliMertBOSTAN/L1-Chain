@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use futures::StreamExt;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::identify;
 use libp2p::kad::{self, store::MemoryStore};
@@ -221,6 +222,10 @@ pub struct NetworkNode {
     event_tx: mpsc::UnboundedSender<NetEvent>,
     /// Channel for receiving outbound events.
     event_rx: Option<mpsc::UnboundedReceiver<NetEvent>>,
+    /// Command channel sender (cloneable handle for external publish requests).
+    cmd_tx: mpsc::UnboundedSender<NetworkMessage>,
+    /// Command channel receiver (consumed inside `run()`).
+    cmd_rx: Option<mpsc::UnboundedReceiver<NetworkMessage>>,
 }
 
 impl NetworkNode {
@@ -272,6 +277,7 @@ impl NetworkNode {
             .build();
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
         Ok(Self {
             swarm,
@@ -280,12 +286,24 @@ impl NetworkNode {
             seen_cache: SeenCache::from_config(&config.gossip),
             event_tx,
             event_rx: Some(event_rx),
+            cmd_tx,
+            cmd_rx: Some(cmd_rx),
         })
     }
 
     /// Take the event receiver channel (can only be called once).
     pub fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<NetEvent>> {
         self.event_rx.take()
+    }
+
+    /// Get a clone of the command sender for external publish requests.
+    ///
+    /// Messages sent on this channel will be published to the gossip network
+    /// inside the `run()` event loop. This avoids the need for external code
+    /// to hold a mutable reference to `NetworkNode` while `run()` is active.
+    #[must_use]
+    pub fn command_sender(&self) -> mpsc::UnboundedSender<NetworkMessage> {
+        self.cmd_tx.clone()
     }
 
     /// The local `PeerId`.
@@ -344,10 +362,26 @@ impl NetworkNode {
     /// Run the event loop. This is `async` and should be spawned on a tokio runtime.
     ///
     /// Processes swarm events, updates peer store, applies rate limiting and
-    /// deduplication, and emits [`NetEvent`]s on the channel.
+    /// deduplication, and emits [`NetEvent`]s on the channel. Also processes
+    /// outbound publish commands from the command channel.
     pub async fn run(&mut self) {
+        // Take the command receiver (can only be taken once).
+        let mut cmd_rx = self.cmd_rx.take().unwrap_or_else(|| {
+            let (_tx, rx) = mpsc::unbounded_channel();
+            rx
+        });
+
         loop {
-            match self.swarm.select_next_some().await {
+            tokio::select! {
+                // Outbound publish commands from other tasks.
+                Some(msg) = cmd_rx.recv() => {
+                    if let Err(e) = self.publish(&msg) {
+                        warn!(error = %e, "failed to publish message via command channel");
+                    }
+                }
+                // Inbound swarm events.
+                event = self.swarm.select_next_some() => {
+                match event {
                 SwarmEvent::Behaviour(QvBehaviourEvent::Gossipsub(
                     gossipsub::Event::Message {
                         propagation_source,
@@ -395,7 +429,7 @@ impl NetworkNode {
                 }
 
                 SwarmEvent::Behaviour(QvBehaviourEvent::Identify(
-                    identify::Event::Received { peer_id, info },
+                    identify::Event::Received { peer_id, info, .. },
                 )) => {
                     debug!(
                         peer = %peer_id,
@@ -458,10 +492,12 @@ impl NetworkNode {
                 }
 
                 _ => {}
-            }
-        }
-    }
-}
+                } // match event
+                } // event select arm
+            } // tokio::select!
+        } // loop
+    } // fn run
+} // impl NetworkNode
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

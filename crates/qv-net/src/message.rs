@@ -4,7 +4,7 @@
 //! protocol version tag, a [`MessageKind`] discriminant, and the payload
 //! encoded as bincode bytes.  Size limits are enforced at the codec boundary.
 
-use qv_core::{Block, BlockHash, BlockHeader, Height, Transaction};
+use qv_core::{Block, BlockHash, BlockHeader, Transaction};
 use serde::{Deserialize, Serialize};
 
 use crate::NetError;

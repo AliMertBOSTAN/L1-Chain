@@ -19,7 +19,7 @@
 //! error types should convert `CryptoError` via their own `From` impl.
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+// `missing_docs` workspace-managed; see Cargo.toml. Re-tightened in Faz 9.
 
 pub mod hash;
 pub mod hybrid_kem;
@@ -84,31 +84,55 @@ pub enum CryptoError {
 }
 
 /// Crate-level result alias.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use qv_crypto::{Result, generate_pqc_keypair, sign_pqc, verify_pqc, DilithiumLevel};
+/// fn sign_and_verify() -> Result<()> {
+///     let keypair = generate_pqc_keypair(DilithiumLevel::Level3)?;
+///     let message = b"hello";
+///     let sig = sign_pqc(&keypair.secret, message)?;
+///     let valid = verify_pqc(&keypair.public, message, &sig)?;
+///     assert!(valid);
+///     Ok(())
+/// }
+/// ```
 pub type Result<T> = core::result::Result<T, CryptoError>;
 
 // ----------------------------------------------------------------------------
 // Re-exports — a flat convenience surface for downstream crates.
 // ----------------------------------------------------------------------------
 
-// Hashes
+/// Hash algorithm implementations (SHA3-256, BLAKE3, double-hash); see [`hash`] module.
 pub use hash::{
     blake3, double_blake3, double_hash, double_sha3_256, hash, sha3_256, HashAlgorithm, HashDigest,
     Hasher,
 };
 
-// Secure memory
+/// Secure byte buffer that zeroes memory on drop; see [`secure_bytes`] module.
 pub use secure_bytes::SecureBytes;
 
-// PQC signatures. We alias the free functions with a `_pqc` suffix to
-// avoid colliding with the `pqc_sign` module name at the crate root.
+/// Post-quantum signature (Dilithium/ML-DSA) generation and verification;
+/// see [`pqc_sign`] module. Functions are aliased with `_pqc` suffix.
 pub use pqc_sign::{
     generate_keypair as generate_pqc_keypair, sign as sign_pqc, verify as verify_pqc,
     DilithiumLevel, PqcKeyPair, PqcPublicKey, PqcSecretKey, PqcSignature,
 };
 
-// Hybrid KEM
+/// Hybrid X25519 + Kyber key encapsulation and shared-secret derivation;
+/// see [`hybrid_kem`] module. Functions are aliased with `_hybrid` suffix.
 pub use hybrid_kem::{
     decapsulate as decapsulate_hybrid, encapsulate as encapsulate_hybrid,
     generate_keypair as generate_hybrid_keypair, HybridCiphertext, HybridKeyPair, HybridPublicKey,
     KyberLevel, SharedSecret,
+};
+
+/// Threshold cryptography for encrypted mempool (DKG, Shamir, decryption shares);
+/// see [`threshold`] module.
+pub use threshold::{
+    reconstruct_secret, run_pedersen_dkg, split_secret, DecryptionShare, DkgCommitment,
+    DkgParticipant, DkgResult, DkgShare, DkgThresholdDecryptor, FeldmanVssParticipant,
+    MockDkgParticipant, MockThresholdDecryptor, ShamirShare, ThresholdDecryptor,
+    ThresholdPublicKey,
 };

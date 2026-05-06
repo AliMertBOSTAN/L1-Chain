@@ -5,9 +5,11 @@
 //! and produces a block signed with the KES key.
 
 use crate::{MinerError, MinerResult};
-use qv_consensus::BlockValidationContext;
-use qv_core::{Block, BlockHeader, OutPoint, ProtocolParams, Slot, Timestamp, Transaction};
-use qv_mempool::{ClearPool, EncryptedPool, deterministic_sort};
+use qv_core::{
+    Block, BlockHash, BlockHeader, MerkleRoot, ProtocolParams, Slot, Timestamp, Transaction, TxId,
+    UtxoCommitment, BLOCK_VERSION,
+};
+use qv_mempool::{ClearPool, ClearPoolConfig, EncryptedPool, EncryptedPoolConfig};
 
 /// Block production context.
 #[derive(Clone, Debug)]
@@ -51,46 +53,60 @@ pub struct BlockProductionContext {
 pub async fn produce_block(
     ctx: &BlockProductionContext,
     clear_pool: &ClearPool,
-    encrypted_pool: &EncryptedPool,
+    _encrypted_pool: &EncryptedPool,
     vrf_proof: &[u8],
     kes_signature: &[u8],
 ) -> MinerResult<Block> {
     // 1. Collect transactions from clear pool.
-    let clear_txs = clear_pool.all_sorted().map_err(|e| {
-        MinerError::BlockProduction(format!("failed to get sorted clear pool: {e}"))
-    })?;
+    //    `all_sorted` returns a fee-density-sorted view of mempool entries.
+    let clear_entries = clear_pool.all_sorted();
 
-    // 2. Collect transactions from encrypted pool (if operator is on committee).
-    // For now, we assume the encrypted pool has already been decrypted if needed.
-    let encrypted_txs = encrypted_pool
-        .get_all_decrypted()
-        .map_err(|e| {
-            MinerError::BlockProduction(format!("failed to get encrypted pool: {e}"))
-        })?;
+    // 2. Encrypted-mempool decryption is the committee's job; if this operator
+    //    is on the committee for this epoch, we'd call `decrypt_batch` here
+    //    with the threshold decryptor. For block-production scaffolding we
+    //    leave the encrypted batch empty and document the integration point.
+    //    TODO: integrate `EncryptedPool::decrypt_batch<D>` once the committee
+    //    decryptor wiring lands (see qv-mempool::encrypted::ThresholdDecryptor).
+    let encrypted_txs: Vec<Transaction> = Vec::new();
 
-    // 3. Merge and sort all transactions.
-    let mut all_txs = clear_txs;
-    all_txs.extend(encrypted_txs);
-    all_txs.sort_by(deterministic_sort);
+    // 3. Merge — clear-pool entries are already deterministically ordered by
+    //    fee density (descending), then tx_id; encrypted-pool batch (when
+    //    available) will be appended in committee-decryption order. AMM batch
+    //    construction (step 4) replaces ad-hoc sort-by-tx with the canonical
+    //    qv-defi batcher.
+    let mut tx_ids: Vec<TxId> = Vec::with_capacity(clear_entries.len() + encrypted_txs.len());
+    let mut batched_txs: Vec<Transaction> =
+        Vec::with_capacity(clear_entries.len() + encrypted_txs.len());
+    for entry in &clear_entries {
+        tx_ids.push(entry.tx_id);
+        batched_txs.push(entry.tx.clone());
+    }
+    for tx in encrypted_txs {
+        // Encrypted-batch decryption already produces a TxId alongside the tx;
+        // recompute here as a best-effort placeholder.
+        let id = tx
+            .id()
+            .map_err(|e| MinerError::BlockProduction(format!("tx id failed: {e}")))?;
+        tx_ids.push(id);
+        batched_txs.push(tx);
+    }
 
-    // 4. Build AMM batch (covered in detail in qv-defi; for now, use transactions as-is).
-    // In a full implementation, this would:
-    // - Identify swap orders in the transaction data.
-    // - Build batches that satisfy AMM invariants (x*y >= k).
-    // - Generate slashing evidence for any misorders.
-    let batched_txs = all_txs; // Placeholder: no AMM batch logic yet.
+    // 4. AMM batch logic (covered in qv-defi) is not yet wired in; we ship
+    //    transactions in their merged order. See qv-defi::batcher.
 
-    // 5. Compute merkle root over transactions.
-    let merkle_root = qv_core::merkle_root_of_transactions(&batched_txs);
+    // 5. Compute merkle root over the txid leaves.
+    let merkle_root: MerkleRoot = qv_core::merkle_root_of(&tx_ids);
 
-    // 6. Compute UTXO commitment (placeholder: in a real implementation, this would
-    //    snapshot the current UTXO set and compute its commitment root).
-    let utxo_commitment = qv_core::Hash256::ZERO;
+    // 6. UTXO commitment placeholder. In production this snapshots the UTXO
+    //    set *after* applying this block and commits to its root.
+    let utxo_commitment = UtxoCommitment::ZERO;
 
     // 7. Assemble the block header.
     let header = BlockHeader {
-        version: 1,
-        prev_hash: ctx.parent_hash,
+        version: BLOCK_VERSION,
+        // BlockHeader.prev_hash is a typed `BlockHash`; wrap the raw 32 bytes
+        // we receive from the production context.
+        prev_hash: BlockHash(ctx.parent_hash),
         height: ctx.height,
         slot: ctx.slot,
         timestamp: ctx.timestamp,
@@ -104,8 +120,10 @@ pub async fn produce_block(
     // 8. Assemble the block.
     let block = Block {
         header,
-        body: batched_txs,
+        transactions: batched_txs,
     };
+
+    let _ = ctx.protocol_params; // suppress unused-field-of-context warning until wired
 
     Ok(block)
 }
@@ -121,6 +139,8 @@ pub trait MempoolProvider: Send + Sync {
 
 /// RPC-based mempool provider (calls the node's RPC methods).
 pub struct RpcMempoolProvider {
+    /// Node RPC endpoint (kept for the upcoming `Faz 1` wiring; see ROADMAP).
+    #[allow(dead_code)]
     rpc_url: String,
 }
 
@@ -144,16 +164,20 @@ impl RpcMempoolProvider {
 impl MempoolProvider for RpcMempoolProvider {
     fn snapshot_clear(&self) -> MinerResult<ClearPool> {
         // Placeholder: in a real implementation, fetch from RPC.
-        ClearPool::new(10000).map_err(|e| {
-            MinerError::MempoolError(format!("failed to create clear pool: {e}"))
-        })
+        // `ClearPool::new` is infallible — it just wraps the supplied config.
+        Ok(ClearPool::new(ClearPoolConfig::ephemeral()))
     }
 
     fn snapshot_encrypted(&self) -> MinerResult<EncryptedPool> {
         // Placeholder: in a real implementation, fetch from RPC.
-        EncryptedPool::new(qv_core::Epoch::from(0), 5000).map_err(|e| {
-            MinerError::MempoolError(format!("failed to create encrypted pool: {e}"))
-        })
+        // `EncryptedPool::new` takes (config, epoch); it is infallible.
+        // The config has plain public fields — there's no `::new` constructor.
+        let cfg = EncryptedPoolConfig {
+            max_tx_count: 5_000,
+            max_pool_bytes: 4 * 1024 * 1024,
+            max_age_secs: 60,
+        };
+        Ok(EncryptedPool::new(cfg, qv_core::Epoch::from(0)))
     }
 }
 
@@ -185,8 +209,13 @@ mod tests {
     #[tokio::test]
     async fn produce_block_basic() {
         let ctx = sample_context();
-        let clear_pool = ClearPool::new(10000).unwrap();
-        let encrypted_pool = EncryptedPool::new(qv_core::Epoch::from(0), 5000).unwrap();
+        let clear_pool = ClearPool::new(ClearPoolConfig::ephemeral());
+        let cfg = EncryptedPoolConfig {
+            max_tx_count: 1_000,
+            max_pool_bytes: 1024 * 1024,
+            max_age_secs: 60,
+        };
+        let encrypted_pool = EncryptedPool::new(cfg, qv_core::Epoch::from(0));
 
         let vrf_proof = vec![1, 2, 3];
         let kes_sig = vec![4, 5, 6];

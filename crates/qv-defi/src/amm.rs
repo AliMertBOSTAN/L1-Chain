@@ -14,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use qv_core::{Amount, Hash256, TxId};
+use qv_core::Hash256;
 
 // ============================================================================
 // Errors

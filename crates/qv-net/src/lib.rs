@@ -49,7 +49,7 @@ pub enum NetError {
 }
 
 /// Result alias for the networking layer.
-pub type NetResult<T> = core::result::Result<T, NetError>;
+pub type NetResult<T> = Result<T, NetError>;
 
 // Re-export headline types at crate root for ergonomic imports.
 pub use gossip::{GossipConfig, SeenCache};
@@ -57,6 +57,9 @@ pub use message::{Envelope, MessageKind, NetworkMessage};
 pub use node::{NetEvent, NetworkNode, NodeConfig, RateLimitConfig, RateLimiter};
 pub use peer::{ConnectionState, Direction, PeerInfo, PeerStore};
 pub use transport::{NodeIdentity, TransportConfig};
+
+// Re-export libp2p types used by downstream crates.
+pub use libp2p::{Multiaddr, PeerId};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

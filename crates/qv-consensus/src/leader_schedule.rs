@@ -33,7 +33,7 @@
 //! - The real VRF (Ristretto or lattice-based) can be swapped in when
 //!   ADR-004 lands.
 
-use qv_core::{Hash256, Slot};
+use qv_core::Slot;
 use qv_crypto::sha3_256;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

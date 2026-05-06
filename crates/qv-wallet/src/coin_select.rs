@@ -1,4 +1,4 @@
-//\! Coin selection.
+//! Coin selection.
 use crate::{WalletError, WalletResult};
 use qv_core::{Amount, OutPoint};
 use std::collections::BTreeMap;
@@ -25,15 +25,24 @@ impl CoinSelector {
             return Err(WalletError::CoinSelection("no utxos".into()));
         }
         let mut selected = Vec::new();
-        let mut total = Amount::from_sats(0);
+        let mut total = Amount::ZERO;
+        // Reserve a flat 1000-unit buffer for fees / change-dust avoidance.
+        const RESERVE: u64 = 1000;
         for (op, amt) in &self.utxos {
             selected.push(op.clone());
-            total = total.saturating_add(*amt);
-            if total.as_sats() >= target.as_sats() + 1000 {
+            total = total
+                .checked_add(*amt)
+                .ok_or_else(|| WalletError::CoinSelection("amount overflow".into()))?;
+            let needed = target
+                .as_u64()
+                .checked_add(RESERVE)
+                .ok_or_else(|| WalletError::CoinSelection("target overflow".into()))?;
+            if total.as_u64() >= needed {
+                let change = total.checked_sub(target);
                 return Ok(CoinSelection {
                     selected,
                     total,
-                    change: Some(total.saturating_sub(target)),
+                    change,
                 });
             }
         }

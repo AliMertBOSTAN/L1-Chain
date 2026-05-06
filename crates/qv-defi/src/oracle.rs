@@ -220,9 +220,9 @@ pub fn aggregate_median(prices: &[u128], max_deviation_bps: u16) -> Result<u128>
         let deviation_bps = if min_price == 0 {
             10_000
         } else {
-            ((max_price - min_price) as u128)
+            (max_price - min_price)
                 .checked_mul(10_000)
-                .and_then(|d| d.checked_div(min_price as u128))
+                .and_then(|d| d.checked_div(min_price))
                 .unwrap_or(10_000) as u16
         };
 
@@ -294,9 +294,9 @@ pub fn detect_manipulation(
         (current_price_q64, prev_price_q64)
     };
 
-    let deviation_bps = ((max_price - min_price) as u128)
+    let deviation_bps = (max_price - min_price)
         .checked_mul(10_000)
-        .and_then(|d| d.checked_div(min_price as u128))
+        .and_then(|d| d.checked_div(min_price))
         .unwrap_or(10_001) as u16;
 
     if deviation_bps > max_dev_bps {
@@ -312,16 +312,14 @@ pub fn detect_manipulation(
 // Helpers
 // ============================================================================
 
-use alloc::collections::VecDeque;
-use alloc::vec;
 
 // Add reexports for VecDeque if not already in scope
 mod alloc {
-    pub mod collections {
-        pub use std::collections::VecDeque;
+    pub(super) mod collections {
+        pub(crate) use std::collections::VecDeque;
     }
-    pub mod vec {
-        pub use std::vec;
+    pub(super) mod vec {
+        
     }
 }
 

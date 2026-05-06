@@ -24,9 +24,12 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Rust
+        # Toolchain pinned in `rust-toolchain.toml` (1.85, edition2024).
+        # `dtolnay/rust-toolchain` reads that file automatically; the
+        # explicit `toolchain:` arg below is a defensive fallback.
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.78
+          toolchain: "1.85"
 
       - name: Cache cargo registry
         uses: actions/cache@v3

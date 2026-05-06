@@ -16,7 +16,7 @@
 
 use thiserror::Error;
 
-use qv_core::{Amount, Datum, Script as CoreScript, Slot, Transaction, TxOutput};
+use qv_core::{Datum, Slot, Transaction, TxOutput};
 use qv_crypto::{blake3, sha3_256, verify_pqc, DilithiumLevel, PqcPublicKey, PqcSignature};
 
 use crate::gas::{GasMeter, MULTISIG_PER_KEY_COST};
@@ -201,19 +201,20 @@ pub fn execute_instructions(
                 continue;
             }
             OpCode::Else => {
-                let top = exec_stack
-                    .last_mut()
-                    .ok_or(ScriptError::UnbalancedConditional("ELSE without IF"))?;
-                // Only flip if the parent is executing.
-                let parent_exec = exec_stack.len() < 2
-                    || exec_stack[..exec_stack.len().wrapping_sub(2)]
+                // Compute parent_exec BEFORE taking the mutable borrow on exec_stack.
+                let exec_len = exec_stack.len();
+                let parent_exec = exec_len < 2
+                    || exec_stack[..exec_len.wrapping_sub(2)]
                         .iter()
                         .all(|b| *b)
                     // check parent (all but last)
                     && exec_stack
                         .iter()
-                        .take(exec_stack.len().wrapping_sub(1))
+                        .take(exec_len.wrapping_sub(1))
                         .all(|b| *b);
+                let top = exec_stack
+                    .last_mut()
+                    .ok_or(ScriptError::UnbalancedConditional("ELSE without IF"))?;
                 if parent_exec {
                     *top = !*top;
                 }
@@ -428,7 +429,7 @@ pub fn execute_instructions(
                 if i >= count {
                     return Err(ScriptError::IndexOutOfRange { index: i, count });
                 }
-                let amount: u64 = ctx.resolved_inputs[i].value.into();
+                let amount: u64 = ctx.resolved_inputs[i].value.as_u64();
                 #[allow(clippy::cast_possible_wrap)]
                 push(&mut stack, Value::Int(amount as i64))?;
             }
@@ -438,7 +439,7 @@ pub fn execute_instructions(
                 if i >= count {
                     return Err(ScriptError::IndexOutOfRange { index: i, count });
                 }
-                let amount: u64 = ctx.tx.outputs[i].value.into();
+                let amount: u64 = ctx.tx.outputs[i].value.as_u64();
                 #[allow(clippy::cast_possible_wrap)]
                 push(&mut stack, Value::Int(amount as i64))?;
             }
@@ -469,7 +470,7 @@ pub fn execute_instructions(
                 push(&mut stack, Value::Bytes(ctx.tx_hash.to_vec()))?;
             }
             OpCode::SlotNumber => {
-                let slot: u64 = ctx.current_slot.into();
+                let slot: u64 = ctx.current_slot.as_u64();
                 #[allow(clippy::cast_possible_wrap)]
                 push(&mut stack, Value::Int(slot as i64))?;
             }
@@ -482,7 +483,7 @@ pub fn execute_instructions(
                 push(&mut stack, Value::Int(ctx.tx.outputs.len() as i64))?;
             }
             OpCode::TxFee => {
-                let fee: u64 = ctx.tx.fee.into();
+                let fee: u64 = ctx.tx.fee.as_u64();
                 #[allow(clippy::cast_possible_wrap)]
                 push(&mut stack, Value::Int(fee as i64))?;
             }
@@ -520,7 +521,7 @@ pub fn execute_instructions(
                 if idx >= count {
                     return Err(ScriptError::IndexOutOfRange { index: idx, count });
                 }
-                let actual: u64 = ctx.tx.outputs[idx].value.into();
+                let actual: u64 = ctx.tx.outputs[idx].value.as_u64();
                 #[allow(clippy::cast_possible_wrap)]
                 if (actual as i64) != expected_amount {
                     return Err(ScriptError::CovenantFailed("output value mismatch"));
@@ -632,13 +633,15 @@ fn cmp_int_op(stack: &mut Vec<Value>, f: impl FnOnce(i64, i64) -> bool) -> Resul
 fn checksig_pqc(pk_bytes: &[u8], sig_bytes: &[u8], msg: &[u8]) -> bool {
     // Try Level 3 first (the default), then Level 2, then Level 5.
     for level in [
-        DilithiumLevel::Three,
-        DilithiumLevel::Two,
-        DilithiumLevel::Five,
+        DilithiumLevel::Level3,
+        DilithiumLevel::Level2,
+        DilithiumLevel::Level5,
     ] {
-        if let Ok(pk) = PqcPublicKey::from_bytes(pk_bytes, level) {
-            if let Ok(sig) = PqcSignature::from_bytes(sig_bytes, level) {
-                if verify_pqc(&pk, msg, &sig).is_ok() {
+        if let Ok(pk) = PqcPublicKey::from_bytes(level, pk_bytes) {
+            if let Ok(sig) = PqcSignature::from_bytes(level, sig_bytes) {
+                // verify_pqc returns Ok(true) for valid, Ok(false) for invalid,
+                // Err for parameter mismatch. Only accept Ok(true).
+                if matches!(verify_pqc(&pk, msg, &sig), Ok(true)) {
                     return true;
                 }
             }

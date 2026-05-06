@@ -48,9 +48,11 @@ pub fn build_pool_registration_tx(
     // Create the registration output.
     // This is a special UTXO that locks the pool parameters.
     let registration_output = TxOutput {
-        value: Amount::from(config.pledge),
-        locking_script: Script::from(vec![]), // Script::standard_registration_lock()
-        datum: Some(Datum::from(datum_bytes)),
+        value: Amount::from_smallest_units(config.pledge),
+        // `Script` and `Datum` expose `::new(Vec<u8>)` constructors
+        // (no `From<Vec<u8>>` impl on the qv-core side).
+        locking_script: Script::new(vec![]), // TODO: Script::standard_registration_lock()
+        datum: Some(Datum::new(datum_bytes)),
         stealth_info: None,
     };
 
@@ -60,15 +62,10 @@ pub fn build_pool_registration_tx(
     // 2. Create a change output.
     // 3. Sign all inputs with the cold key.
     // For now, create a placeholder with a dummy input and the registration output.
-    let tx = Transaction {
-        inputs: vec![TxInput {
-            previous_output: OutPoint::new(TxId::from_bytes([0u8; 32]), 0),
-            script_witness: vec![],
-            sequence: qv_core::u32_max(),
-        }],
-        outputs: vec![registration_output],
-        locktime: qv_core::Slot::from(0),
-    };
+    // `TxInput::new` initialises the witness to empty; `Transaction::new` sets
+    // defaults for `validity_interval`, `lock_time`, and `fee`.
+    let dummy_input = TxInput::new(OutPoint::new(TxId::from_bytes([0u8; 32]), 0));
+    let tx = Transaction::new(vec![dummy_input], vec![registration_output]);
 
     Ok(tx)
 }
@@ -190,6 +187,6 @@ mod tests {
         .unwrap();
 
         let output = &tx.outputs[0];
-        assert_eq!(output.value, Amount::from(config.pledge));
+        assert_eq!(output.value, Amount::from_smallest_units(config.pledge));
     }
 }

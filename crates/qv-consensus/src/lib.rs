@@ -62,31 +62,31 @@ pub mod stake;
 // Re-exports: stable public surface
 // ---------------------------------------------------------------------------
 
-// slot
+/// Slot/epoch time mapping and wall-clock coordination; see [`slot`] module.
 pub use slot::{SlotClock, SlotInfo};
 
-// epoch
+/// Epoch boundaries, nonces, and epoch-level data; see [`epoch`] module.
 pub use epoch::{EpochBoundary, EpochInfo, EpochNonce};
 
-// stake
+/// Stake pools, delegations, and stake distributions; see [`stake`] module.
 pub use stake::{Delegation, PoolId, StakeDistribution, StakeError, StakePool};
 
-// leader election
+/// VRF-based leader election and threshold computation; see [`leader_schedule`] module.
 pub use leader_schedule::{
     check_leadership, leader_threshold, verify_leadership, vrf_input, LeaderError, TestVrf,
     VrfEvaluator, VrfOutput, VrfProof, ACTIVE_SLOT_COEFF,
 };
 
-// block validation
+/// Block header and body validation at consensus level; see [`block_validator`] module.
 pub use block_validator::{
     validate_block, validate_block_header, BlockValidationContext, BlockValidationError,
     KesVerifier, TestKesVerifier,
 };
 
-// chain state
+/// Fork choice rule, chain state, and k-deep finality; see [`chain_state`] module.
 pub use chain_state::{ChainEntry, ChainError, ChainState};
 
-// rewards
+/// Block rewards, emission schedule, and fee distribution; see [`rewards`] module.
 pub use rewards::{
     block_subsidy, cumulative_emission, distribute_reward, is_emission_exhausted,
     total_block_reward, RewardError, RewardShare,
@@ -101,6 +101,23 @@ use thiserror::Error;
 /// Aggregate error for the `qv-consensus` crate.
 ///
 /// Downstream crates can bubble up any consensus-layer error via `?`.
+///
+/// # Examples
+///
+/// ```rust
+/// # use qv_consensus::{ConsensusError, StakeError};
+/// fn propagate_consensus_error(e: ConsensusError) {
+///     match e {
+///         ConsensusError::Stake(StakeError::ZeroDelegation) => {
+///             eprintln!("pool has no delegated stake");
+///         }
+///         ConsensusError::Leader(err) => {
+///             eprintln!("leader election failed: {}", err);
+///         }
+///         _ => eprintln!("consensus error: {}", e),
+///     }
+/// }
+/// ```
 #[derive(Debug, Error)]
 pub enum ConsensusError {
     /// Stake-related error (pool registration, distribution).
@@ -125,7 +142,7 @@ pub enum ConsensusError {
 }
 
 /// Convenience alias.
-pub type ConsensusResult<T> = core::result::Result<T, ConsensusError>;
+pub type ConsensusResult<T> = Result<T, ConsensusError>;
 
 // ---------------------------------------------------------------------------
 // Tests

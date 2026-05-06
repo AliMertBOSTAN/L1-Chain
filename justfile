@@ -91,3 +91,32 @@ update:
 # Show outdated dependencies.
 outdated:
     cargo outdated --workspace
+
+# -- profiling -----------------------------------------------------------------
+
+# Run performance profiler (see scripts/profile.sh --help).
+profile MODE="--help":
+    bash scripts/profile.sh {{MODE}}
+
+# Profile criterion benchmarks with flamegraph.
+flamegraph-bench:
+    bash scripts/profile.sh --bench
+
+# Profile block validation performance.
+flamegraph-block:
+    bash scripts/profile.sh --block
+
+# Profile full node startup.
+flamegraph-node:
+    bash scripts/profile.sh --node
+
+# -- documentation -------------------------------------------------------------
+
+# Build the mdBook documentation site.
+docs:
+    mdbook build
+    @echo "Book: book/build/index.html"
+
+# Serve the mdBook site locally with live reload.
+docs-serve:
+    mdbook serve --open

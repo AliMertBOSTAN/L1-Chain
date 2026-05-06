@@ -1,0 +1,73 @@
+# QuantumVault Mainnet Genesis Configuration
+#
+# This is the production genesis file for the mainnet. It defines all consensus,
+# ledger, and monetary parameters that will govern the QuantumVault mainnet at launch.
+#
+# Key characteristics:
+# - Slot duration: 2 seconds (standard)
+# - Epoch length: 12 hours (21600 slots)
+# - Finality: 50 blocks (~100 seconds)
+# - Fixed monetary supply: 21M tokens with halving schedule
+#
+# NOTE: genesis_slot and genesis_time are set to 0 as placeholders.
+# These must be updated before mainnet launch with the actual genesis ceremony timestamp.
+
+network = "mainnet"
+genesis_slot = 0
+genesis_time = 0
+
+[consensus]
+# Slot duration in milliseconds. Standard PoS cadence.
+slot_duration_ms = 2000
+
+# Slots per epoch. At 2s/slot, this gives ~12 hour epochs.
+# 2000ms × 21600 = 43,200 seconds = 12 hours
+epoch_slots = 21600
+
+# Number of blocks until a chain tip is considered final.
+# 50 blocks at 2s/slot = ~100 seconds to finality.
+# Aligns with Ouroboros Praos security parameters.
+k_finality = 50
+
+# Minimum honest stake threshold: numerator / denominator.
+# 51/100 = 51% — supermajority requirement for consensus.
+honest_stake_num = 51
+honest_stake_den = 100
+
+[ledger]
+# Maximum block size in bytes. Allocates for 10k transactions at ~750 bytes each.
+max_block_bytes = 7500000
+
+# Maximum transaction size in bytes. Supports complex scripts and large inputs.
+max_tx_bytes = 200000
+
+# Maximum UTXO inputs per transaction. Large DeFi transactions.
+max_tx_inputs = 1024
+
+# Maximum UTXO outputs per transaction. Batch AMM swaps, fan-outs.
+max_tx_outputs = 1024
+
+# Maximum transactions per block. Throughput limit.
+max_block_txs = 10000
+
+# Maximum script size in bytes. Supports sophisticated contract logic.
+max_script_bytes = 65536
+
+# Maximum datum size in bytes. Supports rich state in eUTXO model.
+max_datum_bytes = 16384
+
+[monetary]
+# Total token supply: 21 million × 10^8 satoshis.
+# Matches Bitcoin's fixed supply model for predictability and store-of-value.
+total_supply = 2100000000000000
+
+# Initial block reward: 50 tokens (× 10^8 satoshis) per block.
+# Halves every 210,000 blocks (~4 years at 2s slots and full blocks).
+initial_block_reward = 5000000000
+
+# Halving interval in blocks. 210,000 blocks gives ~4 year halvings.
+halving_interval_blocks = 210000
+
+# Minimum transaction fee per byte in satoshis.
+# 1 satoshi/byte is the baseline; users can pay more to prioritize.
+min_fee_per_byte = 1

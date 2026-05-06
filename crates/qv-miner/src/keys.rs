@@ -8,8 +8,7 @@
 //! All are encrypted at rest with Argon2id + AES-GCM (same pattern as qv-wallet).
 
 use crate::{MinerError, MinerResult};
-use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Placeholder VRF key pair (trait-based, real implementation TBD in ADR-004).
 #[derive(Clone, Debug)]
@@ -25,8 +24,8 @@ impl VrfKeyPair {
     pub fn generate() -> MinerResult<Self> {
         // In a real implementation, this would use the actual VRF primitive from qv-crypto.
         // For now, use 32 random bytes as a placeholder.
-        use std::collections::hash_map::RandomState;
-        use std::hash::{BuildHasher, Hash, Hasher};
+        
+        
 
         let secret = vec![0u8; 32]; // Placeholder: should use proper randomness
         let public = vec![1u8; 32]; // Placeholder
@@ -144,9 +143,9 @@ impl OperatorKeys {
     /// Load keys from encrypted files (Argon2id + AES-GCM).
     /// Placeholder: real implementation would use encrypted storage.
     pub fn load_encrypted(
-        vrf_path: &Path,
-        kes_path: &Path,
-        cold_path: &Path,
+        _vrf_path: &Path,
+        _kes_path: &Path,
+        _cold_path: &Path,
         _password: &str,
     ) -> MinerResult<Self> {
         // In a real implementation, read encrypted files, decrypt with password + Argon2id.

@@ -1,0 +1,26 @@
+network = "devnet"
+data_dir = "./data"
+listen_addr = "/ip4/127.0.0.1/tcp/10333"
+rpc_addr = "127.0.0.1:8545"
+metrics_addr = "127.0.0.1:9090"
+bootstrap_peers = []
+seed_nodes = []
+storage_backend = "memory"
+
+[gossip]
+max_peers = 100
+max_inbound_peers = 50
+target_outbound_peers = 20
+message_ttl = 16
+heartbeat_interval_ms = 1000
+
+[mempool]
+max_clear_pool_size = 10000
+max_encrypted_pool_size = 1000
+min_fee_rate = 1
+tx_ttl_slots = 100
+
+[stake_pool]
+vrf_seed_hex = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+initial_stake = 1000000000
+active_slot_coeff = 0.05

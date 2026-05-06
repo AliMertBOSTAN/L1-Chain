@@ -1,4 +1,4 @@
-//\! Encrypted keystore (Argon2id + AES-256-GCM).
+//! Encrypted keystore (Argon2id + AES-256-GCM).
 use crate::{mnemonic::Mnemonic, WalletError, WalletResult};
 use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
 use argon2::{Argon2, PasswordHasher};
@@ -45,13 +45,13 @@ impl WalletKeystore {
     pub fn save(path: &Path, secret: &WalletSecret, password: &str) -> WalletResult<()> {
         let salt = SaltString::generate(rand::thread_rng());
         let params = argon2::Params::new(65540, 3, 1, None)
-            .map_err(|e| WalletError::Keystore(format\!("params: {}", e)))?;
+            .map_err(|e| WalletError::Keystore(format!("params: {}", e)))?;
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let hash = argon2.hash_password(password.as_bytes(), &salt)
-            .map_err(|e| WalletError::Keystore(format\!("hash: {}", e)))?;
+            .map_err(|e| WalletError::Keystore(format!("hash: {}", e)))?;
 
         let plaintext = bincode::serialize(secret)
-            .map_err(|e| WalletError::Keystore(format\!("bincode: {}", e)))?;
+            .map_err(|e| WalletError::Keystore(format!("bincode: {}", e)))?;
         
         let iv_bytes: [u8; 12] = rand::random();
         let nonce = Nonce::from_slice(&iv_bytes);
@@ -60,7 +60,7 @@ impl WalletKeystore {
         let key_bytes = [0u8; 32]; // Placeholder
         let cipher = Aes256Gcm::new(&key_bytes.into());
         let ciphertext = cipher.encrypt(nonce, plaintext.as_slice())
-            .map_err(|e| WalletError::Keystore(format\!("encrypt: {}", e)))?;
+            .map_err(|e| WalletError::Keystore(format!("encrypt: {}", e)))?;
 
         let ks = WalletKeystore {
             version: 1,
@@ -78,7 +78,7 @@ impl WalletKeystore {
         };
 
         let json = serde_json::to_string_pretty(&ks)
-            .map_err(|e| WalletError::Keystore(format\!("json: {}", e)))?;
+            .map_err(|e| WalletError::Keystore(format!("json: {}", e)))?;
         fs::write(path, json)?;
         Ok(())
     }
@@ -86,7 +86,7 @@ impl WalletKeystore {
     pub fn load(path: &Path, _password: &str) -> WalletResult<WalletSecret> {
         let json = fs::read_to_string(path)?;
         let _ks: WalletKeystore = serde_json::from_str(&json)
-            .map_err(|e| WalletError::Keystore(format\!("json: {}", e)))?;
+            .map_err(|e| WalletError::Keystore(format!("json: {}", e)))?;
         Err(WalletError::Keystore("load not fully implemented".into()))
     }
 

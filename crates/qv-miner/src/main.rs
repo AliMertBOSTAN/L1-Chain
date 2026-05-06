@@ -5,8 +5,6 @@
 use qv_miner::cli::{Cli, Command};
 use qv_miner::config::OperatorConfig;
 use qv_miner::keys::OperatorKeys;
-use qv_miner::MinerError;
-use std::path::Path;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -75,7 +73,7 @@ async fn cmd_init(
     tracing::info!("Initializing new stake pool operator");
 
     // Generate keys.
-    let keys = OperatorKeys::generate().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let _keys = OperatorKeys::generate().map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Build configuration.
     let config = OperatorConfig {

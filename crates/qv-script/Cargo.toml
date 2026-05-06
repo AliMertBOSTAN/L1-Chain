@@ -21,5 +21,10 @@ qv-core    = { path = "../qv-core" }
 qv-crypto  = { path = "../qv-crypto" }
 
 [dev-dependencies]
-proptest = { workspace = true }
-bincode  = { workspace = true }
+proptest  = { workspace = true }
+bincode   = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name    = "script_bench"
+harness = false

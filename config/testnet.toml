@@ -1,0 +1,51 @@
+# QuantumVault Testnet Genesis Configuration
+#
+# This is the genesis file for the public testnet. It is designed for faster iteration
+# and testing of protocol changes before they are proposed for mainnet.
+#
+# Key differences from mainnet:
+# - Shorter epochs: 1000 slots instead of 21600 (faster feedback for testing)
+# - Faster finality: 10 blocks instead of 50 (quicker confirmation confirmation)
+# - Zero transaction fees (developers don't need to manage fee budgets)
+# - Otherwise identical ledger and monetary parameters for consistency
+#
+# NOTE: genesis_slot and genesis_time are set to 0 as placeholders.
+
+network = "testnet"
+genesis_slot = 0
+genesis_time = 0
+
+[consensus]
+# Slot duration: 2 seconds (same as mainnet, for cross-network compatibility testing)
+slot_duration_ms = 2000
+
+# Shorter epochs for faster testing cycles.
+# 1000 slots × 2s = 2000 seconds ≈ 33 minutes per epoch.
+epoch_slots = 1000
+
+# Faster finality for quicker feedback during development.
+# 10 blocks at 2s/slot ≈ 20 seconds to finality.
+k_finality = 10
+
+# Same stake threshold as mainnet.
+honest_stake_num = 51
+honest_stake_den = 100
+
+[ledger]
+# Same ledger parameters as mainnet for consistent DeFi testing.
+max_block_bytes = 7500000
+max_tx_bytes = 200000
+max_tx_inputs = 1024
+max_tx_outputs = 1024
+max_block_txs = 10000
+max_script_bytes = 65536
+max_datum_bytes = 16384
+
+[monetary]
+# Same supply and halving schedule as mainnet for economic model testing.
+total_supply = 2100000000000000
+initial_block_reward = 5000000000
+halving_interval_blocks = 210000
+
+# Zero fees on testnet — developers and researchers don't need to manage fee budgets.
+min_fee_per_byte = 0

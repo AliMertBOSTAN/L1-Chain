@@ -4,23 +4,20 @@ use metrics::{counter, gauge, histogram};
 use std::net::SocketAddr;
 
 /// Initialize the metrics exporter (Prometheus HTTP endpoint).
+///
+/// In `metrics-exporter-prometheus` 0.14 the builder takes the listener
+/// address up front and `.install()` does both: it registers the global
+/// recorder *and* spawns the HTTP server on the current Tokio runtime.
+/// (The previously-used `render_http_server` no longer exists.)
 pub fn init_exporter(addr: SocketAddr) -> crate::NodeResult<()> {
-    let exporter = metrics_exporter_prometheus::PrometheusBuilder::new()
-        .install_recorder()
-        .map_err(|e| crate::NodeError::Other(format!("failed to install Prometheus exporter: {e}")))?;
+    metrics_exporter_prometheus::PrometheusBuilder::new()
+        .with_http_listener(addr)
+        .install()
+        .map_err(|e| {
+            crate::NodeError::Other(format!("failed to install Prometheus exporter: {e}"))
+        })?;
 
     tracing::info!(addr = %addr, "Prometheus metrics exporter listening");
-
-    // Spawn the HTTP server in a background task
-    let handle = tokio::spawn(async move {
-        exporter
-            .render_http_server(addr)
-            .await
-            .map_err(|e| tracing::error!("metrics server error: {e}"))
-    });
-
-    // Don't block on the result; let it run in the background.
-    let _ = handle;
     Ok(())
 }
 

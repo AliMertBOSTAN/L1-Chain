@@ -46,19 +46,19 @@ pub mod templates;
 // Re-exports: the stable public surface of the crate.
 // ---------------------------------------------------------------------------
 
-// Opcodes & encoding
+/// Stack value representation, opcodes, encoding/decoding; see [`opcode`] module.
 pub use opcode::{decode_script, encode_instructions, Instruction, OpCode, OpcodeError, Value};
 
-// Gas
+/// Per-opcode gas costs and gas metering; see [`gas`] module.
 pub use gas::{gas_cost, GasMeter, DEFAULT_GAS_LIMIT, MULTISIG_PER_KEY_COST};
 
-// Interpreter
+/// Script interpreter VM and execution context; see [`interpreter`] module.
 pub use interpreter::{execute, execute_instructions, Context, ExecResult, ScriptError};
 
-// Templates
+/// Standard script templates (P2PKH, multisig, AMM, lending); see [`templates`] module.
 pub use templates::{amm_swap, lending_repay, multisig_pqc, p2pkh_pqc, pubkey_hash, ScriptBuilder};
 
-// High-level script API
+/// High-level script validation and compilation; see [`script`] module.
 pub use script::{compile, disassemble, validate_script, validate_script_with_gas};
 
 // ---------------------------------------------------------------------------
@@ -71,6 +71,19 @@ use thiserror::Error;
 ///
 /// Merges opcode-level and interpreter-level errors into a single type
 /// for consumers that just want to propagate "script failed".
+///
+/// # Examples
+///
+/// ```rust
+/// # use qv_script::{ScriptCrateError, ScriptError};
+/// fn handle_script_error(e: ScriptCrateError) {
+///     match e {
+///         ScriptCrateError::Opcode(op_err) => eprintln!("opcode error: {}", op_err),
+///         ScriptCrateError::Exec(ScriptError::OutOfGas) => eprintln!("script exceeded gas limit"),
+///         ScriptCrateError::Exec(e) => eprintln!("execution failed: {}", e),
+///     }
+/// }
+/// ```
 #[derive(Debug, Error)]
 pub enum ScriptCrateError {
     /// Opcode encoding / decoding error.
@@ -83,7 +96,7 @@ pub enum ScriptCrateError {
 }
 
 /// Convenience alias.
-pub type ScriptResult<T> = core::result::Result<T, ScriptCrateError>;
+pub type ScriptResult<T> = Result<T, ScriptCrateError>;
 
 // ---------------------------------------------------------------------------
 // Tests

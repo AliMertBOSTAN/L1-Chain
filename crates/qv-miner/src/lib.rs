@@ -119,7 +119,7 @@ pub enum MinerError {
 }
 
 /// Result alias for miner operations.
-pub type MinerResult<T> = core::result::Result<T, MinerError>;
+pub type MinerResult<T> = Result<T, MinerError>;
 
 // Re-export headline types at crate root for consumer convenience.
 pub use cli::Cli;

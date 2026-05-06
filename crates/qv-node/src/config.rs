@@ -25,6 +25,10 @@ pub struct NodeConfig {
     /// Bootstrap peer addresses (multiaddr format)
     pub bootstrap_peers: Vec<String>,
 
+    /// Seed node multiaddrs for initial peer discovery.
+    #[serde(default)]
+    pub seed_nodes: Vec<String>,
+
     /// Gossip configuration
     pub gossip: GossipConfig,
 
@@ -33,6 +37,10 @@ pub struct NodeConfig {
 
     /// Storage backend: "rocksdb" | "redb" | "memory"
     pub storage_backend: String,
+
+    /// Stake pool operator configuration (optional)
+    #[serde(default)]
+    pub stake_pool: Option<StakePoolConfig>,
 }
 
 /// Gossip / networking configuration.
@@ -68,6 +76,19 @@ pub struct MempoolConfig {
 
     /// Transaction time-to-live (slots)
     pub tx_ttl_slots: u64,
+}
+
+/// Stake pool operator configuration (optional — only if this node produces blocks).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StakePoolConfig {
+    /// VRF seed (32 bytes, hex-encoded). Used for slot leader election.
+    pub vrf_seed_hex: String,
+
+    /// Initial stake amount (in smallest units).
+    pub initial_stake: u64,
+
+    /// Active slot coefficient (Praos f parameter, e.g. 0.05).
+    pub active_slot_coeff: f64,
 }
 
 impl NodeConfig {
@@ -125,6 +146,7 @@ impl NodeConfig {
             rpc_addr: "127.0.0.1:8545".parse().unwrap(),
             metrics_addr: "127.0.0.1:9090".parse().unwrap(),
             bootstrap_peers: vec![],
+            seed_nodes: vec![],
             gossip: GossipConfig {
                 max_peers: 100,
                 max_inbound_peers: 50,
@@ -139,6 +161,11 @@ impl NodeConfig {
                 tx_ttl_slots: 100,
             },
             storage_backend: "memory".to_string(),
+            stake_pool: Some(StakePoolConfig {
+                vrf_seed_hex: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899".to_string(),
+                initial_stake: 1_000_000_000,
+                active_slot_coeff: 0.05,
+            }),
         }
     }
 
@@ -151,6 +178,7 @@ impl NodeConfig {
             rpc_addr: "0.0.0.0:8546".parse().unwrap(),
             metrics_addr: "127.0.0.1:9091".parse().unwrap(),
             bootstrap_peers: vec![],
+            seed_nodes: vec![],
             gossip: GossipConfig {
                 max_peers: 200,
                 max_inbound_peers: 100,
@@ -165,6 +193,7 @@ impl NodeConfig {
                 tx_ttl_slots: 200,
             },
             storage_backend: "redb".to_string(),
+            stake_pool: None,
         }
     }
 
@@ -177,6 +206,7 @@ impl NodeConfig {
             rpc_addr: "0.0.0.0:8545".parse().unwrap(),
             metrics_addr: "127.0.0.1:9090".parse().unwrap(),
             bootstrap_peers: vec![],
+            seed_nodes: vec![],
             gossip: GossipConfig {
                 max_peers: 500,
                 max_inbound_peers: 250,
@@ -191,6 +221,7 @@ impl NodeConfig {
                 tx_ttl_slots: 1000,
             },
             storage_backend: "rocksdb".to_string(),
+            stake_pool: None,
         }
     }
 

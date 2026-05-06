@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, TableDefinition};
 use rocksdb::{Direction, IteratorMode, Options, WriteBatch, DB};
 
 use crate::{StorageError, StorageResult};
@@ -320,9 +320,10 @@ impl RedbKvStore {
             let txn = db
                 .begin_write()
                 .map_err(|e| StorageError::Backend(format!("redb begin_write: {e}")))?;
-            let _table = txn
+            let table = txn
                 .open_table(REDB_TABLE)
                 .map_err(|e| StorageError::Backend(format!("redb open_table: {e}")))?;
+            drop(table); // release borrow on `txn` before commit
             txn.commit()
                 .map_err(|e| StorageError::Backend(format!("redb commit: {e}")))?;
         }

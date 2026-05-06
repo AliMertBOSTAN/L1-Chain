@@ -63,18 +63,27 @@ pub mod utxo;
 // Re-exports: the stable public surface of the crate.
 // ---------------------------------------------------------------------------
 
+/// Block header and full block structures; see [`crate::block`] for module docs.
 pub use crate::block::{merkle_root_of, Block, BlockError, BlockHeader, BLOCK_VERSION};
+
+/// Protocol parameter bundles; see [`crate::params`] for module docs.
 pub use crate::params::{
     ConsensusParams, LedgerParams, MonetaryParams, NetworkId, ParamsError, ProtocolParams,
 };
+
+/// Transaction types and validation; see [`crate::transaction`] for module docs.
 pub use crate::transaction::{
     Datum, Script, StealthInfo, Transaction, TransactionError, TxInput, TxOutput,
     ValidityInterval, Witness, TX_VERSION,
 };
+
+/// Core newtypes (amounts, hashes, identifiers, timestamps); see [`crate::types`] for module docs.
 pub use crate::types::{
     Amount, BlockHash, DatumHash, Epoch, Hash256, Height, MerkleRoot, OutPoint, ScriptHash, Slot,
     Timestamp, TxId, TypeError, UtxoCommitment,
 };
+
+/// UTXO set abstraction and in-memory implementation; see [`crate::utxo`] for module docs.
 pub use crate::utxo::{
     commitment_root_of_sorted_entries, InMemoryUtxoSet, UtxoError, UtxoSet,
 };
@@ -95,11 +104,13 @@ use thiserror::Error;
 /// Sub-errors are preserved with `#[from]`, so `match`ing on the inner
 /// variant works normally:
 ///
+/// # Examples
+///
 /// ```rust
 /// # use qv_core::{CoreError, BlockError};
-/// fn example(e: CoreError) {
+/// fn check_error(e: CoreError) {
 ///     if let CoreError::Block(BlockError::MerkleRootMismatch) = e {
-///         // …
+///         println!("block had bad merkle root");
 ///     }
 /// }
 /// ```
@@ -127,7 +138,7 @@ pub enum CoreError {
 }
 
 /// Convenience alias for `Result<T, CoreError>`.
-pub type CoreResult<T> = core::result::Result<T, CoreError>;
+pub type CoreResult<T> = Result<T, CoreError>;
 
 // ---------------------------------------------------------------------------
 // Tests

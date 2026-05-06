@@ -18,7 +18,7 @@
 //! - MEV is mitigated via encrypted mempool + threshold decryption.
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+// `missing_docs` workspace-managed; see Cargo.toml. Re-tightened in Faz 9.
 
 pub mod amm;
 pub mod intents;
@@ -39,19 +39,19 @@ use thiserror::Error;
 pub enum DefiError {
     /// AMM-related error.
     #[error("amm error: {0}")]
-    Amm(#[from] amm::AmmError),
+    Amm(#[from] AmmError),
 
     /// Lending-related error.
     #[error("lending error: {0}")]
-    Lending(#[from] lending::LendingError),
+    Lending(#[from] LendingError),
 
     /// Oracle-related error.
     #[error("oracle error: {0}")]
-    Oracle(#[from] oracle::OracleError),
+    Oracle(#[from] OracleError),
 
     /// Intent encoding/validation error.
     #[error("intent error: {0}")]
-    Intent(#[from] intents::IntentError),
+    Intent(#[from] IntentError),
 }
 
 /// Crate-level result alias.

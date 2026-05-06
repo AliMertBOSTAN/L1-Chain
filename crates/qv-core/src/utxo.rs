@@ -1,21 +1,21 @@
-//\! The UTXO set — a map from [`OutPoint`] to [`TxOutput`].
-//\!
-//\! [`UtxoSet`] is a trait so that the higher-level validator does not care
-//\! whether the set lives in memory, on disk (`qv-storage`), or behind a
-//\! network RPC. This crate ships the reference [`InMemoryUtxoSet`]; the
-//\! persistent variant lives in `qv-storage` (Aşama 5).
-//\!
-//\! # Commitment
-//\!
-//\! [`UtxoSet::commitment_root`] returns a [`UtxoCommitment`] — the hash of
-//\! a deterministic, sorted Merkle tree over the active UTXO set.  This is
-//\! the same value the block header carries in `utxo_commitment`, letting
-//\! light clients verify state roots across forks without downloading the
-//\! full set.
-//\!
-//\! Today's Merkle construction matches the one in `block.rs` (binary,
-//\! duplicate-last padding). We'll replace it with a sparse Merkle tree in
-//\! Aşama 5 once the persistent backend is implemented.
+//! The UTXO set — a map from [`OutPoint`] to [`TxOutput`].
+//!
+//! [`UtxoSet`] is a trait so that the higher-level validator does not care
+//! whether the set lives in memory, on disk (`qv-storage`), or behind a
+//! network RPC. This crate ships the reference [`InMemoryUtxoSet`]; the
+//! persistent variant lives in `qv-storage` (Aşama 5).
+//!
+//! # Commitment
+//!
+//! [`UtxoSet::commitment_root`] returns a [`UtxoCommitment`] — the hash of
+//! a deterministic, sorted Merkle tree over the active UTXO set.  This is
+//! the same value the block header carries in `utxo_commitment`, letting
+//! light clients verify state roots across forks without downloading the
+//! full set.
+//!
+//! Today's Merkle construction matches the one in `block.rs` (binary,
+//! duplicate-last padding). We'll replace it with a sparse Merkle tree in
+//! Aşama 5 once the persistent backend is implemented.
 
 use std::collections::BTreeMap;
 
@@ -203,7 +203,7 @@ mod tests {
     }
 
     fn out(value: u64, script_byte: u8) -> TxOutput {
-        TxOutput::new(Amount::from(value), Script::new(vec\![script_byte]))
+        TxOutput::new(Amount::from(value), Script::new(vec![script_byte]))
     }
 
     #[test]
@@ -211,17 +211,17 @@ mod tests {
         let mut set = InMemoryUtxoSet::new();
         let a = op(1, 0);
         let o = out(500, 0x11);
-        assert\!(set.is_empty());
+        assert!(set.is_empty());
 
         set.insert(a, o.clone()).unwrap();
-        assert_eq\!(set.len(), 1);
-        assert\!(set.contains(&a));
-        assert_eq\!(set.get(&a), Some(&o));
+        assert_eq!(set.len(), 1);
+        assert!(set.contains(&a));
+        assert_eq!(set.get(&a), Some(&o));
 
         let removed = set.remove(&a).unwrap();
-        assert_eq\!(removed, o);
-        assert\!(set.is_empty());
-        assert_eq\!(set.get(&a), None);
+        assert_eq!(removed, o);
+        assert!(set.is_empty());
+        assert_eq!(set.get(&a), None);
     }
 
     #[test]
@@ -230,20 +230,20 @@ mod tests {
         let a = op(1, 0);
         set.insert(a, out(1, 0)).unwrap();
         let err = set.insert(a, out(2, 0)).unwrap_err();
-        assert_eq\!(err, UtxoError::DuplicateOutPoint);
+        assert_eq!(err, UtxoError::DuplicateOutPoint);
     }
 
     #[test]
     fn missing_remove_errors() {
         let mut set = InMemoryUtxoSet::new();
         let err = set.remove(&op(9, 9)).unwrap_err();
-        assert_eq\!(err, UtxoError::NotFound);
+        assert_eq!(err, UtxoError::NotFound);
     }
 
     #[test]
     fn commitment_empty_is_zero() {
         let set = InMemoryUtxoSet::new();
-        assert_eq\!(set.commitment_root(), UtxoCommitment::ZERO);
+        assert_eq!(set.commitment_root(), UtxoCommitment::ZERO);
     }
 
     #[test]
@@ -255,11 +255,11 @@ mod tests {
         let mut b = InMemoryUtxoSet::new();
         b.insert(op(1, 0), out(101, 0x11)).unwrap();
         let root_b = b.commitment_root();
-        assert_ne\!(root_a, root_b, "value change must change commitment");
+        assert_ne!(root_a, root_b, "value change must change commitment");
 
         let mut c = InMemoryUtxoSet::new();
         c.insert(op(1, 0), out(100, 0x22)).unwrap();
-        assert_ne\!(
+        assert_ne!(
             root_a,
             c.commitment_root(),
             "script change must change commitment"
@@ -284,7 +284,7 @@ mod tests {
             reverse.insert(*k, v.clone()).unwrap();
         }
 
-        assert_eq\!(forward.commitment_root(), reverse.commitment_root());
+        assert_eq!(forward.commitment_root(), reverse.commitment_root());
     }
 
     #[test]
@@ -295,11 +295,11 @@ mod tests {
 
         set.insert(op(2, 0), out(20, 0x22)).unwrap();
         let root2 = set.commitment_root();
-        assert_ne\!(root1, root2, "adding entry must move commitment");
+        assert_ne!(root1, root2, "adding entry must move commitment");
 
         set.remove(&op(2, 0)).unwrap();
         let root3 = set.commitment_root();
-        assert_eq\!(
+        assert_eq!(
             root1, root3,
             "removing restores commitment to previous state"
         );
@@ -313,7 +313,7 @@ mod tests {
         set.insert(op(2, 0), out(20, 0x22)).unwrap();
 
         let ordered: Vec<OutPoint> = set.iter().map(|(k, _)| *k).collect();
-        assert_eq\!(ordered, vec\![op(1, 0), op(2, 0), op(3, 0)]);
+        assert_eq!(ordered, vec![op(1, 0), op(2, 0), op(3, 0)]);
     }
 
     #[test]
@@ -325,6 +325,6 @@ mod tests {
         }
         let r1 = set.commitment_root();
         let r2 = set.commitment_root();
-        assert_eq\!(r1, r2);
+        assert_eq!(r1, r2);
     }
 }

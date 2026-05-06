@@ -15,15 +15,38 @@ name = "qv-wallet"
 path = "src/main.rs"
 
 [dependencies]
+# --- internal ---
 qv-common  = { workspace = true }
 qv-core    = { workspace = true }
 qv-crypto  = { workspace = true }
 qv-privacy = { workspace = true }
 qv-script  = { workspace = true }
+
+# --- runtime / cli / logging ---
 tokio              = { workspace = true }
 tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
 clap               = { workspace = true }
 anyhow             = { workspace = true }
-hex                = { workspace = true }
+thiserror          = { workspace = true }
+
+# --- serialization / encoding ---
+serde              = { workspace = true }
 serde_json         = { workspace = true }
+bincode            = { workspace = true }
+hex                = { workspace = true }
+
+# --- crypto / wallet utilities ---
+rand               = { workspace = true }
+zeroize            = { workspace = true }
+bip39              = { workspace = true }
+argon2             = { workspace = true }
+password-hash      = { workspace = true }
+aes-gcm            = { workspace = true }
+rpassword          = { workspace = true }
+
+# --- rpc / http ---
+reqwest            = { workspace = true }
+
+[dev-dependencies]
+tempfile           = { workspace = true }

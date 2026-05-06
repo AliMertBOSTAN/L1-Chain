@@ -191,11 +191,11 @@ impl OrderIntent {
     /// Create a new swap intent.
     #[must_use]
     pub fn new_swap(
-        order_id: TxId,
+        _order_id: TxId,
         pool_id: Hash256,
         offer_amount: Amount,
         min_receive: Amount,
-        slippage_bps: u16,
+        _slippage_bps: u16,
         deadline_slot: u64,
     ) -> Self {
         Self {
@@ -470,7 +470,7 @@ pub fn build_swap_intent(
         return Err(IntentError::InvalidAmount(0));
     }
 
-    let mut intent = OrderIntent {
+    let intent = OrderIntent {
         kind: OrderKind::Swap {
             pool_id,
             side,

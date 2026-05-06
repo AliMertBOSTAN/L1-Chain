@@ -1,0 +1,64 @@
+# QuantumVault Seed Nodes Configuration
+#
+# This file defines the bootstrap nodes for each network.
+# Nodes use these seed nodes to discover peers and join the network.
+#
+# Format:
+# - [[mainnet]], [[testnet]], [[devnet]] are arrays of seed node entries
+# - Each entry has:
+#   - multiaddr: libp2p multiaddress for dialing (DNS4/IP4, TCP, p2p protocol)
+#   - description: human-readable label
+#
+# The multiaddr format is:
+#   /dns4/example.com/tcp/9944/p2p/{PeerID}
+#   /ip4/1.2.3.4/tcp/9944/p2p/{PeerID}
+#
+# Peer IDs are base58-encoded and start with 12D3Koo (for Ed25519).
+# These are placeholder IDs; replace with real ones after node setup.
+
+# ============================================================================
+# MAINNET SEED NODES
+# ============================================================================
+# Production seed nodes for mainnet bootstrap and peer discovery.
+# Should be distributed geographically for resilience.
+
+[[mainnet]]
+multiaddr = "/dns4/seed1.quantumvault.io/tcp/9944/p2p/12D3KooWCHcr1FTwsf1XL9bnVXYcFcbQE36P5b9wGBxj8sCPq8pU"
+description = "EU-West seed node (Frankfurt)"
+
+[[mainnet]]
+multiaddr = "/dns4/seed2.quantumvault.io/tcp/9944/p2p/12D3KooWDEzCvK8DEeqXvFjbQvEXZBJY8XK8gHpVqTvRXV6zPwMG"
+description = "US-East seed node (Virginia)"
+
+[[mainnet]]
+multiaddr = "/dns4/seed3.quantumvault.io/tcp/9944/p2p/12D3KooWG7yqK3eZGZpV1fXiJUwBvGzK4eP5xZNmH7D5w4xJzPAF"
+description = "APAC seed node (Singapore)"
+
+# ============================================================================
+# TESTNET SEED NODES
+# ============================================================================
+# Public testnet seed nodes for protocol testing and validation.
+# Lower redundancy than mainnet.
+
+[[testnet]]
+multiaddr = "/dns4/testnet-seed1.quantumvault.io/tcp/9944/p2p/12D3KooWKj7RdxGnE7y7xdvTrFVMQJZLLfCM4N4kP7sVzH5K9qLm"
+description = "Testnet seed node (EU)"
+
+[[testnet]]
+multiaddr = "/dns4/testnet-seed2.quantumvault.io/tcp/9944/p2p/12D3KooWR5mP8kF7gH1vZLQnK3xCQYVQwL6P4Knn2mP3rZHLjLmK"
+description = "Testnet seed node (US)"
+
+# ============================================================================
+# DEVNET SEED NODES
+# ============================================================================
+# Local development nodes. Used for local testing and CI.
+# This is typically a single node running on localhost.
+
+[[devnet]]
+multiaddr = "/ip4/127.0.0.1/tcp/9944/p2p/12D3KooWQZQZqYSvh9z2FdvQmHzCnRp8R2Rw5P8Lkq9V1mH8k3nZ"
+description = "Local devnet bootstrap (127.0.0.1:9944)"
+
+# Alternative for remote devnet CI environments:
+# [[devnet]]
+# multiaddr = "/ip4/localhost/tcp/9944/p2p/12D3KooWQZQZqYSvh9z2FdvQmHzCnRp8R2Rw5P8Lkq9V1mH8k3nZ"
+# description = "Devnet bootstrap (localhost)"

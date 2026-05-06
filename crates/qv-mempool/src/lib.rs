@@ -55,7 +55,7 @@ pub enum MempoolError {
 }
 
 /// Result alias for mempool operations.
-pub type MempoolResult<T> = core::result::Result<T, MempoolError>;
+pub type MempoolResult<T> = Result<T, MempoolError>;
 
 // Re-export headline types at crate root.
 pub use batcher::{BatchResult, OrderIntent, PoolState, SlashingEvidence, SwapDirection};

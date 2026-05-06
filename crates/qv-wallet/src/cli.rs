@@ -1,4 +1,4 @@
-//\! CLI using clap.
+//! CLI using clap.
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 

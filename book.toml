@@ -1,0 +1,26 @@
+[book]
+title = "QuantumVault L1 Documentation"
+authors = ["QuantumVault Team"]
+description = "Comprehensive documentation for the QuantumVault L1 post-quantum blockchain"
+language = "en"
+src = "book/src"
+
+[build]
+build-dir = "book/build"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/quantumvault/l1"
+edit-url-template = "https://github.com/quantumvault/l1/edit/main/{path}"
+additional-css = []
+additional-js = []
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
+limit-results = 20
+use-hierarchical-title = true

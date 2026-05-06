@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use libp2p::identity::Keypair;
-use libp2p::{Multiaddr, PeerId, SwarmBuilder};
+use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 
 use crate::NetError;

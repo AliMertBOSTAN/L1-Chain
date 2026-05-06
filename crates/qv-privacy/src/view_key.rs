@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use qv_crypto::{sha3_256, HashDigest, HybridKeyPair, HybridPublicKey, SharedSecret};
 
-use crate::confidential::{BlindingFactor, Commitment, Committer, MockCommitter};
+use crate::confidential::{BlindingFactor, Commitment, Committer};
 use crate::stealth::{compute_onetime_pk_hash, compute_view_tag, StealthOutput};
 use crate::PrivacyError;
 

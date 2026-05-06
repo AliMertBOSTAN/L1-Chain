@@ -13,7 +13,7 @@ use qv_core::{Script as CoreScript, Slot, Transaction, TxOutput};
 
 use crate::gas::{GasMeter, DEFAULT_GAS_LIMIT};
 use crate::interpreter::{execute, Context, ExecResult, ScriptError};
-use crate::opcode::{decode_script, encode_instructions, Instruction, OpcodeError};
+use crate::opcode::{decode_script, encode_instructions, Instruction};
 
 // ============================================================================
 // Script validation — THE entry point for L1

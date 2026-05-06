@@ -1,16 +1,16 @@
-//\! Protocol parameters — every tunable that must match across every node.
-//\!
-//\! All ledger-level invariants (slot duration, finality depth, supply, fee
-//\! model, ...) live here so they can be loaded once from `config/genesis.toml`
-//\! and handed to the rest of the workspace. Values come from `CLAUDE.md`'s
-//\! immutable architectural decisions; if you're considering changing one,
-//\! open an ADR first.
-//\!
-//\! # Why a single struct
-//\!
-//\! Scattering these constants across `const` items invites drift — every
-//\! new crate ends up with its own copy. Carrying them inside [`ProtocolParams`]
-//\! forces the node to be explicit about which parameter set it's running.
+//! Protocol parameters — every tunable that must match across every node.
+//!
+//! All ledger-level invariants (slot duration, finality depth, supply, fee
+//! model, ...) live here so they can be loaded once from `config/genesis.toml`
+//! and handed to the rest of the workspace. Values come from `CLAUDE.md`'s
+//! immutable architectural decisions; if you're considering changing one,
+//! open an ADR first.
+//!
+//! # Why a single struct
+//!
+//! Scattering these constants across `const` items invites drift — every
+//! new crate ends up with its own copy. Carrying them inside [`ProtocolParams`]
+//! forces the node to be explicit about which parameter set it's running.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -418,7 +418,7 @@ mod tests {
     fn consensus_epoch_seconds_matches_claude_md() {
         // 21_600 slots × 2 s = 43_200 s = 12 h
         let cp = ConsensusParams::mainnet();
-        assert_eq\!(cp.epoch_seconds(), 43_200);
+        assert_eq!(cp.epoch_seconds(), 43_200);
     }
 
     #[test]
@@ -427,7 +427,7 @@ mod tests {
             slot_duration_ms: 0,
             ..ConsensusParams::mainnet()
         };
-        assert\!(bad.validate().is_err());
+        assert!(bad.validate().is_err());
     }
 
     #[test]
@@ -437,7 +437,7 @@ mod tests {
             honest_stake_den: 100,
             ..ConsensusParams::mainnet()
         };
-        assert\!(bad.validate().is_err());
+        assert!(bad.validate().is_err());
     }
 
     #[test]
@@ -447,13 +447,13 @@ mod tests {
             max_block_bytes: 5,
             ..LedgerParams::mainnet()
         };
-        assert\!(bad.validate().is_err());
+        assert!(bad.validate().is_err());
     }
 
     #[test]
     fn monetary_total_supply_is_21m_coins() {
         let m = MonetaryParams::mainnet();
-        assert_eq\!(m.total_supply.as_u64(), 21_000_000 * 100_000_000);
+        assert_eq!(m.total_supply.as_u64(), 21_000_000 * 100_000_000);
     }
 
     #[test]
@@ -461,7 +461,7 @@ mod tests {
         let p = ProtocolParams::mainnet();
         let s = p.to_toml().unwrap();
         let back = ProtocolParams::from_toml(&s).unwrap();
-        assert_eq\!(p, back);
+        assert_eq!(p, back);
     }
 
     #[test]
@@ -469,7 +469,7 @@ mod tests {
         let p = ProtocolParams::mainnet();
         let s = p.to_json().unwrap();
         let back = ProtocolParams::from_json(&s).unwrap();
-        assert_eq\!(p, back);
+        assert_eq!(p, back);
     }
 
     #[test]
@@ -503,7 +503,7 @@ mod tests {
             min_fee_per_byte = 1
         "#;
         let err = ProtocolParams::from_toml(toml_str).unwrap_err();
-        assert\!(matches\!(err, ParamsError::Invalid(_)));
+        assert!(matches!(err, ParamsError::Invalid(_)));
     }
 
     #[test]
@@ -515,7 +515,7 @@ mod tests {
             NetworkId::Ephemeral,
         ] {
             let m = net.magic();
-            assert_eq\!(m.len(), 2);
+            assert_eq!(m.len(), 2);
         }
     }
 }

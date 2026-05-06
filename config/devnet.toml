@@ -1,0 +1,77 @@
+# QuantumVault Devnet Genesis Configuration
+#
+# This is the genesis file for local development and rapid prototyping.
+# It is optimized for fast iteration cycles and minimal resource usage.
+#
+# Key characteristics:
+# - Ultra-fast slots: 500ms (vs 2s mainnet) — 4× faster block time
+# - Tiny epochs: 100 slots (vs 21600 mainnet) — ~50 seconds per epoch
+# - Instant finality: 5 blocks (vs 50 mainnet) — 2.5 seconds to finality
+# - Reduced ledger limits: smaller blocks, fewer transactions
+# - Rapid halving: every 100 blocks (instant monetary policy testing)
+# - Zero fees (no friction for testing)
+#
+# Use this for:
+# - Local testing in `cargo test`
+# - Running your own single-node devnet with `qv-node`
+# - Quick iteration on script VM or consensus logic
+# - Integration testing before pushing to testnet
+#
+# NOTE: genesis_slot and genesis_time are set to 0 as placeholders.
+
+network = "devnet"
+genesis_slot = 0
+genesis_time = 0
+
+[consensus]
+# Ultra-fast slot duration for rapid feedback.
+# 500ms per slot = 2 slots per second.
+slot_duration_ms = 500
+
+# Tiny epochs for quick policy changes.
+# 100 slots × 500ms = 50 seconds per epoch.
+epoch_slots = 100
+
+# Near-instant finality for testing.
+# 5 blocks × 500ms = 2.5 seconds to finality.
+k_finality = 5
+
+# Same stake threshold (no special rules).
+honest_stake_num = 51
+honest_stake_den = 100
+
+[ledger]
+# Reduced block size to speed up local validation.
+# Supports ~2700 transactions at ~750 bytes each.
+max_block_bytes = 2000000
+
+# Smaller transaction limit for faster processing.
+max_tx_bytes = 100000
+
+# Fewer inputs/outputs per transaction.
+max_tx_inputs = 256
+max_tx_outputs = 256
+
+# Fewer transactions per block.
+max_block_txs = 1000
+
+# Smaller scripts for faster VM execution.
+max_script_bytes = 32768
+
+# Smaller datums for eUTXO testing.
+max_datum_bytes = 8192
+
+[monetary]
+# Same total supply for consistency.
+total_supply = 2100000000000000
+
+# Same initial reward (rewards testing).
+initial_block_reward = 5000000000
+
+# Rapid halving for quick monetary policy iteration.
+# 100 blocks at 500ms = 50 seconds to first halving.
+# Useful for testing epoch-based reward calculations.
+halving_interval_blocks = 100
+
+# Zero fees (no friction).
+min_fee_per_byte = 0

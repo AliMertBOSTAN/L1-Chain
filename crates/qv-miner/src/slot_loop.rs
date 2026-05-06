@@ -6,13 +6,13 @@
 //! 3. If elected, produces a block and gossips it.
 //! 4. Advances to the next slot.
 
-use crate::{MinerError, MinerResult};
+use crate::MinerResult;
 use qv_consensus::{
-    check_leadership, SlotClock, EpochInfo, StakeDistribution, VrfEvaluator,
+    check_leadership, EpochNonce, SlotClock, StakeDistribution, VrfEvaluator,
 };
-use qv_core::{Epoch, ProtocolParams, Slot, Timestamp};
+use qv_core::{Epoch, Hash256, ProtocolParams, Slot, Timestamp};
 use std::time::Duration;
-use tokio::time::{interval, sleep};
+use tokio::time::interval;
 
 /// Slot loop state and lifecycle.
 #[derive(Clone, Debug)]
@@ -64,8 +64,14 @@ impl SlotLoop {
 
     /// Calculate the next slot's wall-clock time.
     pub fn next_slot_time(&self) -> Timestamp {
-        let slot_duration_secs = self.slot_clock.slot_duration_ms / 1000;
-        Timestamp::from(self.slot_clock.slot_start_timestamp(self.current_slot).as_u64() + slot_duration_secs)
+        // `slot_duration_ms()` is the public accessor — the field itself is private.
+        let slot_duration_secs = self.slot_clock.slot_duration_ms() / 1000;
+        Timestamp::from(
+            self.slot_clock
+                .slot_start_timestamp(self.current_slot)
+                .as_u64()
+                + slot_duration_secs,
+        )
     }
 }
 
@@ -79,17 +85,18 @@ impl SlotLoop {
 ///
 /// # Cancellation
 /// The loop runs until the `tokio::sync::watch` receiver is signaled or a fatal error occurs.
-pub async fn run_slot_loop<F>(
+pub async fn run_slot_loop<V, F>(
     mut slot_loop: SlotLoop,
-    vrf: &(dyn VrfEvaluator),
+    vrf: &V,
     pool_id: &qv_consensus::PoolId,
     mut block_producer_fn: F,
 ) -> MinerResult<()>
 where
+    V: VrfEvaluator,
     F: FnMut(Slot) -> std::pin::Pin<Box<dyn std::future::Future<Output = MinerResult<()>> + Send>>,
 {
     slot_loop.is_running = true;
-    let slot_duration = Duration::from_millis(slot_loop.slot_clock.slot_duration_ms);
+    let slot_duration = Duration::from_millis(slot_loop.slot_clock.slot_duration_ms());
 
     let mut slot_ticker = interval(slot_duration);
 
@@ -102,13 +109,36 @@ where
 
         tracing::debug!(slot = %slot_loop.current_slot, "new slot");
 
+        // Convert raw bytes to the typed `EpochNonce` expected by consensus.
+        let nonce_bytes: [u8; 32] = match slot_loop.epoch_nonce.as_slice().try_into() {
+            Ok(b) => b,
+            Err(_) => {
+                tracing::error!(
+                    actual_len = slot_loop.epoch_nonce.len(),
+                    "epoch_nonce must be 32 bytes; skipping slot"
+                );
+                continue;
+            }
+        };
+        let nonce = EpochNonce(Hash256::from_bytes(nonce_bytes));
+
+        // Stake distribution is required to evaluate leadership; if missing
+        // (e.g. epoch boundary not yet processed) we skip the slot.
+        let Some(distribution) = slot_loop.stake_distribution.as_ref() else {
+            tracing::warn!(
+                slot = %slot_loop.current_slot,
+                "no stake distribution available; skipping leadership check"
+            );
+            continue;
+        };
+
         // Check if elected as leader.
         let is_leader = match check_leadership(
             vrf,
             pool_id,
-            &slot_loop.epoch_nonce,
+            &nonce,
             slot_loop.current_slot,
-            slot_loop.stake_distribution.as_ref(),
+            distribution,
         ) {
             Ok(Some(_)) => true,
             Ok(None) => false,
@@ -188,7 +218,7 @@ mod tests {
         let params = ProtocolParams::mainnet();
         let slot_loop = SlotLoop::new(&params, Slot::from(0), vec![0u8; 32]);
 
-        let vrf = qv_consensus::TestVrf::new(vec![0u8; 32]);
+        let vrf = qv_consensus::TestVrf::new([0u8; 32]);
         let pool_id = qv_consensus::PoolId::ZERO;
 
         let mut block_produced = false;

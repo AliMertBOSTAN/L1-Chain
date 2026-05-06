@@ -1,4 +1,4 @@
-//\! JSON-RPC client.
+//! JSON-RPC client.
 use crate::{WalletError, WalletResult};
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -23,7 +23,7 @@ impl RpcClient {
     }
 
     pub async fn call(&self, method: &str, params: Vec<Value>) -> WalletResult<Value> {
-        let payload = json\!({
+        let payload = json!({
             "jsonrpc": "2.0",
             "method": method,
             "params": params,
@@ -31,14 +31,14 @@ impl RpcClient {
         });
 
         let response = self.client.post(&self.url).json(&payload).send().await
-            .map_err(|e| WalletError::Rpc(format\!("request: {}", e)))?;
+            .map_err(|e| WalletError::Rpc(format!("request: {}", e)))?;
 
-        if \!response.status().is_success() {
-            return Err(WalletError::Rpc(format\!("http {}", response.status())));
+        if !response.status().is_success() {
+            return Err(WalletError::Rpc(format!("http {}", response.status())));
         }
 
         let body: Value = response.json().await
-            .map_err(|e| WalletError::Rpc(format\!("decode: {}", e)))?;
+            .map_err(|e| WalletError::Rpc(format!("decode: {}", e)))?;
 
         if body.get("error").is_some() {
             return Err(WalletError::Rpc("rpc error".into()));
