@@ -26,9 +26,7 @@ mod tests {
         OperatorConfig {
             pool_id: "pool_test".to_string(),
             pool_name: "TestPool".to_string(),
-            vrf_key_path: PathBuf::from("keys/vrf.sk"),
-            kes_key_path: PathBuf::from("keys/kes.sk"),
-            cold_key_path: PathBuf::from("keys/cold.sk"),
+            keystore_path: PathBuf::from("keys/operator.keystore"),
             pledge: 1_000_000_000,
             margin_bps: 300,
             fixed_cost: 10_000_000,

@@ -25,14 +25,12 @@ pub struct OperatorConfig {
     /// Pool name for logging/identification.
     pub pool_name: String,
 
-    /// Path to VRF private key (encrypted).
-    pub vrf_key_path: PathBuf,
-
-    /// Path to KES private key (encrypted).
-    pub kes_key_path: PathBuf,
-
-    /// Path to cold (Dilithium) private key (encrypted).
-    pub cold_key_path: PathBuf,
+    /// Path to the encrypted operator keystore (envanter M-04).
+    ///
+    /// Single Argon2id+AES-256-GCM file holding the 32-byte master seed
+    /// from which `(vrf, kes, cold)` are deterministically derived plus the
+    /// current KES rotation period. See `qv_miner::keystore` for format.
+    pub keystore_path: PathBuf,
 
     /// Operator pledge in satoshis.
     pub pledge: u64,
@@ -138,9 +136,7 @@ mod tests {
         OperatorConfig {
             pool_id: "pool_abc123".to_string(),
             pool_name: "MyPool".to_string(),
-            vrf_key_path: PathBuf::from("keys/vrf.sk"),
-            kes_key_path: PathBuf::from("keys/kes.sk"),
-            cold_key_path: PathBuf::from("keys/cold.sk"),
+            keystore_path: PathBuf::from("keys/operator.keystore"),
             pledge: 1_000_000_000,
             margin_bps: 300,
             fixed_cost: 10_000_000,

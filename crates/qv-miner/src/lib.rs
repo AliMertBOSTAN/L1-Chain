@@ -59,6 +59,7 @@ pub mod cli;
 pub mod committee;
 pub mod config;
 pub mod keys;
+pub mod keystore;
 pub mod registration;
 pub mod block_producer;
 pub mod slot_loop;

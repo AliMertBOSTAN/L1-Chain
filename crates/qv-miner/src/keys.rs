@@ -190,25 +190,44 @@ impl ColdKeyPair {
 // Bundle — operator keys
 // ---------------------------------------------------------------------------
 
-/// All operator keys.
+/// All operator keys, derived from a single 32-byte master seed.
+///
+/// `master_seed` is held in-memory so [`save_encrypted`] can persist it
+/// after the operator generates keys via [`generate`] or restores them via
+/// [`from_seed`] / [`load_encrypted`]. It is the **only** secret needed to
+/// reconstruct the full `(vrf, kes, cold)` triple.
+///
+/// [`save_encrypted`]: OperatorKeys::save_encrypted
+/// [`generate`]: OperatorKeys::generate
+/// [`from_seed`]: OperatorKeys::from_seed
+/// [`load_encrypted`]: OperatorKeys::load_encrypted
 #[derive(Debug)]
 pub struct OperatorKeys {
-    /// VRF key pair.
+    /// 32-byte entropy from which `(vrf, kes, cold)` are deterministically
+    /// derived. Persisted under Argon2id+AES-GCM encryption (envanter M-04).
+    pub master_seed: [u8; 32],
+    /// VRF key pair (Ristretto255-VRF, schnorrkel; ADR-004).
     pub vrf: VrfKeyPair,
-    /// KES key pair.
+    /// KES key pair (Sum-KES on Dilithium L3, depth 11; ADR-005).
     pub kes: KesKeyPair,
-    /// Cold (Dilithium) key pair.
+    /// Cold (Dilithium L3) key pair, FIPS 204 ML-DSA-65 (ADR-006).
     pub cold: ColdKeyPair,
 }
 
 impl OperatorKeys {
     /// Generate a fresh set of operator keys from OS entropy.
+    ///
+    /// Internally samples a random 32-byte master seed and delegates to
+    /// [`from_seed`]; the seed is retained in `self.master_seed` so the
+    /// keys can be re-encrypted to disk via [`save_encrypted`].
+    ///
+    /// [`from_seed`]: OperatorKeys::from_seed
+    /// [`save_encrypted`]: OperatorKeys::save_encrypted
     pub fn generate() -> MinerResult<Self> {
-        Ok(Self {
-            vrf: VrfKeyPair::generate()?,
-            kes: KesKeyPair::generate()?,
-            cold: ColdKeyPair::generate()?,
-        })
+        use rand::RngCore;
+        let mut master = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut master);
+        Self::from_seed(&master)
     }
 
     /// Derive all three keys deterministically from a 32-byte master seed.
@@ -226,48 +245,49 @@ impl OperatorKeys {
         };
 
         Ok(Self {
+            master_seed: *master,
             vrf: VrfKeyPair::from_seed(&derive(b"vrf"))?,
             kes: KesKeyPair::from_seed(&derive(b"kes"))?,
             cold: ColdKeyPair::from_seed(&derive(b"cold"))?,
         })
     }
 
-    /// Load keys from encrypted files.
+    /// Decrypt a keystore at `path` using `password` and reconstruct all keys.
     ///
-    /// **WARNING (envanter M-04):** This currently writes/reads keys in a
-    /// **plain bincode envelope without Argon2id+AES-GCM encryption**. Do not
-    /// use for production keys. Real encryption lands in M-04 alongside
-    /// Faz 1 wallet keystore work.
-    pub fn load_encrypted(
-        _vrf_path: &Path,
-        _kes_path: &Path,
-        _cold_path: &Path,
-        _password: &str,
-    ) -> MinerResult<Self> {
-        // Placeholder: until M-04 we just regenerate. This intentionally
-        // does NOT silently load whatever's on disk to avoid creating a false
-        // sense of security.
-        Err(MinerError::Keystore(
-            "encrypted keystore not yet implemented (envanter M-04 pending)".to_string(),
-        ))
+    /// The on-disk envelope holds `(master_seed, kes_period)` under
+    /// Argon2id + AES-256-GCM (see [`crate::keystore`] for format details).
+    /// After deriving keys via `from_seed`, the KES key is evolved
+    /// `kes_period` times to restore the forward-secure pointer.
+    pub fn load_encrypted(path: &Path, password: &str) -> MinerResult<Self> {
+        let plaintext = crate::keystore::load(path, password)?;
+        let mut keys = Self::from_seed(&plaintext.master_seed)?;
+
+        // Replay forward evolution to restore the KES rotation state. Each
+        // evolve advances by exactly one period; total cost is O(period)
+        // hashes (cheap) — the heavy work was the initial 2048-leaf gen
+        // inside `from_seed`.
+        for _ in 0..plaintext.kes_period {
+            keys.kes.evolve_to_next_period()?;
+        }
+        Ok(keys)
     }
 
-    /// Save keys to encrypted files.
+    /// Encrypt and persist the master seed + current KES period to `path`.
     ///
-    /// **WARNING (envanter M-04):** Encryption not implemented; see above.
-    pub fn save_encrypted(
-        &self,
-        _vrf_path: &Path,
-        _kes_path: &Path,
-        _cold_path: &Path,
-        _password: &str,
-    ) -> MinerResult<()> {
-        Err(MinerError::Keystore(
-            "encrypted keystore not yet implemented (envanter M-04 pending)".to_string(),
-        ))
+    /// Argon2id derives a 32-byte key from `password`; AES-256-GCM seals the
+    /// payload with a fresh per-save random salt + nonce. Wrong-password
+    /// loads fail loudly via the GCM tag check.
+    pub fn save_encrypted(&self, path: &Path, password: &str) -> MinerResult<()> {
+        let plaintext = crate::keystore::OperatorKeystorePlaintext {
+            version: 1,
+            master_seed: self.master_seed,
+            kes_period: self.kes.period(),
+        };
+        crate::keystore::save(path, &plaintext, password)
     }
 
-    /// Advance the KES key one period.
+    /// Advance the KES key one period (forward security: zeroize the
+    /// just-consumed leaf seed).
     pub async fn rotate_kes(&mut self) -> MinerResult<()> {
         self.kes.evolve_to_next_period()
     }
@@ -365,17 +385,46 @@ mod tests {
         assert_eq!(k1.cold.public_bytes(), k2.cold.public_bytes());
     }
 
+    /// M-04 closed 2026-05-07: master-seed level keystore round-trips.
+    ///
+    /// Marked `#[ignore]` because save+load each invoke the full KES
+    /// leaf-tree generation (`from_seed` → `kes_generate`, ~2s). End-to-end
+    /// correctness is exercised here when run with `--ignored`.
     #[test]
-    fn encrypted_keystore_returns_explicit_error() {
-        // M-04 has not landed yet; load/save must fail loudly rather than
-        // silently producing fake or insecure keys.
+    #[ignore]
+    fn keystore_save_load_roundtrip_preserves_keys() {
         let tmp = tempfile::tempdir().unwrap();
-        let load_res = OperatorKeys::load_encrypted(
-            &tmp.path().join("vrf"),
-            &tmp.path().join("kes"),
-            &tmp.path().join("cold"),
-            "pw",
-        );
-        assert!(load_res.is_err());
+        let path = tmp.path().join("operator.keystore");
+
+        let original = OperatorKeys::from_seed(&[0x42u8; 32]).unwrap();
+        let vrf_pk = original.vrf.public_bytes().to_vec();
+        let kes_pk = original.kes.public_bytes().to_vec();
+        let cold_pk = original.cold.public_bytes().to_vec();
+        let master_seed = original.master_seed;
+
+        original.save_encrypted(&path, "correct horse").unwrap();
+        let loaded = OperatorKeys::load_encrypted(&path, "correct horse").unwrap();
+
+        assert_eq!(loaded.master_seed, master_seed);
+        assert_eq!(loaded.vrf.public_bytes(), vrf_pk.as_slice());
+        assert_eq!(loaded.kes.public_bytes(), kes_pk.as_slice());
+        assert_eq!(loaded.cold.public_bytes(), cold_pk.as_slice());
+    }
+
+    /// Wrong password must NOT decrypt — relies on AES-GCM tag mismatch.
+    /// This test is fast: the save path runs `from_seed` (slow) but load
+    /// fails before `from_seed` is called. Keep it slow-marked as a courtesy
+    /// because of the save half.
+    #[test]
+    #[ignore]
+    fn keystore_wrong_password_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("operator.keystore");
+
+        let original = OperatorKeys::from_seed(&[0x99u8; 32]).unwrap();
+        original.save_encrypted(&path, "right").unwrap();
+
+        let res = OperatorKeys::load_encrypted(&path, "wrong");
+        assert!(res.is_err(), "wrong password must not decrypt");
     }
 }

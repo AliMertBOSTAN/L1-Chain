@@ -44,6 +44,10 @@ bincode            = { workspace = true }
 hex                = { workspace = true }
 rand               = { workspace = true }
 
+# Operator keystore (M-04): same Argon2id+AES-256-GCM pattern as qv-wallet.
+argon2             = { workspace = true }
+aes-gcm            = { workspace = true }
+
 ratatui            = { version = "0.27", optional = true }
 crossterm          = { version = "0.27", optional = true }
 

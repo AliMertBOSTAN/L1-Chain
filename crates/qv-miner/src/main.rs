@@ -79,9 +79,7 @@ async fn cmd_init(
     let config = OperatorConfig {
         pool_id: format!("pool_{:x}", rand::random::<u32>()),
         pool_name: pool_name.unwrap_or_else(|| "MyPool".to_string()),
-        vrf_key_path: std::path::PathBuf::from("keys/vrf.sk"),
-        kes_key_path: std::path::PathBuf::from("keys/kes.sk"),
-        cold_key_path: std::path::PathBuf::from("keys/cold.sk"),
+        keystore_path: std::path::PathBuf::from("keys/operator.keystore"),
         pledge,
         margin_bps,
         fixed_cost,
@@ -119,13 +117,8 @@ async fn cmd_register_pool(
 
     let config = OperatorConfig::load_toml(&config_path)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let keys = OperatorKeys::load_encrypted(
-        &config.vrf_key_path,
-        &config.kes_key_path,
-        &config.cold_key_path,
-        "password",
-    )
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let keys = OperatorKeys::load_encrypted(&config.keystore_path, "password")
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let tx = qv_miner::registration::build_pool_registration_tx(
         &config,
@@ -193,13 +186,8 @@ async fn cmd_keys_show(config_path: std::path::PathBuf, verbose: bool) -> anyhow
 
     let config = OperatorConfig::load_toml(&config_path)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let keys = OperatorKeys::load_encrypted(
-        &config.vrf_key_path,
-        &config.kes_key_path,
-        &config.cold_key_path,
-        "password",
-    )
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let keys = OperatorKeys::load_encrypted(&config.keystore_path, "password")
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     println!("Operator: {} ({})", config.pool_name, config.pool_id);
     println!("VRF public key length: {} bytes", keys.vrf.public_bytes().len());
