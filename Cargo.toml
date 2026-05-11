@@ -15,6 +15,10 @@ members = [
     "crates/qv-wallet",
     "crates/qv-miner",
 ]
+# Spikes are throwaway scratch projects used to verify external crate APIs
+# before committing to dependency changes. They are NOT part of the workspace
+# build (so `cargo build --workspace` skips them).
+exclude = ["spikes"]
 
 [workspace.package]
 version      = "0.1.0"
@@ -82,10 +86,22 @@ secrecy          = "0.8"
 subtle           = "2.5"
 
 # --- crypto (post-quantum) ---
-# pqcrypto-dilithium / pqcrypto-kyber wrap liboqs-style primitives.
-pqcrypto-dilithium  = "0.5"
+# Dilithium / ML-DSA: per ADR-006 (2026-05-07) we use RustCrypto's `ml-dsa`
+# crate (FIPS 204 final). pqcrypto-dilithium 0.5 (NIST round-3) was removed
+# because its wire format (sk: 4000 B, sig: 3293 B) is incompatible with
+# FIPS 204 (sk: 4032 B, sig: 3309 B). Verified deterministic seeded keygen
+# via `<MlDsa65 as KeyGen>::key_gen_internal(&B32)` (closes envanter C-04 + C-06).
+ml-dsa              = "=0.0.4"
+# Kyber KEM: still uses pqcrypto wrapper (Kyber stayed compatible across
+# rounds). `pqcrypto-traits` retained for the Kyber side only.
 pqcrypto-kyber      = "0.8"
 pqcrypto-traits     = "0.3"
+
+# --- VRF (Ouroboros Praos slot-leader election) ---
+# schnorrkel: Ristretto255-VRF (IETF draft-irtf-cfrg-vrf-15 ECVRF-RISTRETTO255-SHA512).
+# Per ADR-004; v2 hibrit lattice geçişi planlı, trait arkasında soyutlandı.
+schnorrkel          = { version = "0.11", default-features = false, features = ["std", "getrandom"] }
+merlin              = "3"
 
 # --- storage ---
 rocksdb = { version = "0.22", default-features = false, features = ["lz4"] }

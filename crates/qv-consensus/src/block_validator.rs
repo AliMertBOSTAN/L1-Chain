@@ -270,6 +270,61 @@ fn find_pool_by_key_hash(pools: &[StakePool], key_hash: &qv_core::Hash256) -> Op
 }
 
 // ============================================================================
+// Production KES verifier — Sum-KES on Dilithium (qv_crypto::kes)
+// ============================================================================
+
+/// Production KES verifier backed by Sum-KES on Dilithium (`qv_crypto::kes`).
+///
+/// Per ADR-005, this is the MVP/v1 KES. The verifier is stateless: it accepts
+/// `kes_pk` (the 32-byte Merkle root) and a bincode-encoded `KesSignature`,
+/// and checks the leaf Dilithium signature + Merkle path.
+///
+/// `slot` is informational; the actual period is embedded in the signature
+/// as `KesSignature.period`. A consensus-level cross-check between `slot`
+/// and `period` (via `slot_to_kes_period`) is the caller's responsibility
+/// when binding to a specific epoch — for now this verifier accepts any
+/// well-formed signature.
+#[derive(Clone, Debug, Default)]
+pub struct DilithiumSumKesVerifier;
+
+impl DilithiumSumKesVerifier {
+    /// Construct a default verifier (stateless; no setup required).
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl KesVerifier for DilithiumSumKesVerifier {
+    fn verify_kes(
+        &self,
+        kes_pk: &[u8],
+        _slot: Slot,
+        message: &[u8],
+        signature: &[u8],
+    ) -> Result<(), BlockValidationError> {
+        let pk_bytes: [u8; 32] = kes_pk.try_into().map_err(|_| {
+            BlockValidationError::InvalidKesSignature("kes_pk must be 32 bytes".into())
+        })?;
+        let pk = qv_crypto::KesPublicKey::from_bytes(pk_bytes);
+
+        let sig: qv_crypto::KesSignature = bincode::deserialize(signature).map_err(|e| {
+            BlockValidationError::InvalidKesSignature(format!("bincode decode: {e}"))
+        })?;
+
+        let valid = qv_crypto::kes_verify(&pk, &sig, message)
+            .map_err(|e| BlockValidationError::InvalidKesSignature(e.to_string()))?;
+
+        if !valid {
+            return Err(BlockValidationError::InvalidKesSignature(
+                "kes signature verification rejected".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

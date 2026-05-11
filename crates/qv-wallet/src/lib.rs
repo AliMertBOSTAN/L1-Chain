@@ -56,7 +56,7 @@ pub enum WalletError {
 pub type WalletResult<T> = Result<T, WalletError>;
 
 pub use cli::{Cli, Commands};
-pub use keystore::WalletKeystore;
+pub use keystore::{WalletKeystore, WalletMetadata, WalletSecret};
 pub use mnemonic::Mnemonic;
 pub use scanner::MatchStore;
 

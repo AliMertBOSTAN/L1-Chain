@@ -15,6 +15,7 @@ qv-common  = { workspace = true }
 thiserror  = { workspace = true }
 tracing    = { workspace = true }
 serde      = { workspace = true }
+bincode    = { workspace = true }
 qv-core    = { path = "../qv-core" }
 qv-crypto  = { path = "../qv-crypto" }
 # qv-storage kaldırıldı: consensus katmanı storage'a doğrudan bağımlı değil;

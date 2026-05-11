@@ -164,6 +164,8 @@ where
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    use crate::MinerError;
+    use tokio::time::{sleep, Duration};
 
     #[test]
     fn slot_loop_creation() {

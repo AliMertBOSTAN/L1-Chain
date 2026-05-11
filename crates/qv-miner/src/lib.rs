@@ -116,6 +116,14 @@ pub enum MinerError {
     /// Generic I/O error.
     #[error("I/O error: {0}")]
     Io(String),
+
+    /// Key generation failed (any of VRF, KES, cold).
+    #[error("key generation error: {0}")]
+    KeyGeneration(String),
+
+    /// Signing operation failed (any of VRF, KES, cold).
+    #[error("signing error: {0}")]
+    SigningFailed(String),
 }
 
 /// Result alias for miner operations.

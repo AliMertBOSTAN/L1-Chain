@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn is_committee_member_invalid_committee() {
-        let vrf = TestVrf::new(vec![0u8; 32]);
+        let vrf = TestVrf::new([0u8; 32]);
         let pool_id = PoolId::ZERO;
         let epoch_nonce = vec![0u8; 32];
         let epoch = qv_core::Epoch::from(1);
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn is_committee_member_determinism() {
-        let vrf = TestVrf::new(vec![0u8; 32]);
+        let vrf = TestVrf::new([0u8; 32]);
         let pool_id = PoolId::ZERO;
         let epoch_nonce = vec![0u8; 32];
         let epoch = qv_core::Epoch::from(1);
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn is_committee_member_all_members_small_committee() {
-        let vrf = TestVrf::new(vec![0u8; 32]);
+        let vrf = TestVrf::new([0u8; 32]);
         let pool_id = PoolId::ZERO;
         let epoch_nonce = vec![0u8; 32];
         let epoch = qv_core::Epoch::from(1);
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn committee_member_ranks_distributed() {
-        let vrf = TestVrf::new(vec![0u8; 32]);
+        let vrf = TestVrf::new([0u8; 32]);
         let epoch_nonce = vec![0u8; 32];
         let epoch = qv_core::Epoch::from(1);
         let committee_size = 20;

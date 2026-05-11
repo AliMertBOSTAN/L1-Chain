@@ -14,11 +14,11 @@
 use std::collections::BTreeMap;
 
 use qv_consensus::{
-    ChainEntry, Delegation, Epoch, PoolId, StakeDistribution, StakePool,
+    ChainEntry, Delegation, PoolId, StakeDistribution, StakePool,
 };
 use qv_core::{
-    Amount, Block, BlockHash, BlockHeader, Hash256, Height, OutPoint, Script, Slot, Timestamp,
-    Transaction, TxId, TxInput, TxOutput,
+    Amount, Block, BlockHash, BlockHeader, Epoch, Hash256, Height, OutPoint, Script, Slot,
+    Timestamp, Transaction, TxId, TxInput, TxOutput,
 };
 use qv_storage::block_store::BlockStore;
 use qv_storage::kv::MemoryKvStore;

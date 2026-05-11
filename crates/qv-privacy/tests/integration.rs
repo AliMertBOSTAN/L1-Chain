@@ -12,7 +12,8 @@
 
 use qv_crypto::{DilithiumLevel, KyberLevel};
 use qv_privacy::confidential::{
-    BlindingFactor, ConfidentialAmount, MockCommitter, MockRangeProver, MockRangeVerifier,
+    BlindingFactor, Committer, ConfidentialAmount, MockCommitter, MockRangeProver,
+    MockRangeVerifier, RangeProver, RangeVerifier,
 };
 use qv_privacy::stealth::{
     create_stealth_output, recover_spend_key, scan_output, MockSpendKeyDeriver, StealthKeys,

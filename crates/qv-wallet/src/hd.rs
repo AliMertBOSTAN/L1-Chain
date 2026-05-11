@@ -37,38 +37,44 @@ impl DefaultSeedDeriver {
     }
 
     /// Derive the spend key (Dilithium) for an account.
+    ///
+    /// **Status (envanter C-04, REOPENED 2026-05-07):** would be deterministic
+    /// once `qv_crypto::from_seed_pqc` is wired against `ml-dsa = "0.0.4"`
+    /// (see envanter C-06). For now, this calls the stub which returns
+    /// `Err` — wallet `init` will surface that error to the user. Keystore
+    /// save / mnemonic flow still works; only the address derivation step
+    /// fails until C-06 closes.
     fn derive_spend_key(&self, seed: &[u8; 64], account_idx: u32) -> WalletResult<qv_crypto::PqcKeyPair> {
-        // Construct the derivation path: "spend" || account_idx (big-endian u32)
-        let mut input = Vec::with_capacity(64 + 5 + 4);
+        // Path: "QuantumVault-Spend-v1" || seed || account_idx (big-endian u32)
+        let mut input = Vec::with_capacity(64 + 22 + 4);
         input.extend_from_slice(b"QuantumVault-Spend-v1");
         input.extend_from_slice(seed);
         input.extend_from_slice(&account_idx.to_be_bytes());
 
-        let entropy_hash = sha3_256(&input);
+        // SHA3-256 collapses the path into the 32-byte ξ that FIPS 204 KeyGen needs.
+        let xi: [u8; 32] = sha3_256(&input);
 
-        // Use the hash as entropy for Dilithium keygen.
-        // Note: pqcrypto-dilithium does not currently support seeded keygen,
-        // so we use OS entropy. In the future, when deterministic keygen is available,
-        // we can seed the RNG with entropy_hash.
-        let _entropy = entropy_hash; // Will be used once seeded keygen is available.
-
-        qv_crypto::generate_pqc_keypair(self.dilithium_level)
+        qv_crypto::from_seed_pqc(self.dilithium_level, &xi)
             .map_err(|e| WalletError::Crypto(e.to_string()))
     }
 
-    /// Derive the view key (Kyber hybrid) for an account.
+    /// Derive the view key (hybrid X25519 + Kyber) for an account.
+    ///
+    /// **Currently NOT fully deterministic** — `qv_crypto::generate_hybrid_keypair`
+    /// uses OS entropy because the hybrid KEM crate (Kyber portion via
+    /// `pqcrypto-kyber`) doesn't yet expose a seeded API. Tracked under new
+    /// envanter ID **C-05** (qv-crypto Hybrid KEM seeded keygen). Until then,
+    /// view keys are NOT reproducible from a wallet seed; the user must
+    /// back up the view key separately or accept the operational risk.
     fn derive_view_key(&self, seed: &[u8; 64], account_idx: u32) -> WalletResult<qv_crypto::HybridKeyPair> {
-        // Construct the derivation path: "view" || account_idx (big-endian u32)
-        let mut input = Vec::with_capacity(64 + 5 + 4);
+        // Construct the derivation path: "view" || seed || account_idx (big-endian u32)
+        let mut input = Vec::with_capacity(64 + 21 + 4);
         input.extend_from_slice(b"QuantumVault-View-v1");
         input.extend_from_slice(seed);
         input.extend_from_slice(&account_idx.to_be_bytes());
 
         let entropy_hash = sha3_256(&input);
-
-        // Use the hash as entropy for Kyber keygen.
-        // Note: Similar to spend key, we will use this once seeded keygen is available.
-        let _entropy = entropy_hash; // Will be used once seeded keygen is available.
+        let _entropy = entropy_hash; // C-05 önkoşulu: seeded hybrid KEM keygen.
 
         qv_crypto::generate_hybrid_keypair(self.kyber_level)
             .map_err(|e| WalletError::Crypto(e.to_string()))

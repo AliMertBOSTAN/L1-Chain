@@ -115,7 +115,7 @@ impl NodeConfig {
     }
 
     /// Validate configuration constraints.
-    fn validate(&self) -> crate::NodeResult<()> {
+    pub fn validate(&self) -> crate::NodeResult<()> {
         if self.network.is_empty() {
             return Err(crate::NodeError::Config(
                 "network field cannot be empty".to_string(),

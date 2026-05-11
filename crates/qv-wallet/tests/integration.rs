@@ -44,15 +44,14 @@ mod tests {
 
         let mut utxos = BTreeMap::new();
         utxos.insert(
-            OutPoint {
-                tx_id: TxId::from_bytes(&[1u8; 32]),
-                index: 0,
-            },
-            Amount::from_sats(1000),
+            OutPoint::new(TxId::from_bytes([1u8; 32]), 0),
+            Amount::from_smallest_units(2_000),
         );
 
+        // CoinSelector reserves a flat 1000-unit fee/dust buffer; pick a target
+        // that leaves room above the reserve.
         let selector = CoinSelector::new(utxos, 1);
-        let result = selector.select(Amount::from_sats(500)).expect("select");
+        let result = selector.select(Amount::from_smallest_units(500)).expect("select");
         assert_eq!(result.selected.len(), 1);
     }
 
@@ -61,24 +60,16 @@ mod tests {
         use qv_wallet::tx_builder::TxBuilder;
         use qv_core::{Amount, OutPoint, Script, TxInput, TxOutput, ValidityInterval, TxId};
 
-        let validity = ValidityInterval { from: 0, to: 100 };
+        let validity = ValidityInterval::UNBOUNDED;
         let mut builder = TxBuilder::new(validity);
 
-        let input = TxInput {
-            outpoint: OutPoint {
-                tx_id: TxId::from_bytes(&[0u8; 32]),
-                index: 0,
-            },
-            sequence: 0,
-        };
+        let input = TxInput::new(OutPoint::new(TxId::from_bytes([0u8; 32]), 0));
         builder.add_input(input);
 
-        let output = TxOutput {
-            value: Amount::from_sats(100),
-            locking_script: Script::from(vec![]),
-            datum: None,
-            stealth_info: None,
-        };
+        let output = TxOutput::new(
+            Amount::from_smallest_units(100),
+            Script::new(vec![]),
+        );
         builder.add_output(output);
 
         let tx = builder.build_unsigned().expect("build");
@@ -100,11 +91,8 @@ mod tests {
         use qv_core::{Amount, OutPoint, TxId};
 
         let mut store = MemoryMatchStore::new();
-        let op = OutPoint {
-            tx_id: TxId::from_bytes(&[0u8; 32]),
-            index: 0,
-        };
-        store.add_match(op.clone(), Amount::from_sats(100)).expect("add");
+        let op = OutPoint::new(TxId::from_bytes([0u8; 32]), 0);
+        store.add_match(op.clone(), Amount::from_smallest_units(100)).expect("add");
         let matches = store.get_matches().expect("get");
         assert_eq!(matches.len(), 1);
     }
@@ -121,15 +109,39 @@ mod tests {
 
     #[test]
     fn test_cli_parse_send() {
+        // Updated 2026-05-07 (W-05): Send takes named flags now.
         use clap::Parser;
         use qv_wallet::cli::{Cli, Commands};
 
-        let args = vec!["wallet", "send", "addr", "100"];
+        let args = vec![
+            "wallet",
+            "send",
+            "--to-pubkey",
+            "deadbeef",
+            "--amount",
+            "100",
+            "--input",
+            "00:0",
+            "--input-value",
+            "1000",
+        ];
         let cli = Cli::try_parse_from(args).expect("parse");
         match cli.command {
-            Commands::Send { to, amount } => {
-                assert_eq!(to, "addr");
+            Commands::Send {
+                to_pubkey,
+                amount,
+                input,
+                input_value,
+                fee,
+                broadcast,
+                ..
+            } => {
+                assert_eq!(to_pubkey, "deadbeef");
                 assert_eq!(amount, 100);
+                assert_eq!(input, "00:0");
+                assert_eq!(input_value, 1000);
+                assert_eq!(fee, 1000); // default
+                assert!(!broadcast);
             }
             _ => panic!("wrong command"),
         }
@@ -164,15 +176,12 @@ mod tests {
 
         let mut utxos = BTreeMap::new();
         utxos.insert(
-            OutPoint {
-                tx_id: TxId::from_bytes(&[1u8; 32]),
-                index: 0,
-            },
-            Amount::from_sats(100),
+            OutPoint::new(TxId::from_bytes([1u8; 32]), 0),
+            Amount::from_smallest_units(100),
         );
 
         let selector = CoinSelector::new(utxos, 100);
-        let result = selector.select(Amount::from_sats(1000));
+        let result = selector.select(Amount::from_smallest_units(1000));
         assert!(result.is_err());
     }
 }

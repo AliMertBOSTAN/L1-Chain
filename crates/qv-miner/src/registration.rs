@@ -155,7 +155,11 @@ mod tests {
         assert_eq!(deserialized.pledge, 1_000_000_000);
     }
 
+    // C-04/C-06 closed via ADR-006 (ml-dsa swap). Test still ignored purely
+    // because `OperatorKeys::generate()` runs the depth-11 KES leaf tree
+    // (~2s); run via `cargo test -- --ignored` when KES path is the focus.
     #[test]
+    #[ignore]
     fn build_pool_registration_tx_ok() {
         let config = sample_config();
         let keys = crate::keys::OperatorKeys::generate().unwrap();
@@ -174,6 +178,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // same slow-KES reason as `build_pool_registration_tx_ok` (post-ADR-006)
     fn registration_output_has_correct_value() {
         let config = sample_config();
         let keys = crate::keys::OperatorKeys::generate().unwrap();

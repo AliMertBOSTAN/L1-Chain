@@ -572,7 +572,11 @@ mod tests {
         );
         let stealth_bytes = vec![0xFF; 32];
         intent = intent.with_stealth(stealth_bytes.clone());
-        assert_eq!(intent.owner_stealth_pk_hash.as_ref(), stealth_bytes.as_slice());
+        // `owner_stealth_pk` is `Option<Vec<u8>>`; unwrap to compare bytes.
+        assert_eq!(
+            intent.owner_stealth_pk.as_deref(),
+            Some(stealth_bytes.as_slice())
+        );
     }
 
     #[test]

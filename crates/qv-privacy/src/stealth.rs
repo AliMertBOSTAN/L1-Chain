@@ -22,10 +22,12 @@
 //!
 //! # Limitations
 //!
-//! - Real Dilithium key derivation from a seed is not yet supported by the
-//!   `pqcrypto-dilithium` crate. We use a [`SpendKeyDeriver`] trait so the
-//!   actual derivation can be swapped in when available. A mock implementation
-//!   is provided for testing.
+//! - Dilithium spend-key derivation from a seed is now fully supported via
+//!   `qv_crypto::from_seed_pqc` (envanter C-04, kapatildi 2026-05-06). The
+//!   [`SpendKeyDeriver`] trait + `MockSpendKeyDeriver` are kept for legacy
+//!   tests; new code paths should call `qv_crypto::from_seed_pqc` directly.
+//! - **Hybrid KEM (view key) seeded derivation is NOT yet supported** — see
+//!   envanter ID C-05. View keys today are generated with OS entropy.
 //! - The view tag is a single byte (1/256 false-positive rate).
 
 #![forbid(unsafe_code)]

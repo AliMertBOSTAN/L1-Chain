@@ -446,8 +446,10 @@ mod tests {
         let density = cs.chain_density(cs.tip_hash(), 20);
         assert_eq!(density, 1); // only b3 at slot 50 > 30
 
-        // Window of 100 → all three blocks (slots 5, 10, 50 all > -50)
+        // Window of 100, tip slot=50 → min_slot = saturating_sub(100) = 0.
+        // Filter is strict `slot > min_slot`, so genesis (slot 0) is NOT
+        // counted (0 > 0 is false). Only b1 (5), b2 (10), b3 (50) → 3.
         let density_wide = cs.chain_density(cs.tip_hash(), 100);
-        assert_eq!(density_wide, 4); // genesis(0) + 5 + 10 + 50 all > -50
+        assert_eq!(density_wide, 3);
     }
 }

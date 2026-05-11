@@ -127,8 +127,8 @@ mod tests {
 
     #[test]
     fn genesis_block_has_no_inputs() {
-        let (pk, _) = generate_pqc_keypair(DilithiumLevel::Level3).unwrap();
-        let block = build_genesis_block(&[(pk, 1000)]);
+        let kp = generate_pqc_keypair(DilithiumLevel::Level3).unwrap();
+        let block = build_genesis_block(&[(kp.public, 1000)]);
 
         assert_eq!(block.transactions.len(), 1);
         let genesis_tx = &block.transactions[0];
@@ -138,10 +138,10 @@ mod tests {
 
     #[test]
     fn genesis_block_creates_p2pkh_outputs() {
-        let (pk1, _) = generate_pqc_keypair(DilithiumLevel::Level3).unwrap();
-        let (pk2, _) = generate_pqc_keypair(DilithiumLevel::Level3).unwrap();
+        let kp1 = generate_pqc_keypair(DilithiumLevel::Level3).unwrap();
+        let kp2 = generate_pqc_keypair(DilithiumLevel::Level3).unwrap();
 
-        let block = build_genesis_block(&[(pk1, 1000), (pk2, 2000)]);
+        let block = build_genesis_block(&[(kp1.public, 1000), (kp2.public, 2000)]);
 
         let genesis_tx = &block.transactions[0];
         assert_eq!(genesis_tx.outputs.len(), 2);
@@ -157,8 +157,8 @@ mod tests {
 
     #[test]
     fn genesis_block_header_is_correct() {
-        let (pk, _) = generate_pqc_keypair(DilithiumLevel::Level3).unwrap();
-        let block = build_genesis_block(&[(pk, 1000)]);
+        let kp = generate_pqc_keypair(DilithiumLevel::Level3).unwrap();
+        let block = build_genesis_block(&[(kp.public, 1000)]);
 
         assert_eq!(block.header.version, BLOCK_VERSION);
         assert_eq!(block.header.height, Height::GENESIS);

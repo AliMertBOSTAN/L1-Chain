@@ -16,8 +16,9 @@
 use proptest::prelude::*;
 
 use qv_crypto::{
-    decapsulate_hybrid, encapsulate_hybrid, generate_hybrid_keypair, generate_pqc_keypair,
-    sha3_256, sign_pqc, verify_pqc, DilithiumLevel, HashAlgorithm, Hasher, KyberLevel, SecureBytes,
+    decapsulate_hybrid, encapsulate_hybrid, from_seed_pqc, generate_hybrid_keypair,
+    generate_pqc_keypair, sha3_256, sign_pqc, verify_pqc, DilithiumLevel, HashAlgorithm, Hasher,
+    KyberLevel, PqcKeyPair, SecureBytes,
 };
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,70 @@ proptest! {
         let kp = generate_pqc_keypair(DilithiumLevel::Level2).unwrap();
         let sig = sign_pqc(&kp.secret, &msg).unwrap();
         prop_assert!(verify_pqc(&kp.public, &msg, &sig).unwrap());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Seeded keygen workflow tests — `from_seed_pqc` (envanter ID C-04 + C-06,
+// CLOSED 2026-05-07 via ADR-006: full ml-dsa swap).
+// ---------------------------------------------------------------------------
+//
+// These tests exercise the production use-cases that closing C-04 unblocked
+// (HD wallet derivation, KES leaf-key derivation per ADR-005, stealth
+// one-time spend key recovery). With the ml-dsa swap landed they run by default.
+
+#[test]
+fn from_seed_models_hd_derivation_pattern() {
+    let mnemonic_seed = [0xABu8; 32];
+
+    let mut derive_account = |idx: u32| -> PqcKeyPair {
+        let mut input = Vec::with_capacity(40);
+        input.extend_from_slice(b"QuantumVault-Spend-v1");
+        input.extend_from_slice(&mnemonic_seed);
+        input.extend_from_slice(&idx.to_le_bytes());
+        let child_seed = sha3_256(&input);
+        from_seed_pqc(DilithiumLevel::Level3, &child_seed).unwrap()
+    };
+
+    let acct_0 = derive_account(0);
+    let acct_0_again = derive_account(0);
+    let acct_1 = derive_account(1);
+
+    assert_eq!(acct_0.public.as_bytes(), acct_0_again.public.as_bytes());
+    assert_ne!(acct_0.public.as_bytes(), acct_1.public.as_bytes());
+
+    let sig = sign_pqc(&acct_0.secret, b"acct 0 tx").unwrap();
+    assert!(verify_pqc(&acct_0.public, b"acct 0 tx", &sig).unwrap());
+}
+
+#[test]
+fn from_seed_models_kes_leaf_derivation_pattern() {
+    let kes_master_seed = [0xCDu8; 32];
+
+    let mut leaf_for_period = |period: u32| -> PqcKeyPair {
+        let mut input = Vec::with_capacity(48);
+        input.extend_from_slice(b"QuantumVault-KES-leaf-v1");
+        input.extend_from_slice(&kes_master_seed);
+        input.extend_from_slice(&period.to_le_bytes());
+        let leaf_seed = sha3_256(&input);
+        from_seed_pqc(DilithiumLevel::Level3, &leaf_seed).unwrap()
+    };
+
+    let leaf_0 = leaf_for_period(0);
+    let leaf_1 = leaf_for_period(1);
+    let leaf_2 = leaf_for_period(2);
+
+    assert_ne!(leaf_0.public.as_bytes(), leaf_1.public.as_bytes());
+    assert_ne!(leaf_1.public.as_bytes(), leaf_2.public.as_bytes());
+    assert_ne!(leaf_0.public.as_bytes(), leaf_2.public.as_bytes());
+
+    for (period, leaf) in [(0u32, &leaf_0), (1, &leaf_1), (2, &leaf_2)] {
+        let mut bound = Vec::new();
+        bound.extend_from_slice(b"period:");
+        bound.extend_from_slice(&period.to_le_bytes());
+        bound.extend_from_slice(b"|msg");
+        let sig = sign_pqc(&leaf.secret, &bound).unwrap();
+        assert!(verify_pqc(&leaf.public, &bound, &sig).unwrap());
     }
 }
 

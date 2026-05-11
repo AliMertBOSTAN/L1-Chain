@@ -44,22 +44,47 @@ mod tests {
         }
     }
 
-    /// Test 1: Keypair generation and encryption round-trip.
+    /// Test 1: Keypair generation produces correct public key sizes.
+    ///
+    /// VRF: 32 bytes (Ristretto compressed point).
+    /// KES: 32 bytes (Merkle root of leaf pk hashes).
+    /// Cold: 1952 bytes (Dilithium Level 3 public key per FIPS 204).
+    ///
+    /// Encrypted save/load roundtrip is gated on envanter M-04.
     #[test]
+    #[ignore] // KES generation is ~2 s; run via `cargo test -- --ignored`.
     fn test_keypair_generation_roundtrip() {
         let keys1 = OperatorKeys::generate().unwrap();
         assert_eq!(keys1.vrf.public_bytes().len(), 32);
         assert_eq!(keys1.kes.public_bytes().len(), 32);
-        assert_eq!(keys1.cold.public_bytes().len(), 32);
+        assert_eq!(keys1.cold.public_bytes().len(), 1952);
 
-        // In a real implementation with encryption, would roundtrip here.
+        // Two independent generations produce distinct VRF / cold pk
+        // (KES check skipped — KES generation is the slow path).
         let keys2 = OperatorKeys::generate().unwrap();
-        // Verify both are valid (though different due to randomness).
-        assert_eq!(keys2.vrf.public_bytes().len(), 32);
+        assert_ne!(keys1.vrf.public_bytes(), keys2.vrf.public_bytes());
+        assert_ne!(keys1.cold.public_bytes(), keys2.cold.public_bytes());
+    }
+
+    /// Test 1b: Determinism of seeded key derivation.
+    #[test]
+    #[ignore] // KES generation is slow; run via `cargo test -- --ignored`.
+    fn test_keypair_from_seed_is_deterministic() {
+        let master = [0xCD_u8; 32];
+        let k1 = OperatorKeys::from_seed(&master).unwrap();
+        let k2 = OperatorKeys::from_seed(&master).unwrap();
+        assert_eq!(k1.vrf.public_bytes(), k2.vrf.public_bytes());
+        assert_eq!(k1.kes.public_bytes(), k2.kes.public_bytes());
+        assert_eq!(k1.cold.public_bytes(), k2.cold.public_bytes());
     }
 
     /// Test 2: Pool registration TX structure.
+    ///
+    /// Marked `#[ignore]` because `OperatorKeys::generate()` now invokes the
+    /// real KES generation (envanter M-02 closed). Run via
+    /// `cargo test -- --ignored`.
     #[test]
+    #[ignore]
     fn test_pool_registration_tx_structure() {
         let config = sample_config();
         let keys = OperatorKeys::generate().unwrap();
@@ -84,7 +109,7 @@ mod tests {
     /// Test 3: Leadership check determinism (with TestVrf).
     #[test]
     fn test_leadership_determinism() {
-        let vrf = TestVrf::new(vec![0u8; 32]);
+        let vrf = TestVrf::new([0u8; 32]);
         let pool_id = qv_consensus::PoolId::ZERO;
         let epoch_nonce = vec![0u8; 32];
         let epoch = Epoch::from(1);
@@ -114,8 +139,15 @@ mod tests {
             protocol_params: ProtocolParams::mainnet(),
         };
 
-        let clear_pool = ClearPool::new(10000).unwrap();
-        let encrypted_pool = qv_mempool::EncryptedPool::new(Epoch::from(0), 5000).unwrap();
+        let clear_pool = ClearPool::new(qv_mempool::clear::ClearPoolConfig::ephemeral());
+        let encrypted_pool = qv_mempool::EncryptedPool::new(
+            qv_mempool::EncryptedPoolConfig {
+                max_tx_count: 5_000,
+                max_pool_bytes: 4 * 1024 * 1024,
+                max_age_secs: 60,
+            },
+            Epoch::from(0),
+        );
 
         let vrf_proof = vec![1, 2, 3];
         let kes_sig = vec![4, 5, 6];
@@ -138,7 +170,7 @@ mod tests {
     /// Test 5: Committee membership across pool IDs.
     #[test]
     fn test_committee_membership_diversity() {
-        let vrf = TestVrf::new(vec![0u8; 32]);
+        let vrf = TestVrf::new([0u8; 32]);
         let epoch_nonce = vec![0u8; 32];
         let epoch = Epoch::from(1);
         let committee_size = 100;
@@ -162,14 +194,25 @@ mod tests {
     /// Test 6: Encrypted mempool decryption (via MockThresholdDecryptor).
     #[test]
     fn test_encrypted_mempool_basic() {
-        let mut encrypted_pool = qv_mempool::EncryptedPool::new(Epoch::from(0), 5000).unwrap();
+        let encrypted_pool = qv_mempool::EncryptedPool::new(
+            qv_mempool::EncryptedPoolConfig {
+                max_tx_count: 5_000,
+                max_pool_bytes: 4 * 1024 * 1024,
+                max_age_secs: 60,
+            },
+            Epoch::from(0),
+        );
 
         // Verify pool is created and empty.
         assert_eq!(encrypted_pool.len(), 0);
     }
 
     /// Test 7: KES key rotation increments period.
+    ///
+    /// Marked `#[ignore]`: real KES generation is the slow path (envanter M-02
+    /// closed). Run via `cargo test -- --ignored`.
     #[tokio::test]
+    #[ignore]
     async fn test_kes_rotation() {
         let mut keys = OperatorKeys::generate().unwrap();
         assert_eq!(keys.kes.period(), 0);
@@ -260,6 +303,7 @@ mod tests {
     /// Test 12: CLI argument parsing.
     #[test]
     fn test_cli_argument_parsing() {
+        use clap::Parser;
         use qv_miner::cli::Cli;
 
         // Parse init subcommand

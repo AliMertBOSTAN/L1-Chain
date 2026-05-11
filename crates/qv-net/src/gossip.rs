@@ -121,11 +121,18 @@ pub fn build_gossipsub(
         MessageId::from(hash.to_vec())
     };
 
+    // libp2p-gossipsub 0.46+ enforces `mesh_outbound_min <= mesh_n / 2`.
+    // Default `mesh_outbound_min = 2` breaks our ephemeral preset
+    // (`mesh_n = 3` → 2 ≤ 1 fails). Compute a safe value: at least 1, at
+    // most `mesh_n / 2`. (We use `mesh_n_low` cap as a soft floor too.)
+    let safe_mesh_outbound_min = (config.mesh_n / 2).max(1).min(config.mesh_n_low);
+
     let gossipsub_config = gossipsub::ConfigBuilder::default()
         .heartbeat_interval(Duration::from_millis(config.heartbeat_ms))
         .mesh_n(config.mesh_n)
         .mesh_n_low(config.mesh_n_low)
         .mesh_n_high(config.mesh_n_high)
+        .mesh_outbound_min(safe_mesh_outbound_min)
         .max_transmit_size(config.max_transmit_size)
         .validation_mode(ValidationMode::Strict)
         .message_id_fn(message_id_fn)

@@ -250,6 +250,7 @@ fn compute_binding_hash(
 )]
 mod tests {
     use super::*;
+    use crate::confidential::{Committer, MockCommitter};
     use crate::stealth::{create_stealth_output, scan_output, StealthKeys};
     use qv_crypto::{DilithiumLevel, KyberLevel};
 

@@ -6,11 +6,11 @@
 //! |----------------|--------------------------------------------------------|
 //! | [`hash`]       | SHA3-256, BLAKE3, streaming hasher, double-hash        |
 //! | [`secure_bytes`] | `zeroize`-on-drop byte buffer for secret material    |
-//! | [`pqc_sign`]   | Dilithium / ML-DSA signatures (Levels 2, 3, 5)         |
+//! | [`pqc_sign`]   | Dilithium / ML-DSA signatures (Levels 2, 3, 5) + FIPS 204 seeded keygen |
 //! | [`hybrid_kem`] | X25519 + Kyber hybrid KEM with transcript-bound KDF    |
-//! | [`vrf`]        | Ouroboros-Praos verifiable random function (TODO)      |
-//! | [`kes`]        | Forward-secure key-evolving signatures (TODO)          |
-//! | [`threshold`]  | Threshold Kyber DKG for encrypted mempool (TODO)       |
+//! | [`vrf`]        | Ouroboros-Praos verifiable random function (ADR-004 — impl pending) |
+//! | [`kes`]        | Forward-secure key-evolving signatures (ADR-005 — impl pending) |
+//! | [`threshold`]  | Threshold cryptography (Shamir + Feldman VSS + Pedersen DKG + ElGamal-style decryption) |
 //!
 //! # Error model
 //!
@@ -32,8 +32,9 @@ pub mod vrf;
 /// Crate-level error type.
 ///
 /// Individual modules avoid leaking the exact upstream library error so that
-/// the crate surface is stable if we swap a crypto backend (e.g. moving from
-/// `pqcrypto-dilithium` to a future `pqcrypto-ml-dsa`).
+/// the crate surface is stable if we swap a crypto backend. Per ADR-006 the
+/// signature backend is `ml-dsa = "0.0.4"` (FIPS 204 final); previously
+/// `pqcrypto-dilithium` (NIST round-3, swapped out 2026-05-07).
 #[derive(Debug, thiserror::Error)]
 pub enum CryptoError {
     /// Byte slice had the wrong length for a key, signature, ciphertext, etc.
@@ -115,9 +116,14 @@ pub use secure_bytes::SecureBytes;
 
 /// Post-quantum signature (Dilithium/ML-DSA) generation and verification;
 /// see [`pqc_sign`] module. Functions are aliased with `_pqc` suffix.
+///
+/// **`from_seed_pqc` is currently a stub returning `Err` (envanter C-04
+/// REOPENED 2026-05-07).** The previous `fips204` integration was reverted
+/// because `fips204` 0.4 does not expose seeded keygen. Swap to `ml-dsa`
+/// 0.0.4 is tracked under envanter C-06.
 pub use pqc_sign::{
-    generate_keypair as generate_pqc_keypair, sign as sign_pqc, verify as verify_pqc,
-    DilithiumLevel, PqcKeyPair, PqcPublicKey, PqcSecretKey, PqcSignature,
+    from_seed as from_seed_pqc, generate_keypair as generate_pqc_keypair, sign as sign_pqc,
+    verify as verify_pqc, DilithiumLevel, PqcKeyPair, PqcPublicKey, PqcSecretKey, PqcSignature,
 };
 
 /// Hybrid X25519 + Kyber key encapsulation and shared-secret derivation;
@@ -135,4 +141,23 @@ pub use threshold::{
     DkgParticipant, DkgResult, DkgShare, DkgThresholdDecryptor, FeldmanVssParticipant,
     MockDkgParticipant, MockThresholdDecryptor, ShamirShare, ThresholdDecryptor,
     ThresholdPublicKey,
+};
+
+/// Verifiable Random Function for Ouroboros Praos slot leader election;
+/// see [`vrf`] module. Per ADR-004 we ship Ristretto255-VRF for MVP/v1
+/// and a hybrid Ristretto + lattice-VRF is planned for v2 (trait swap point
+/// is `qv_consensus::leader_schedule::VrfEvaluator`).
+pub use vrf::{
+    evaluate as vrf_evaluate, verify as vrf_verify, VrfKeyPair, VrfOutput, VrfProof,
+    VrfPublicKey, VrfSecretKey, VRF_DOMAIN_TAG, VRF_OUTPUT_BYTES, VRF_PUBLIC_KEY_BYTES,
+};
+
+/// Forward-secure key-evolving signatures (Sum-KES on Dilithium); see
+/// [`kes`] module. Per ADR-005, the leaf primitive is Dilithium Level 3 and
+/// the binary tree depth is 11 (`N = 2048` periods). Trait swap point for
+/// consensus is `qv_consensus::block_validator::KesVerifier`.
+pub use kes::{
+    current_period as kes_current_period, evolve as kes_evolve, generate as kes_generate,
+    sign as kes_sign, verify as kes_verify, KesPublicKey, KesSecretKey, KesSignature,
+    KES_LEAF_LEVEL, KES_TOTAL_PERIODS, KES_TREE_DEPTH,
 };

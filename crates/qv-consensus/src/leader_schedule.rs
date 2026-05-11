@@ -261,6 +261,89 @@ pub fn verify_leadership<V: VrfEvaluator>(
 }
 
 // ============================================================================
+// Production VRF — Ristretto255-VRF wrapper around qv_crypto::vrf
+// ============================================================================
+
+/// Production VRF evaluator backed by Ristretto255-VRF (`qv_crypto::vrf`).
+///
+/// Per ADR-004, this is the MVP/v1 VRF. A future hybrid lattice-VRF will be
+/// a drop-in replacement (different `RealVrfEvaluator`-style struct, same
+/// `VrfEvaluator` trait). Existing callers that hold a `dyn VrfEvaluator` or
+/// `impl VrfEvaluator` work unchanged.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use qv_consensus::leader_schedule::RistrettoVrfEvaluator;
+/// let seed = [42u8; 32];
+/// let vrf = RistrettoVrfEvaluator::from_seed(&seed).unwrap();
+/// // pass `vrf` to `check_leadership`, `verify_leadership`, etc.
+/// ```
+#[derive(Clone, Debug)]
+pub struct RistrettoVrfEvaluator {
+    secret: qv_crypto::VrfSecretKey,
+    public: qv_crypto::VrfPublicKey,
+}
+
+impl RistrettoVrfEvaluator {
+    /// Wrap an existing `qv_crypto::VrfKeyPair`.
+    #[must_use]
+    pub fn new(kp: qv_crypto::VrfKeyPair) -> Self {
+        Self {
+            secret: kp.secret,
+            public: kp.public,
+        }
+    }
+
+    /// Derive deterministically from a 32-byte seed (e.g. operator's
+    /// HD-derived VRF seed).
+    pub fn from_seed(seed: &[u8; 32]) -> Result<Self, LeaderError> {
+        let kp = qv_crypto::VrfKeyPair::from_seed(seed).map_err(|e| {
+            LeaderError::VrfEvaluation(format!("vrf keypair from_seed: {e}"))
+        })?;
+        Ok(Self::new(kp))
+    }
+
+    /// Generate a fresh keypair from OS entropy.
+    pub fn generate() -> Result<Self, LeaderError> {
+        let kp = qv_crypto::VrfKeyPair::generate()
+            .map_err(|e| LeaderError::VrfEvaluation(format!("vrf keypair generate: {e}")))?;
+        Ok(Self::new(kp))
+    }
+
+    /// Public key bytes — register on-chain as `StakePool.vrf_key`.
+    #[must_use]
+    pub fn public_key_bytes(&self) -> [u8; 32] {
+        *self.public.as_bytes()
+    }
+}
+
+impl VrfEvaluator for RistrettoVrfEvaluator {
+    fn evaluate(&self, input: &[u8]) -> Result<(VrfOutput, VrfProof), LeaderError> {
+        let (out, proof) = qv_crypto::vrf_evaluate(&self.secret, input)
+            .map_err(|e| LeaderError::VrfEvaluation(e.to_string()))?;
+        Ok((VrfOutput(*out.as_bytes()), VrfProof(proof.as_bytes().to_vec())))
+    }
+
+    fn verify(
+        &self,
+        vrf_pk: &[u8],
+        input: &[u8],
+        proof: &VrfProof,
+    ) -> Result<VrfOutput, LeaderError> {
+        let pk_bytes: [u8; 32] = vrf_pk
+            .try_into()
+            .map_err(|_| LeaderError::VrfVerification("vrf_pk must be 32 bytes".into()))?;
+        let pk = qv_crypto::VrfPublicKey::from_bytes(pk_bytes)
+            .map_err(|e| LeaderError::VrfVerification(e.to_string()))?;
+        let qproof = qv_crypto::VrfProof::from_bytes(proof.0.clone());
+        let out = qv_crypto::vrf_verify(&pk, input, &qproof)
+            .map_err(|e| LeaderError::VrfVerification(e.to_string()))?;
+        Ok(VrfOutput(*out.as_bytes()))
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -275,7 +358,7 @@ pub fn verify_leadership<V: VrfEvaluator>(
 )]
 mod tests {
     use super::*;
-    use qv_core::{Amount, Epoch};
+    use qv_core::{Amount, Epoch, Hash256};
 
     fn test_distribution() -> (StakeDistribution, PoolId, PoolId) {
         let p1 = PoolId::from_vrf_key(&[1; 32]);
@@ -456,5 +539,53 @@ mod tests {
             won_p1 > won_p2,
             "70% stake pool ({won_p1}) should win more than 30% pool ({won_p2})"
         );
+    }
+
+    // ========================================================================
+    // RistrettoVrfEvaluator (real VRF) — minimal smoke tests
+    // ========================================================================
+
+    #[test]
+    fn ristretto_vrf_from_seed_is_deterministic() {
+        let v1 = RistrettoVrfEvaluator::from_seed(&[7u8; 32]).unwrap();
+        let v2 = RistrettoVrfEvaluator::from_seed(&[7u8; 32]).unwrap();
+        assert_eq!(v1.public_key_bytes(), v2.public_key_bytes());
+    }
+
+    #[test]
+    fn ristretto_vrf_evaluate_verify_roundtrip() {
+        let vrf = RistrettoVrfEvaluator::from_seed(&[0x42u8; 32]).unwrap();
+        let input = vrf_input(&EpochNonce::GENESIS, Slot::from(123));
+        let (out, proof) = vrf.evaluate(&input).unwrap();
+        let pk = vrf.public_key_bytes();
+        let recovered = vrf.verify(&pk, &input, &proof).unwrap();
+        assert_eq!(out, recovered);
+    }
+
+    #[test]
+    fn ristretto_vrf_wrong_pk_fails() {
+        let v1 = RistrettoVrfEvaluator::from_seed(&[1u8; 32]).unwrap();
+        let v2 = RistrettoVrfEvaluator::from_seed(&[2u8; 32]).unwrap();
+        let input = vrf_input(&EpochNonce::GENESIS, Slot::from(0));
+        let (_out, proof) = v1.evaluate(&input).unwrap();
+        let res = v1.verify(&v2.public_key_bytes(), &input, &proof);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn ristretto_vrf_check_leadership_runs() {
+        // Sanity: real VRF works inside check_leadership without panicking.
+        let (dist, p1, _) = test_distribution();
+        let vrf = RistrettoVrfEvaluator::from_seed(&[0xABu8; 32]).unwrap();
+        let nonce = EpochNonce::GENESIS;
+
+        let mut elected = 0u32;
+        for s in 0..1_000u64 {
+            if let Ok(Some(_)) = check_leadership(&vrf, &p1, &nonce, Slot::from(s), &dist) {
+                elected += 1;
+            }
+        }
+        // 70% stake @ f=0.05 → ~3.5% election rate → ~35/1000. Wide margins.
+        assert!(elected > 0 && elected < 1_000);
     }
 }

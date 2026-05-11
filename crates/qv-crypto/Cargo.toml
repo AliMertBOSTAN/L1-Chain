@@ -21,9 +21,20 @@ blake3              = { workspace = true }
 x25519-dalek        = { workspace = true }
 
 # Post-quantum
-pqcrypto-dilithium  = { workspace = true }
+# Dilithium / ML-DSA: per ADR-006 (2026-05-07), full swap to RustCrypto's
+# `ml-dsa` 0.0.4 (FIPS 204 final). pqcrypto-dilithium 0.5 (NIST round-3) was
+# wire-incompatible (sk/sig sizes differ). ml-dsa offers verified deterministic
+# seeded keygen via `<MlDsaP as KeyGen>::key_gen_internal(&B32)` — closes
+# envanter C-04 + C-06.
+ml-dsa              = { workspace = true }
+# Kyber stays on pqcrypto wrapper (KEM side unaffected by FIPS 204 transition).
 pqcrypto-kyber      = { workspace = true }
 pqcrypto-traits     = { workspace = true }
+
+# Ristretto255-VRF for Ouroboros Praos slot leader election (ADR-004).
+# C-07 (schnorrkel API verify) closed 2026-05-07 — full workspace tests green.
+schnorrkel          = { workspace = true }
+merlin              = { workspace = true }
 
 # Secret-material hygiene
 zeroize             = { workspace = true }
@@ -40,6 +51,7 @@ serde               = { workspace = true }
 [dev-dependencies]
 proptest  = { workspace = true }
 criterion = { workspace = true }
+bincode   = { workspace = true }
 
 [[bench]]
 name    = "crypto_bench"

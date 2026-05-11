@@ -149,24 +149,36 @@ impl NetworkHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use qv_mempool::common::TxInput;
+    use qv_core::{
+        Amount, Block, BlockHash, BlockHeader, Hash256, Height, MerkleRoot, OutPoint, Script,
+        Slot, Timestamp, TxId, TxInput, TxOutput, UtxoCommitment, BLOCK_VERSION,
+    };
+    use qv_net::PeerId;
 
-    /// Helper to create a dummy transaction for testing.
+    /// Helper: a minimal transaction (one zero-input, one zero-value output).
     fn dummy_transaction() -> Transaction {
-        Transaction {
-            version: 1,
-            inputs: vec![TxInput {
-                prev_output: qv_mempool::common::OutPoint {
-                    tx_id: [0u8; 32],
-                    index: 0,
-                },
-                script_sig: vec![],
-            }],
-            outputs: vec![qv_core::TxOutput {
-                value: 100,
-                script_pubkey: vec![],
-            }],
-        }
+        let prev = OutPoint::new(TxId::from_bytes([0u8; 32]), 0);
+        Transaction::new(
+            vec![TxInput::new(prev)],
+            vec![TxOutput::new(Amount::from_smallest_units(100), Script::new(vec![]))],
+        )
+    }
+
+    /// Helper: a minimal block with no transactions (height 0).
+    fn dummy_block() -> Block {
+        let header = BlockHeader {
+            version: BLOCK_VERSION,
+            prev_hash: BlockHash::ZERO,
+            height: Height::GENESIS,
+            slot: Slot::GENESIS,
+            timestamp: Timestamp::from_unix_secs(0),
+            merkle_root: MerkleRoot::ZERO,
+            utxo_commitment: UtxoCommitment::ZERO,
+            vrf_proof: vec![],
+            kes_sig: vec![],
+            producer_key_hash: Hash256::ZERO,
+        };
+        Block::new(header, vec![])
     }
 
     #[tokio::test]
@@ -182,9 +194,9 @@ mod tests {
         });
 
         // Send a block message via the network event channel
-        let block = qv_core::Block::genesis_template();
+        let block = dummy_block();
         let net_event = NetEvent::Message {
-            source: libp2p::PeerId::random(),
+            source: PeerId::random(),
             message: NetworkMessage::Block(Box::new(block.clone())),
         };
         network_tx.send(net_event).unwrap();
@@ -218,7 +230,7 @@ mod tests {
 
         let tx = dummy_transaction();
         let net_event = NetEvent::Message {
-            source: libp2p::PeerId::random(),
+            source: PeerId::random(),
             message: NetworkMessage::Transaction(Box::new(tx.clone())),
         };
         network_tx.send(net_event).unwrap();
@@ -227,8 +239,8 @@ mod tests {
         let received = event_rx.recv().await.expect("should receive tx event");
         match received {
             NodeEvent::TxReceived(t) => {
-                assert_eq!(t.version, tx.version);
                 assert_eq!(t.inputs.len(), tx.inputs.len());
+                assert_eq!(t.outputs.len(), tx.outputs.len());
             }
             _ => panic!("expected TxReceived event"),
         }
@@ -249,7 +261,7 @@ mod tests {
 
         // Send a Ping message (which should not appear in gossip)
         let net_event = NetEvent::Message {
-            source: libp2p::PeerId::random(),
+            source: PeerId::random(),
             message: NetworkMessage::Ping(qv_net::message::PingMsg { nonce: 42 }),
         };
         network_tx.send(net_event).unwrap();
@@ -270,7 +282,7 @@ mod tests {
             handler.run().await;
         });
 
-        let peer_id = libp2p::PeerId::random();
+        let peer_id = PeerId::random();
         let net_event = NetEvent::PeerConnected(peer_id);
         network_tx.send(net_event).unwrap();
         drop(network_tx);
@@ -290,7 +302,7 @@ mod tests {
             handler.run().await;
         });
 
-        let peer_id = libp2p::PeerId::random();
+        let peer_id = PeerId::random();
         let net_event = NetEvent::PeerDisconnected(peer_id);
         network_tx.send(net_event).unwrap();
         drop(network_tx);
@@ -302,7 +314,7 @@ mod tests {
     #[tokio::test]
     async fn test_channel_closure_exits_loop() {
         let (event_tx, _event_rx) = mpsc::channel(10);
-        let (_network_tx, network_rx) = mpsc::unbounded_channel();
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
 
         let handler = NetworkHandler::new(network_rx, event_tx);
 
@@ -310,8 +322,10 @@ mod tests {
             handler.run().await;
         });
 
-        // The sender is dropped immediately, so recv() returns None
-        // and the loop should exit
+        // Drop the sender NOW so the handler's `recv()` returns None and
+        // its loop exits. (`let (_network_tx, ...) = ...` would have kept
+        // the sender alive until end-of-scope and hung the await forever.)
+        drop(network_tx);
         handler_task.await.unwrap();
     }
 }

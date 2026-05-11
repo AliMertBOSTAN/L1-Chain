@@ -72,15 +72,23 @@ pub use epoch::{EpochBoundary, EpochInfo, EpochNonce};
 pub use stake::{Delegation, PoolId, StakeDistribution, StakeError, StakePool};
 
 /// VRF-based leader election and threshold computation; see [`leader_schedule`] module.
+///
+/// Per ADR-004, [`RistrettoVrfEvaluator`] is the production implementation
+/// for MVP/v1. [`TestVrf`] is preserved for unit tests and consensus
+/// simulations.
 pub use leader_schedule::{
-    check_leadership, leader_threshold, verify_leadership, vrf_input, LeaderError, TestVrf,
-    VrfEvaluator, VrfOutput, VrfProof, ACTIVE_SLOT_COEFF,
+    check_leadership, leader_threshold, verify_leadership, vrf_input, LeaderError,
+    RistrettoVrfEvaluator, TestVrf, VrfEvaluator, VrfOutput, VrfProof, ACTIVE_SLOT_COEFF,
 };
 
 /// Block header and body validation at consensus level; see [`block_validator`] module.
+///
+/// Per ADR-005, [`DilithiumSumKesVerifier`] is the production KES verifier
+/// for MVP/v1 (Sum-KES on Dilithium L3, depth 11). [`TestKesVerifier`] is
+/// preserved for unit tests.
 pub use block_validator::{
     validate_block, validate_block_header, BlockValidationContext, BlockValidationError,
-    KesVerifier, TestKesVerifier,
+    DilithiumSumKesVerifier, KesVerifier, TestKesVerifier,
 };
 
 /// Fork choice rule, chain state, and k-deep finality; see [`chain_state`] module.

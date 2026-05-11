@@ -94,7 +94,11 @@ impl SecureBytes {
 
     /// Explicitly zero every byte in the buffer, leaving length unchanged.
     pub fn zero(&mut self) {
-        self.bytes.zeroize();
+        // `Vec::zeroize` clears AND truncates to length 0, but the API
+        // contract here is "scrub bytes, keep length". Use `fill` so the
+        // capacity / len are preserved, then we still rely on `Drop` to
+        // zeroize+truncate when the buffer is finally dropped.
+        self.bytes.fill(0);
     }
 }
 

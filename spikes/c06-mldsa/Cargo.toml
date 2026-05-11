@@ -1,0 +1,13 @@
+[package]
+name        = "c06-mldsa-spike"
+version     = "0.0.1"
+edition     = "2021"
+publish     = false
+description = "Throwaway scratch project to verify ml-dsa 0.0.4 (RustCrypto) supports deterministic seeded keygen via MlDsa65::from_seed(&B32). Closes envanter C-06 verification gate."
+
+[dependencies]
+ml-dsa = "0.0.4"
+hex    = "0.4"
+
+# Keep this OUT of the parent workspace (parent Cargo.toml exclude = ["spikes"]).
+[workspace]

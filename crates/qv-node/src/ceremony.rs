@@ -29,22 +29,22 @@
 //!
 //! # Usage
 //!
-//! ```rust,no_run
+//! ```text
 //! use qv_node::ceremony::{CeremonyParams, CeremonyCoordinator, Participant};
 //!
-//! // Coordinator sets up the ceremony
+//! // Coordinator sets up the ceremony.
 //! let params = CeremonyParams::mainnet_default();
 //! let mut coordinator = CeremonyCoordinator::new(params);
 //!
-//! // Participants register
-//! let registration = Participant::create_registration(&keypair, stake_amount, &vrf_key);
+//! // Each participant produces a signed registration with their PQC keypair,
+//! // stake pledge, and VRF/KES public keys (see `Participant::create_registration`).
 //! coordinator.accept_registration(registration)?;
 //!
-//! // Participants contribute randomness
-//! let contribution = Participant::create_contribution(&keypair, &entropy);
+//! // Each participant submits a signed randomness contribution
+//! // (see `Participant::create_contribution`).
 //! coordinator.accept_contribution(contribution)?;
 //!
-//! // Finalize
+//! // Coordinator finalizes — yields genesis block, transcript, and epoch nonce.
 //! let result = coordinator.finalize()?;
 //! // result.genesis_block, result.transcript, result.epoch_nonce
 //! ```

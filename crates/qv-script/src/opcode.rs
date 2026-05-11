@@ -297,7 +297,7 @@ pub enum OpCode {
 
 impl OpCode {
     /// Number of opcodes defined.
-    pub const COUNT: usize = 55;
+    pub const COUNT: usize = 57;
 
     /// Maximum allowed script size in bytes.
     pub const MAX_SCRIPT_SIZE: usize = 16_384;

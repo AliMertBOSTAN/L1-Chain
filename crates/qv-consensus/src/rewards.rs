@@ -313,17 +313,28 @@ mod tests {
 
     #[test]
     fn emission_exhaustion() {
-        let m = simple_monetary();
+        // `simple_monetary` has total_supply = 1_000_000 but reward halves
+        // every 10 blocks starting from 100, so the geometric-series sum
+        // tops out around 100 * 10 / (1 - 0.5) ≈ 2000 — never reaching 1M.
+        // Use a tighter local config where emission actually crosses the
+        // supply cap.
+        let m = MonetaryParams {
+            total_supply: Amount::from_smallest_units(500),
+            initial_block_reward: Amount::from_smallest_units(100),
+            halving_interval_blocks: 10,
+            min_fee_per_byte: 0,
+        };
         assert!(!is_emission_exhausted(Height::from(0), &m));
-        // At some point it exhausts
+        // Era 1: 10 blocks × 100 = 1000 ≥ 500, so we exhaust within the
+        // first era. Block 4 → cumulative = 5 × 100 = 500 ≥ 500 ✓.
         let mut found = false;
-        for h in 0..100_000 {
+        for h in 0..1_000 {
             if is_emission_exhausted(Height::from(h), &m) {
                 found = true;
                 break;
             }
         }
-        assert!(found, "emission should exhaust eventually");
+        assert!(found, "emission should exhaust within Era 1");
     }
 
     #[test]

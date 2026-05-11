@@ -54,6 +54,14 @@ pub struct SlotTicker<V: VrfEvaluator> {
     clear_pool: Arc<Mutex<ClearPool>>,
     /// Active slot coefficient for Praos threshold.
     _active_slot_coeff: f64,
+    /// Optional KES secret key for real header signing (per ADR-005).
+    ///
+    /// - `None` → produces blocks with `kes_sig: Vec::new()` (legacy/test path).
+    /// - `Some` → calls `qv_crypto::kes_sign` over the header bytes-to-sign and
+    ///   includes the bincode-serialized `KesSignature` in the block header.
+    ///   Each call uses the current period; callers should evolve the key
+    ///   externally on epoch boundaries.
+    kes_sk: Option<Arc<Mutex<qv_crypto::KesSecretKey>>>,
 }
 
 impl<V: VrfEvaluator> SlotTicker<V> {
@@ -94,7 +102,19 @@ impl<V: VrfEvaluator> SlotTicker<V> {
             chain_state,
             clear_pool,
             _active_slot_coeff: active_slot_coeff,
+            kes_sk: None,
         }
+    }
+
+    /// Attach a KES secret key for real header signing (per ADR-005).
+    ///
+    /// Without this, produced blocks carry an empty `kes_sig` and will fail
+    /// verification under [`qv_consensus::DilithiumSumKesVerifier`]. Wire
+    /// this in once the operator has loaded its KES keypair.
+    #[must_use]
+    pub fn with_kes_signing(mut self, kes_sk: Arc<Mutex<qv_crypto::KesSecretKey>>) -> Self {
+        self.kes_sk = Some(kes_sk);
+        self
     }
 
     /// Run the slot ticker: tick every slot duration and check for leadership.
@@ -217,14 +237,21 @@ impl<V: VrfEvaluator> SlotTicker<V> {
 
         // Step 4: Get the current UTXO commitment.
         // For now, use a placeholder. In production, this would be the hash
-        // of the UTXO set after applying this block's transactions.
+        // of the UTXO set after applying this block's transactions (envanter K-03).
         let utxo_commitment = qv_core::UtxoCommitment::ZERO;
 
-        // Step 5: Build the block header.
+        // Step 5: Build the block header — first WITHOUT the KES signature.
+        // We then compute the bytes-to-sign over the unsigned header, sign
+        // with KES, and re-build with the signature attached. This keeps the
+        // hash domain (header bytes excluding kes_sig) stable.
         let now_ts = Timestamp::from_unix_secs(current_time_ms() / 1_000);
         let producer_key_hash = Hash256::from_bytes(sha3_256(self.pool_id.as_bytes()));
 
-        let header = BlockHeader {
+        // Build the unsigned header (kes_sig: Vec::new()) first; serialize it
+        // canonically; sign those bytes; then attach the signature. Verifier
+        // performs the symmetric operation: clear kes_sig, serialize, verify
+        // signature against those bytes.
+        let mut header = BlockHeader {
             version: qv_core::block::BLOCK_VERSION,
             prev_hash,
             height: new_height,
@@ -233,9 +260,25 @@ impl<V: VrfEvaluator> SlotTicker<V> {
             merkle_root,
             utxo_commitment,
             vrf_proof: vrf_proof.0.clone(),
-            kes_sig: Vec::new(), // Placeholder KES signature.
+            kes_sig: Vec::new(),
             producer_key_hash,
         };
+
+        if let Some(kes_sk) = self.kes_sk.as_ref() {
+            // Real KES path (per ADR-005).
+            let bytes_to_sign =
+                bincode::serialize(&header).map_err(|_| SlotTickerError::KesSignFailed)?;
+
+            let sk_lock = kes_sk.lock().await;
+            let sig = qv_crypto::kes_sign(&sk_lock, &bytes_to_sign)
+                .map_err(|_| SlotTickerError::KesSignFailed)?;
+            drop(sk_lock);
+
+            header.kes_sig =
+                bincode::serialize(&sig).map_err(|_| SlotTickerError::KesSignFailed)?;
+        }
+        // Else: legacy/test path — header.kes_sig stays empty. Verifiers
+        // using `DilithiumSumKesVerifier` will reject such blocks.
 
         // Step 6: Construct the full block.
         let block = Block::new(header, transactions.clone());
@@ -296,6 +339,9 @@ pub enum SlotTickerError {
     /// Consensus state update failed.
     #[error("consensus error")]
     Consensus,
+    /// KES sign / serialize failed (envanter K-04).
+    #[error("kes sign failed")]
+    KesSignFailed,
 }
 
 /// Compute the Merkle root from a list of transaction IDs.
@@ -397,8 +443,9 @@ mod tests {
     fn merkle_root_single_tx_is_tx_hash() {
         let tx_id = qv_core::TxId(qv_core::Hash256::from_bytes([0x42; 32]));
         let root = merkle_root_of(&[tx_id]);
-        // With a single leaf, the root should be that leaf itself.
-        assert_eq!(root.0, tx_id);
+        // With a single leaf, the root's inner Hash256 should equal the
+        // tx's inner Hash256 (TxId wraps Hash256).
+        assert_eq!(root.0, tx_id.0);
     }
 
     #[test]
@@ -461,7 +508,7 @@ mod tests {
         // Create minimal storage/mempool/state for testing.
         let block_store = Arc::new(BlockStore::new(MemoryKvStore::new()));
         let utxo_store = Arc::new(UtxoStore::new(MemoryKvStore::new()));
-        let chain_state = Arc::new(Mutex::new(ChainState::genesis(&ConsensusParams::mainnet().consensus)));
+        let chain_state = Arc::new(Mutex::new(ChainState::genesis(&ConsensusParams::mainnet())));
         let clear_pool = Arc::new(Mutex::new(qv_mempool::clear::ClearPool::new(
             qv_mempool::clear::ClearPoolConfig::ephemeral(),
         )));
