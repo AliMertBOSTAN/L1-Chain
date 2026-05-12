@@ -31,7 +31,7 @@
 | Threat | STRIDE | Severity | Status | Mitigation |
 |--------|--------|----------|--------|------------|
 | 1. Mnemonic leaked in memory (plaintext) | Information Disclosure | Critical | Partial | Use `secrecy::Secret<T>` + zeroize; review required |
-| 2. Keystore file unencrypted (local theft) | Information Disclosure | High | Mitigated | Keystore encrypted with user password (scrypt KDF) |
+| 2. Keystore file unencrypted (local theft) | Information Disclosure | High | Mitigated | Keystore encrypted with user password — **Argon2id** (OWASP-2023: 64 MiB / 3 iter / 1 lane) + AES-256-GCM, fresh per-save salt+nonce (W-06, M-04 ile aynı pattern) |
 | 3. RPC poisoning (false balance returned) | Tampering | High | Partial | Wallet should verify balance against multiple nodes |
 | 4. Signature randomness weak (forge) | Spoofing | Medium | Partial | Use `OsRng`; audit RNG quality |
 | 5. Output scanning leaks to observer (timing) | Information Disclosure | Medium | Partial | Scanning is local; no network timing leak |

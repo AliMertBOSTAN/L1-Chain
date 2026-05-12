@@ -1,9 +1,9 @@
 # ADR-004: VRF Seçimi — Slot Lideri için Doğrulanabilir Rastgele Fonksiyon
 
-**Durum:** Önerildi — onay bekleniyor
-**Tarih:** 2026-05-06
+**Durum:** Approved + Uygulandı (2026-05-06)
+**Tarih:** 2026-05-06 (yazıldı + impl)
 **Yazarlar:** QuantumVault Team
-**Yer:** `crates/qv-crypto/src/vrf.rs` (şu an boş skeleton), `crates/qv-consensus/src/leader_schedule.rs` (`VrfEvaluator` trait + `TestVrf` mock)
+**Yer:** `crates/qv-crypto/src/vrf.rs` (üretimde — Ristretto255-VRF via `schnorrkel = 0.11`), `crates/qv-consensus/src/leader_schedule.rs` (`RistrettoVrfEvaluator` üretimde; `TestVrf` mock sadece test için duruyor)
 
 ---
 

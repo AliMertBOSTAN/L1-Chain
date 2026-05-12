@@ -80,9 +80,9 @@ Programatik olarak göndermek için: `cargo run -p qv-node --example send_tx`
 
 ---
 
-## qv_getBalanceFor (stub)
+## qv_getBalanceFor (stub — envanter N-01, Faz 5)
 
-Stealth view key ile bakiye sorgular. Henüz implement edilmedi, hata döner.
+Stealth view key ile bakiye sorgular. **Henüz implement edilmedi** (`qv-node/src/rpc.rs:290-303`); RPC çağrısı `Err("stealth key scanning not yet implemented in RPC")` döner. Wallet'in `qv-wallet balance` komutu da bu RPC'ye bağımlı olduğu için aynı şekilde stub. Stealth scan akışıyla birlikte (N-02) Faz 5'te kapatılacak.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8545 -Method POST -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":1,"method":"qv_getBalanceFor","params":["view_key_hex"]}'
@@ -90,9 +90,9 @@ Invoke-RestMethod http://127.0.0.1:8545 -Method POST -ContentType "application/j
 
 ---
 
-## qv_scanStealth (stub)
+## qv_scanStealth (stub — envanter N-02, Faz 5)
 
-Belirtilen yükseklik aralığında stealth output'ları tarar. Henüz implement edilmedi, hata döner.
+Belirtilen yükseklik aralığında stealth output'ları tarar. **Henüz implement edilmedi** (`qv-node/src/rpc.rs:305-329`); blok-bazlı stealth output enumeration ve match akışı eklenmesi gerekiyor (`qv_privacy::stealth` ile birlikte). Wallet `qv-wallet scan` komutu bu RPC'yi bekliyor.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8545 -Method POST -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":1,"method":"qv_scanStealth","params":["view_key_hex", 0, 100]}'

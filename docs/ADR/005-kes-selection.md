@@ -1,11 +1,16 @@
 # ADR-005: KES Seçimi — Forward-Secure Block İmzası
 
-**Durum:** Önerildi — onay bekleniyor
-**Tarih:** 2026-05-06
+**Durum:** Approved + Uygulandı (2026-05-06; ön koşul C-04 ADR-006 ile kapatıldı)
+**Tarih:** 2026-05-06 (yazıldı), 2026-05-06 (impl), 2026-05-07 (C-04 ön koşulu ADR-006 ile çözüldü)
 **Yazarlar:** QuantumVault Team
-**Yer:** `crates/qv-crypto/src/kes.rs` (şu an boş skeleton),
-`crates/qv-consensus/src/block_validator.rs` (`KesVerifier` trait + `TestKesVerifier` mock),
-`crates/qv-miner/src/keys.rs::KesKeyPair` (32-byte placeholder)
+**Yer:** `crates/qv-crypto/src/kes.rs` (üretimde), `crates/qv-consensus/src/block_validator.rs` (`DilithiumSumKesVerifier` üretimde), `crates/qv-miner/src/keys.rs::KesKeyPair` (`qv_crypto::kes_generate` ile gerçek primitif)
+
+> **Önemli (2026-05-07):** Bu ADR yazıldığında "C-04: Dilithium seeded keygen"
+> bir ön koşul olarak belirtilmişti. Aşağıdaki paragraflarda `pqcrypto-dilithium`
+> ve `liboqs` üzerinden yapılması düşünülen entegrasyonlar geçer; ancak fiili
+> çözüm ADR-006 ile RustCrypto `ml-dsa = 0.0.4` (FIPS 204 final) üzerinden
+> yapıldı. `pqcrypto-dilithium` ve `liboqs` referansları **superseded** —
+> kullanım için ADR-006 ve `qv_crypto::pqc_sign::from_seed` referans alınmalıdır.
 
 ---
 

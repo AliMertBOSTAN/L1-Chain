@@ -26,8 +26,8 @@ qv-wallet create --name my-wallet
 ```
 
 This generates three keys:
-- **Spend Key** (Dilithium): signs transactions; keep this extremely private
-- **View Key** (Kyber): lets you see incoming transactions (stealth addresses)
+- **Spend Key** (ML-DSA-65, FIPS 204): signs transactions; keep this extremely private
+- **View Key** (Kyber + X25519 hybrid): lets you see incoming transactions (stealth addresses)
 - **Account Key**: derived from both; your primary wallet identity
 
 The tool will prompt you to create a **passphrase** (optional but recommended). Store the wallet file securely.
@@ -292,7 +292,7 @@ Hardware wallet support is planned for post-launch. Until then:
 
 ### Quantum Safety
 
-QuantumVault uses post-quantum signatures (Dilithium Level 3) by default. Your keys are resistant to attacks by future quantum computers. This makes QuantumVault safer long-term than classical blockchains.
+QuantumVault uses post-quantum signatures (ML-DSA-65 — Dilithium Level 3 under the FIPS 204 standard) by default. Your keys are resistant to attacks by future quantum computers. This makes QuantumVault safer long-term than classical blockchains.
 
 ---
 
@@ -333,7 +333,7 @@ A: Use the block explorer at `explorer.quantumvault.io` and paste your transacti
 |------|-----------|
 | **UTXO** | Unspent Transaction Output. A "coin" you own that hasn't been spent. Multiple UTXOs make up your balance. |
 | **Stealth Address** | A privacy-preserving address where only the recipient can see incoming transactions. Default on QuantumVault. |
-| **Spend Key** | Your private signing key (Dilithium). Guards it like a password; only you should have it. |
+| **Spend Key** | Your private signing key (ML-DSA-65, FIPS 204). Guard it like a password; only you should have it. |
 | **View Key** | Your public key for viewing incoming transactions. Can be shared with auditors without risking funds. |
 | **Epoch** | A period of 12 hours (~21,600 blocks). Staking rewards and delegations settle every epoch. |
 | **Slot** | A 2-second opportunity for a leader to propose a block. A block happens in each slot (normally). |
@@ -343,7 +343,7 @@ A: Use the block explorer at `explorer.quantumvault.io` and paste your transacti
 | **AMM** | Automated Market Maker. A smart contract that lets anyone swap tokens at prices determined by a formula (x·y=k). |
 | **LP Token** | Liquidity Provider token. Proves your share of a liquidity pool and entitles you to swap fees. |
 | **MEV** | Maximal Extractable Value. The profit miners/validators extract by reordering transactions. QuantumVault protects against this via encrypted mempool. |
-| **Dilithium** | A post-quantum digital signature algorithm resistant to quantum computer attacks. QuantumVault's default. |
+| **ML-DSA** | Module-Lattice Digital Signature Algorithm (FIPS 204). The post-quantum digital signature scheme QuantumVault uses by default. Built from the CRYSTALS-Dilithium family; we use Level 3 (ML-DSA-65). Resistant to quantum computer attacks. |
 | **Kyber** | A post-quantum key encapsulation mechanism (KEM) used for encryption. QuantumVault's default for stealth addresses. |
 
 ---

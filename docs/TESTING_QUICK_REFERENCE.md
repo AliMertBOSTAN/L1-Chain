@@ -1,11 +1,17 @@
 # QuantumVault Testing Quick Reference
 
-**Last Updated**: 2026-04-10
+**Last Updated**: 2026-04-10 (v1 C++ era; **partially superseded by Rust pivot 2026-04-15**)
+
+> **⚠️ Pivot notu:** Bu doküman v1 C++ döneminden kalmıştır. Komutlar (`cmake`,
+> `.cpp` dosyaları, `da/` klasörü) artık geçerli değildir; aktif Rust workspace'i
+> `cargo test --workspace` ve `just test` ile koşturulur. Doc içeriği konsept
+> rehberi olarak değerlendirilebilir; somut komutlar için `docs/TESTING_STRATEGY.md`
+> (Rust güncel) ve `justfile` referans alınmalıdır.
 
 This document provides quick access to testing commands and key information. For comprehensive details, see:
-- **docs/TESTING_STRATEGY.md** — Complete testing strategy and architecture
-- **docs/ADR/001-testing-framework.md** — Framework selection and rationale
-- **tests/crypto/TEST_PLAN.md** — Detailed crypto module test plan
+- **docs/TESTING_STRATEGY.md** — Complete testing strategy and architecture (Rust güncel)
+- **docs/ADR/001-testing-framework.md** — v1 framework rationale; pivot sonrası `cargo-nextest + proptest + criterion`
+- **crates/qv-crypto/src/** — Rust crate tests (yerine `tests/crypto/TEST_PLAN.md`)
 
 ---
 
@@ -193,7 +199,7 @@ tests/
 ├── core/                # UTXO, transactions, blocks
 │   ├── test_*.cpp
 │   └── bench_*.cpp
-├── consensus/           # PoW, PoS
+├── consensus/           # Ouroboros Praos PoS (VRF + KES)
 │   ├── test_*.cpp
 │   └── bench_*.cpp
 ├── privacy/             # Stealth addresses
@@ -218,7 +224,7 @@ tests/
 |--------|--------|-------|
 | **crypto/** | 95% | Security-critical; all PQC primitives |
 | **core/** | 90% | UTXO, transactions, blocks |
-| **consensus/** | 85% | PoW + PoS algorithm |
+| **consensus/** | 85% | Ouroboros Praos PoS (VRF leader, KES sign, fork choice) |
 | **privacy/** | 85% | Stealth address logic |
 | **vm/** | 90% | Smart contract VM |
 | **storage/** | 80% | Database operations |
@@ -240,7 +246,8 @@ tests/
 ### Blockchain
 - **Block Validation**: <100ms per block
 - **Tx Verification**: <1ms per tx
-- **PoW Hashing**: >1,000 hashes/sec
+- **VRF Evaluate + Verify**: <2ms
+- **KES Sign + Verify**: <50ms
 - **Mempool Insert**: <1ms per tx
 - **UTXO Operations**: <1ms per output
 

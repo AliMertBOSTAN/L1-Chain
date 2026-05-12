@@ -1,26 +1,48 @@
 # ADR-001: Testing Framework Selection
 
-**Status**: APPROVED
-**Date**: 2026-04-10
+**Status**: APPROVED (v1 C++); **fiili Rust uygulaması farklı** — bu ADR'nin
+v2 Rust pivotu sonrasında **fiilen yerini alan kararlar** aşağıdaki "Pivot
+Addendum" bölümünde özetlenmiştir; tam doc rewrite henüz yapılmamıştır.
+**Date**: 2026-04-10 (orijinal); pivot addendum 2026-05-12
 **Authors**: Mert (QuantumVault Team)
 **Supersedes**: None
+**Pivot impact:** 2026-04-15'te C++→Rust geçişi sonrası bu doc'taki spesifik
+C++ framework seçimleri (Google Test, Google Benchmark, gcov, CMake) **artık
+geçerli değildir**. v2 stack: `cargo-nextest` + `proptest` + `criterion` +
+`cargo-llvm-cov` + GitHub Actions. Detay için `docs/TESTING_STRATEGY.md`
+(post-pivot güncel) ve `docs/SYSTEM_OVERVIEW.md §2 / §17` referans alınmalıdır.
 
 ## Context
 
 QuantumVault requires a comprehensive testing infrastructure to validate:
 - Cryptographic correctness (PQC and hybrid primitives)
-- Consensus mechanism (PoW + PoS)
+- Consensus mechanism (Ouroboros Praos PoS — hibrit PoW+PoS Rust pivotunda bırakıldı)
 - UTXO state machine
 - Smart contract VM execution
 - Privacy guarantees (stealth addresses)
 - Data availability proofs
 
 We must select testing frameworks that:
-1. Integrate well with C++20 / CMake / Nix build system
+1. ~~Integrate well with C++20 / CMake / Nix build system~~ — v2: Rust 2021 + cargo workspace + Nix
 2. Provide Known-Answer Test (KAT) support for cryptographic validation
 3. Support high-performance benchmarking
 4. Enable code coverage analysis
 5. Integrate with CI/CD pipeline
+
+## Pivot Addendum (2026-05-12)
+
+v2 Rust workspace'in fiili test stack'i:
+
+| Konsept | v1 (bu ADR) | v2 (fiili) |
+|---|---|---|
+| Unit test runner | Google Test (gtest) | `cargo-nextest` + standart `#[test]` |
+| Property-based | (planlandı, seçilmedi) | `proptest` (qv-core, qv-crypto) |
+| Benchmark | Google Benchmark | `criterion` (`benches/`) |
+| Fuzz | libFuzzer + sanitizers | `cargo-fuzz` + libFuzzer (6 target in `fuzz/`) |
+| Coverage | gcov / lcov | `cargo-llvm-cov` |
+| CI | (planlanmıştı) | GitHub Actions (.github/workflows/) |
+| Build | CMake + Ninja | `cargo` + `just` task runner |
+| KAT vectors | (planlandı) | NIST FIPS 204 vectors + schnorrkel internal vectors |
 
 ## Decision
 

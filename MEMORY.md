@@ -52,6 +52,8 @@ mempool decrypt ve UTXO commitment akışı — hepsi ROADMAP envanterinde ID'li
 | 2026-05-07 | Workspace derleme + tum test suite yesil: 728 passed / 0 failed / 38 ignored. Failing 4 test triaj edildi: opcode COUNT 55→57, wallet coin_select reserve uyumsuzlugu, oracle median_manipulation premise (D-12), ceremony doc-test |
 | 2026-05-07 | **ADR-006**: full ml-dsa swap. `pqcrypto-dilithium` 0.5 (NIST round-3, sk 4000 + sig 3293) workspace'den cikarildi; `ml-dsa = "0.0.4"` (FIPS 204 final, sk 4032 + sig 3309) tum imza primitiflerini kapsiyor. Spike 6/6 ✅ ile dogrulandi. C-04 + C-06 kapandi |
 | 2026-05-07 | C-06 sonrasi test suite: 736 passed / 0 failed / 34 ignored. qv-crypto +5 yeni `from_seed_*` testi + 2 integration `from_seed_models_*` ignored→passed. qv-miner +2 ignored→passed (`cold_key_from_seed_is_deterministic`, `cold_key_sign_verify_roundtrip`). Geri kalan 34 ignored: KES yavaslik (~2s), T-01 Pedersen DKG, D-07..D-12, B-03 Node !Send |
+| 2026-05-12 | **M-04 kapandi** (miner Argon2 keystore). `qv-miner/src/keystore.rs` yazildi (~260 satir, wallet keystore port'u). `OperatorKeys`'e `master_seed: [u8;32]` alani eklendi; `save_encrypted(path, password)` ve `load_encrypted(path, password)` tek dosyaya 32-byte master + `kes_period: u32` yaziyor. API 3-path → single-path: `OperatorConfig.keystore_path`. Test/build verify kullanici tarafinda bekliyor. Beklenen sayim: ~741 passed / 32 ignored |
+| 2026-05-12 | Doc konsolidasyonu: 3 paralel audit ile 40+ celiski tespit edildi (Tier 1-4). ABSTRACT, ARCHITECTURE_V2, PROJECT_STATUS, MEMORY (bu dosya) ve docs/SYSTEM_OVERVIEW.md guncellendi. Kritik duzeltmeler: ABSTRACT'tan hibrit PoW+PoS + C++ pivot artigi temizlendi; ARCHITECTURE_V2'de epoch 864 → 21600, 12 crate → 13 crate, ed25519-dalek (VRF) → schnorrkel duzeltildi; PROJECT_STATUS "Durust Ozet" self-contradiction'i giderildi |
 
 ---
 
@@ -91,8 +93,8 @@ mempool decrypt ve UTXO commitment akışı — hepsi ROADMAP envanterinde ID'li
 ROADMAP.md'deki **Faz 0–10** modeline gecildi. Asama numaralari (0-15) tarihsel
 olarak korunuyor; oncelik artik faz bazli (envanter ID'leri ROADMAP'te).
 
-**Su an aktif:** Faz 0 (hijyen + dokumantasyon) — DOC-01..06 kapatiliyor.
-**Bir sonraki:** Faz 1 (devnet MVP single-node) — M-03/M-04, W-05/W-06, N-04, D-02, D-05.
+**Su an aktif (2026-05-12):** Faz 3 (kriptografi) **tamamlandi** (C-01/C-02/C-04/C-06 + K-01/K-02/K-04 + M-01/M-02/M-03/M-05 + ADR-004/005/006); Faz 1 (devnet MVP) ~%90 kapali (N-04, W-05, W-06, M-04 kapandi; **devnet smoke test ve M-09 daemon kaldi**).
+**Bir sonraki:** Devnet smoke test (qv-node + qv-wallet send --broadcast) → M-09 (miner daemon) → K-06/K-07 (encrypted mempool + AMM batcher → block producer).
 
 ### Tamamlanan Asama Ozetleri
 
@@ -149,19 +151,20 @@ Lejant: ✅ Tam | 🟡 Kismi (trait/mock arkasinda) | 🔴 Kabuk (CLI/daemon yok
 
 ## ADR Durumu
 
-- ADR-001: testing framework (onayli)
-- ADR-002: DeFi architecture (aktif referans)
-- ADR-003: MEV encrypted mempool (aktif referans)
-- ADR-004: VRF secimi — **YAZILDI 2026-05-06** (Ristretto255-VRF + `schnorrkel`; v2'de hibrit lattice). Onay bekleniyor; impl Faz 3'te
-- ADR-005: KES secimi — **YAZILDI 2026-05-06** (Sum-KES on Dilithium L3, depth=11, N=2048 periyot; v2'de hibrit Ed25519+Dilithium). Onay bekleniyor; impl Faz 3'te. **Onkosul: C-04 (Dilithium seeded keygen)**
+- ADR-001: testing framework (onayli; v1 C++ icin yazildi, pivot sonrasi `cargo-nextest + proptest + criterion` ile fiili olarak yenilendi — ADR-001 rewrite/superseded notu eksik)
+- ADR-002: DeFi architecture (aktif referans; dosya basligi "Tartisma asamasinda" diyor ama fiilen onayli — basligin guncellenmesi gerekiyor)
+- ADR-003: MEV encrypted mempool (aktif referans; ayni baslik durumu)
+- ADR-004: VRF secimi — **YAZILDI + IMPL 2026-05-06** (Ristretto255-VRF + `schnorrkel = 0.11`; v2'de hibrit lattice secenegi acik). `qv-crypto::vrf` + `RistrettoVrfEvaluator` uretimde
+- ADR-005: KES secimi — **YAZILDI + IMPL 2026-05-06** (Sum-KES on Dilithium L3, depth=11, N=2048 periyot). `qv-crypto::kes` + `DilithiumSumKesVerifier` uretimde
+- ADR-006: ml-dsa swap — **YAZILDI + IMPL 2026-05-07** (FIPS 204 ML-DSA via `ml-dsa = 0.0.4`; `pqcrypto-dilithium 0.5` tamamen kaldirildi). C-04 + C-06 kapali
 
 ---
 
 ## Acik Kararlar
 
-- ~~**VRF primitive secimi**~~ → ADR-004 (2026-05-06): MVP Ristretto255-VRF, v2 hibrit lattice
-- ~~**KES primitive secimi**~~ → ADR-005 (2026-05-06): Sum-KES on Dilithium L3, v2 hibrit
-- **Dilithium deterministic keygen API** — C-04 yeniden acildi 2026-05-07 (fips204 yetersiz). Aday: `ml-dsa = "0.0.4"` (RustCrypto). C-06'da kapatilacak
+- ~~**VRF primitive secimi**~~ → ADR-004 (2026-05-06): Ristretto255-VRF, schnorrkel 0.11
+- ~~**KES primitive secimi**~~ → ADR-005 (2026-05-06): Sum-KES on Dilithium L3
+- ~~**Dilithium deterministic keygen API**~~ → ADR-006 (2026-05-07): RustCrypto `ml-dsa = 0.0.4` ile full swap, FIPS 204 final. C-04 + C-06 kapandi
 - **Hybrid KEM (X25519 + Kyber) seeded keygen API** — envanter C-05; Faz 5 (wallet pro) onkosulu
 - ~~**schnorrkel 0.11 API verify**~~ → C-07 buyuk olcude dogrulandi 2026-05-07 (qv-crypto compile etti). Runtime test ayri konu
 - **Oracle tasarimi** (qv-defi/oracle modulu var, ama validator imza/sortition disinda calisma kosullari karara baglanmadi)

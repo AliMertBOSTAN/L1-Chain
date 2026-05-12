@@ -31,11 +31,17 @@ The testing infrastructure emphasizes:
 
 ### Distribution by Layer
 
-| Layer | Coverage | Count | Focus |
-|-------|----------|-------|-------|
-| **Unit Tests** | 80% | ~400-500 tests | Module behavior, edge cases |
-| **Integration Tests** | 15% | ~80-100 tests | End-to-end workflows |
-| **Property-Based/Fuzz** | 5% | ~50-70 tests | Invariant checking, randomized inputs |
+| Layer | Coverage | Count (2026-05-12) | Focus |
+|-------|----------|--------------------|-------|
+| **Unit Tests** | ~85% | ~577 tests | Module behavior, edge cases |
+| **Integration Tests** | n/a | ~149 tests | End-to-end workflows, multi-crate flows |
+| **Doc Tests** | n/a | ~10 tests | Compile-time API doğrulama |
+| **Property-Based** | n/a | proptest (qv-core, qv-crypto) | Invariant checking, randomized inputs |
+| **Fuzz Targets** | n/a | 6 (`fuzz/`) | UTXO commit, script run, tx decode |
+
+**TOPLAM: ~736 passed / 0 failed / 34 ignored** (post-ADR-006, pre-M-04 build verify;
+M-04 sonrası beklenen ~741/32). 32-34 ignored test bilinçli olarak yavaş KES
+(~2s leaf-tree gen) veya bağımlı bir envanter ID'sine (T-01, B-03, D-07..D-12).
 
 ---
 
@@ -94,7 +100,7 @@ Unit tests verify individual functions and components in isolation. Each module 
 - [ ] SHA3-256 matches NIST test vectors
 - [ ] SHA3-512 matches NIST test vectors
 - [ ] BLAKE3 matches reference implementation
-- [ ] Argon2id PoW hash matches specification
+- [ ] Argon2id KDF (keystore) matches OWASP-2023 params (m=65540 KiB, t=3, p=1)
 - [ ] Hash determinism: same input always produces same output
 - [ ] Different input produces different hash (collision not found in test range)
 - [ ] Hash throughput: >100 MB/s (SHA3), >200 MB/s (BLAKE3)
@@ -163,9 +169,9 @@ Unit tests verify individual functions and components in isolation. Each module 
 - [ ] Merkle tree computation with power-of-2 transactions (2, 4, 8, 16)
 - [ ] Merkle root determinism: same transactions → same root
 - [ ] Merkle tree inclusion proof for transaction
-- [ ] Block header validation (nonce, timestamp, target)
-- [ ] Coinbase existence in block
-- [ ] Coinbase must be first transaction
+- [ ] Block header validation (slot monotonic, timestamp, prev_hash, version)
+- [ ] Genesis block accepts genesis tx (height=0 special case)
+- [ ] Non-genesis block rejects genesis-style tx
 
 **Test Category**: `core_block_*`
 **Coverage Target**: 90%
@@ -181,52 +187,81 @@ Unit tests verify individual functions and components in isolation. Each module 
 
 ---
 
-### 1.3 consensus/ — Consensus Mechanism (PoW + PoS)
+### 1.3 consensus/ — Ouroboros Praos PoS
 
-#### PoW Tests
-- [ ] Argon2id hash computation matches specification
-- [ ] Difficulty target enforcement (hash < target)
-- [ ] Non-matching hash rejection (hash >= target)
-- [ ] Difficulty adjustment algorithm correctness
-  - Average block time tracking
-  - Adjustment up when blocks too fast
-  - Adjustment down when blocks too slow
-  - Adjustment clamping (no more than 4x change per period)
-- [ ] Nonce space exploration (different nonces → different hashes)
-- [ ] PoW proof verification
-- [ ] Edge case: difficulty at minimum (genesis)
-- [ ] Edge case: difficulty at maximum
+**Mimari:** Saf PoS (hibrit PoW+PoS bırakıldı 2026-04-15 Rust pivotunda). VRF tabanlı
+slot lider seçimi + Sum-KES forward-secure blok imzası + density-weighted longest
+chain fork choice. Detay: CLAUDE.md + ADR-004 + ADR-005.
 
-**Test Category**: `consensus_pow_*`
+#### VRF Tests (Ristretto255 / schnorrkel)
+- [x] VRF keypair generation produces correct-size keys (sk + pk both 32 byte)
+- [x] `from_seed` deterministic: same 32-byte seed → same keypair
+- [x] `evaluate(sk, msg) → (output, proof)` deterministic
+- [x] `verify(pk, msg, proof) → output` roundtrip
+- [x] Tampered proof / message / wrong pk → verify fails
+- [x] Output uniformly distributed across stake-proportional threshold
+- [x] Wire format: pre_out(32) || proof(64) = 96 bytes
+
+**Test Category**: `crypto_vrf_*` + `consensus_leader_schedule_*`
+**Coverage Target**: 90%
+
+#### KES Tests (Sum-KES on Dilithium L3)
+- [x] `kes_generate(master_seed) → (pk, sk)` deterministic
+- [x] Master seed → 2048 leaf-seed pre-derive tree (depth=11)
+- [x] `kes_sign(sk, msg)` returns leaf signature + Merkle path
+- [x] `kes_verify(pk, sig, msg)` recomputes Merkle root, compares
+- [x] `kes_evolve(sk)` advances period, zeroizes prior leaf
+- [x] Cross-period signatures don't match (forward security)
+- [x] Tampered leaf signature / Merkle path → verify fails
+
+**Test Category**: `crypto_kes_*` + `consensus_block_validator_*`
+**Coverage Target**: 90%
+
+#### Slot / Epoch / Leader Schedule
+- [x] Slot 2 saniye, epoch 21 600 slot (12 saat)
+- [x] `EpochInfo` slot → epoch mapping
+- [x] Genesis nonce nonzero
+- [x] Nonce evolution deterministic; aynı VRF outputs sırası → aynı sonraki nonce
+- [x] Nonce contribution window = epoch'un ilk 2/3'ü
+- [x] Leader threshold `T = 1 − (1−f)^σ` stake oranıyla monoton
+- [x] Higher stake wins more slots (stat fairness test)
+- [x] Minority attacker can't dominate over many slots
+
+**Test Category**: `consensus_slot_*` + `consensus_epoch_*` + `consensus_leader_schedule_*`
 **Coverage Target**: 85%
 
-#### PoS Tests
-- [ ] Committee selection determinism: same seed → same committee
-- [ ] Committee selection randomness: different seeds → different committees
-- [ ] Committee size enforcement (exactly 2/3 + 1 of validators)
-- [ ] Stake weighting in selection (more stake = higher chance)
-- [ ] Validator slashing conditions
-- [ ] Vote creation and serialization
-- [ ] Vote verification with pubkey
-- [ ] Finality threshold: exactly 2/3 approval → finalized
-- [ ] Non-finality: < 2/3 approval → not finalized
-- [ ] Quorum enforcement (minimum participation threshold)
+#### Fork Choice & Finality
+- [x] Density-weighted longest chain wins (`chain_density_counts_recent_blocks`)
+- [x] Tip tie-break by hash (deterministic)
+- [x] k-deep finality (k=50): block at tip - k considered final
+- [x] Finality prevents deep reorg
+- [x] Multi-pool epoch simulation: stake-proportional leader frequency
 
-**Test Category**: `consensus_pos_*`
+**Test Category**: `consensus_chain_state_*` + integration `*_lifecycle`
 **Coverage Target**: 85%
+
+#### Stake & Rewards
+- [x] Stake distribution: per-pool relative stake aggregation
+- [x] Snapshot ignores inactive pools
+- [x] Subsidy halves Bitcoin-style; emission capped at total supply
+- [x] Reward distribution: operator fixed_cost + margin + delegator share
+- [x] No tokens lost (sum-conservation invariant)
+
+**Test Category**: `consensus_stake_*` + `consensus_rewards_*`
+**Coverage Target**: 90%
 
 #### Block Validation Pipeline
-- [ ] Block header validation
-- [ ] Merkle root verification
-- [ ] Transaction validation (all tx valid)
-- [ ] UTXO validity (no double-spends in block)
-- [ ] Coinbase validation (amount, structure)
-- [ ] Signature verification (all inputs signed)
-- [ ] Gas limit enforcement (if applicable)
-- [ ] Block size validation
-- [ ] Timestamp validation (not too far in future)
-- [ ] PoW validation (nonce correct for target)
-- [ ] Invalid block rejection
+- [x] Block header validation (slot monotonic, version, prev_hash)
+- [x] Merkle root verification
+- [x] Transaction validation (all tx valid via Script VM)
+- [x] UTXO validity (no double-spends in block, no double-spends across)
+- [x] Genesis tx structure (height=0 unique)
+- [x] VRF proof verification against producer's stake snapshot
+- [x] KES signature verification on header bytes
+- [x] Signature verification on each tx input (ML-DSA)
+- [x] Block size validation (≤ ProtocolParams::max_block_size)
+- [x] Timestamp validation (within slot boundaries, not too far future)
+- [x] Invalid block rejection
 
 **Test Category**: `consensus_validation_*`
 **Coverage Target**: 85%
@@ -385,7 +420,9 @@ Validate Transaction
   ↓
 Add to Block
   ↓
-Mine PoW Block
+Slot Leader (VRF) Produces Block
+  ↓
+KES-Sign Block Header
   ↓
 Validate Block
   ↓
@@ -395,11 +432,12 @@ UTXO State Updated
 ```
 
 - [ ] Transaction created with valid inputs/outputs
-- [ ] Transaction signed with sender's private key
+- [ ] Transaction signed with sender's ML-DSA private key
 - [ ] Transaction validates (signatures correct, no double-spend)
 - [ ] Transaction added to block
-- [ ] Block PoW computed (Argon2id hash < difficulty)
-- [ ] Block validates (merkle root, signatures, UTXOs)
+- [ ] Slot leader chosen via VRF against stake snapshot
+- [ ] Block header signed with current-period KES leaf
+- [ ] Block validates (merkle root, VRF proof, KES sig, UTXOs)
 - [ ] Block connects to chain (prev_hash matches)
 - [ ] UTXO state reflects spent and new outputs
 - [ ] Mempool updated (tx removed after block)
@@ -417,23 +455,25 @@ Add Regular Transactions from Mempool
   ↓
 Compute Merkle Root
   ↓
-Mine PoW (find nonce)
+VRF Leader Election (this slot, this pool)
   ↓
-Create Block
+Fill BlockHeader (vrf_proof, utxo_commitment, ...)
   ↓
-PoS Committee Validates
+KES Sign Header (current period leaf)
   ↓
-Block Finalized
+Gossip Block to Peers
+  ↓
+k-deep Finality (~100s later)
 ```
 
-- [ ] Coinbase transaction created with block reward
-- [ ] Transactions selected from mempool (highest fees first)
+- [ ] Coinbase / reward transaction created with block subsidy + fees
+- [ ] Transactions selected from mempool (highest fee density first)
 - [ ] Merkle root computed correctly
-- [ ] PoW mining finds valid nonce within reasonable time
-- [ ] Block created with valid header
-- [ ] PoS committee (2/3+1 validators) votes
-- [ ] Finality threshold reached (2/3 votes)
-- [ ] Block marked finalized
+- [ ] VRF leader-election check returns "elected" for this slot
+- [ ] Block header filled (vrf_proof + utxo_commitment + producer hash)
+- [ ] KES current-period leaf signs header
+- [ ] Block gossiped via `/qv/blocks/1` topic
+- [ ] After k=50 deeper blocks, this block is final
 
 ---
 
@@ -515,10 +555,10 @@ Produce Block N+1
 Continue Chain
 ```
 
-- [ ] Block produced with PoW
-- [ ] Validator votes collected
-- [ ] 2/3 threshold reached
-- [ ] Block marked finalized (immutable)
+- [ ] Block produced by VRF-elected slot leader
+- [ ] Block header signed with current-period KES leaf
+- [ ] k=50 blocks added after target block → target is final
+- [ ] Reorg attempts below k depth rejected (density-weighted longest chain)
 - [ ] Next block references finalized parent
 - [ ] Chain extends continuously
 
@@ -577,9 +617,10 @@ Property-based tests use random input generation to verify invariants.
 
 ### 3.5 Consensus Invariants
 
-**Test**: `prop_pow_difficulty`
-- Property: `All valid PoW hashes satisfy hash < difficulty_target`
-- Generate random blocks, verify all pass difficulty check
+**Test**: `prop_vrf_threshold`
+- Property: `Pool with relative stake σ is leader on fraction T = 1 − (1−f)^σ of slots`
+- Generate large slot sample, verify empirical frequency converges to expected
+- See also `leader_election_proportional_to_stake` integration test
 
 **Test**: `prop_pos_finality`
 - Property: `Block finality requires exactly 2/3 votes`
@@ -620,8 +661,10 @@ All benchmarks measured on standard hardware. Target metrics:
 - **Block Validation**: <100ms per block (100 tx)
 - **Transaction Verification**: <1ms per tx
 - **Merkle Root Computation**: <10ms per 1000 tx
-- **PoW Hash Rate**: >1,000 hashes/sec
-- **PoS Vote Aggregation**: <50ms per 100 votes
+- **VRF evaluate + verify**: <2ms (Ristretto255)
+- **KES sign + verify**: <50ms (Sum-KES leaf + Merkle path, Dilithium L3)
+- **ML-DSA sign + verify**: <5ms / <2ms (FIPS 204, ml-dsa 0.0.4)
+- **Block production end-to-end**: <500ms (snapshot + order + sign + gossip)
 
 ### Storage Benchmarks
 - **Mempool Insert**: <1ms per tx
@@ -711,15 +754,26 @@ CI pipeline runs:
 ### Kyber KATs
 - Source: [ML-KEM Specification](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf)
 - Test vectors provided in `tests/crypto/kat/kyber/`
-- Verify against reference implementation from liboqs
+- Verify against reference implementation from `pqcrypto-kyber` (PQClean) and ML-KEM RustCrypto crate
 
 ### SHA3 KATs
 - Source: [NIST CAVP](https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program/)
 - Test vectors for SHA3-256 and SHA3-512
 
-### Argon2id KATs
+### Argon2id KATs (keystore, NOT PoW)
 - Source: [Argon2 Specification](https://github.com/P-H-C/phc-winner-argon2)
-- Test vectors for various parameter sets
+- Used only inside `qv_wallet::keystore` and `qv_miner::keystore` for password-based
+  key derivation; **not** a consensus primitive. OWASP-2023 params: m=65540 KiB,
+  t=3, p=1, output 32 bytes (AES-256 key).
+
+### ML-DSA Test Vectors (FIPS 204)
+- Source: [NIST FIPS 204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf)
+- ML-DSA-44 / ML-DSA-65 / ML-DSA-87 KATs — sk size 2560/4032/4896, sig size 2420/3309/4627
+- Exercised by `qv_crypto::pqc_sign::tests::fips204_size_invariants`
+
+### Ristretto255-VRF Vectors
+- Source: schnorrkel crate tests (IETF draft-irtf-cfrg-vrf-15 ECVRF-RISTRETTO255-SHA512)
+- Exercised by `qv_crypto::vrf::tests::*`
 
 ---
 
@@ -760,10 +814,11 @@ ninja -C build run_benchmarks
 ## 10. References
 
 - [Test Pyramid Pattern](https://martinfowler.com/bliki/TestPyramid.html)
-- [Google Test Framework](https://google.github.io/googletest/)
-- [Google Benchmark](https://github.com/google/benchmark)
-- [liboqs Documentation](https://liboqs.org/)
+- [cargo-nextest](https://nexte.st/) — Rust test runner (v2 stack; v1'de Google Test idi)
+- [criterion.rs](https://github.com/bheisler/criterion.rs) — Rust benchmark (v2 stack; v1'de Google Benchmark idi)
+- [proptest](https://github.com/proptest-rs/proptest) — property-based testing
 - [Post-Quantum Cryptography Standards (NIST FIPS 203, 204)](https://csrc.nist.gov/projects/post-quantum-cryptography/)
+- [RustCrypto `ml-dsa`](https://github.com/RustCrypto/signatures/tree/master/ml-dsa) — FIPS 204 saf-Rust ML-DSA implementation (ADR-006)
 
 ---
 

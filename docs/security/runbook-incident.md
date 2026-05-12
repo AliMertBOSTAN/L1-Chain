@@ -163,7 +163,7 @@ watch -n 5 'curl -s http://localhost:8080/rpc -d "{\"method\":\"qv_finalityHeigh
    - Message: "Finality compromise detected. Liquidity paused pending investigation."
 
 2. **Notify validators** that >1/3 of stake may be attacking:
-   - Slack: `@validators ALERT: Reorg >50 blocks detected. Epoch X block Y. Potential 51% attack.`
+   - Slack: `@validators ALERT: Reorg >k=50 blocks (past finality depth) detected at Epoch X block Y. Potential >1/3 byzantine-stake attack (PoS analog of "51%"; in Ouroboros Praos the safety threshold is honest stake > 2/3).`
 
 3. **Collect evidence**:
    - Save block headers for both chains

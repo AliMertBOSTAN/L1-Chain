@@ -144,10 +144,10 @@
 
 **Mitigation Status**: Partial
 - Current: `subtle::ConstantTimeEq` for byte comparison of signatures
-- Missing: Dilithium verification in `pqcrypto-dilithium` is not guaranteed constant-time
-- Future: Use constant-time Dilithium from liboqs; run validators on timing-resistant hardware
+- Missing: ML-DSA verification in `ml-dsa = 0.0.4` is not guaranteed constant-time (rejection sampling loops)
+- Future: Audit `ml-dsa` for constant-time guarantees as crate matures (currently 0.x pre-stable, ADR-006 follow-up); run validators on timing-resistant hardware
 
-**Residual Risk**: CHECKSIG_PQC timing depends on Dilithium implementation; validator isolation required.
+**Residual Risk**: CHECKSIG_PQC timing depends on ML-DSA implementation; validator isolation required.
 
 ---
 

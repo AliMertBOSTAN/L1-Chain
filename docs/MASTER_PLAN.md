@@ -26,7 +26,7 @@ Stealth addresses (opt-in confidential amounts), Encrypted mempool (threshold Ky
       `qv-node`, `qv-wallet`, `qv-miner`, `qv-common`
 
 ### 0.3 Nix ve Build
-- [x] `flake.nix` Rust için güncelle: rustc, cargo, rust-analyzer, liboqs, rocksdb
+- [x] `flake.nix` Rust için güncelle: rustc, cargo, rust-analyzer, rocksdb (liboqs ADR-006 sonrası kaldırıldı — saf-Rust `ml-dsa` + `schnorrkel` + `pqcrypto-kyber`)
 - [x] `devShell` tanımla: clippy, rustfmt, cargo-audit, cargo-deny, cargo-fuzz
 - [x] `just` veya `cargo-make` ile task runner
 
@@ -52,12 +52,15 @@ Stealth addresses (opt-in confidential amounts), Encrypted mempool (threshold Ky
 - [x] Double-hash (Merkle için)
 - [x] NIST KAT test vektörleri
 
-### 1.2 PQC İmzalar (Dilithium / ML-DSA)
-- [x] `pqcrypto-dilithium` entegrasyonu (veya `oqs-rs`)
+### 1.2 PQC İmzalar (FIPS 204 ML-DSA)
+- [x] `ml-dsa = 0.0.4` (RustCrypto) entegrasyonu — ADR-006 (2026-05-07)
 - [x] Keypair, sign, verify API
-- [x] 3 parameter set (Level 2/3/5)
-- [x] Serialization (bincode veya custom)
-- [x] Property testler + tamper reddi
+- [x] 3 parameter set (Level 2/3/5 = ML-DSA-44/65/87)
+- [x] Deterministic seeded keygen (`from_seed_pqc`, FIPS 204 §6.1 KeyGen_internal)
+- [x] Serialization (bincode roundtrip)
+- [x] Property testler + tamper reddi + cross-key verify reject
+- [x] FIPS 204 size invariants (sk=4032, sig=3309 for L3) test pinned
+> **Not:** Daha önce `pqcrypto-dilithium 0.5` (NIST round-3) kullanılmıştı; wire-uyumsuzluk nedeniyle 2026-05-07'de tamamen kaldırıldı (ADR-006).
 
 ### 1.3 Hibrit KEM
 - [x] X25519 (`x25519-dalek`)
@@ -66,18 +69,19 @@ Stealth addresses (opt-in confidential amounts), Encrypted mempool (threshold Ky
 - [x] Wire format: `eph_x25519_pk || kyber_ct`
 - [x] Tamper tests
 
-### 1.4 VRF (Ouroboros için)
-- [ ] Pallas veya Ristretto tabanlı VRF (Cardano uyumlu)
-- [ ] Veya PQC VRF araştır (lattice VRF literatürü var ama olgun değil)
-- [ ] KES (Key Evolving Signatures) — forward-secure
-- [ ] Slot leader proof API
-> **Not:** İskelet oluşturuldu (vrf.rs, kes.rs, threshold.rs). Gerçek implementasyon ADR-004/005 sonrası.
+### 1.4 VRF (Ouroboros için) — TAMAMLANDI 2026-05-06 (ADR-004)
+- [x] Ristretto255-VRF via `schnorrkel = 0.11` (Cardano-uyumlu IETF draft)
+- [x] PQC VRF: lattice VRF olgunlaşana kadar v2 hibrit yola bırakıldı (`VrfEvaluator` trait soyutlaması)
+- [x] KES (Sum-KES on Dilithium L3, depth=11, N=2048) — ADR-005, forward-secure
+- [x] Slot leader proof API (`evaluate(sk, msg) → (output, proof)`, `verify(pk, msg, proof) → output`)
+- [x] `RistrettoVrfEvaluator` + `DilithiumSumKesVerifier` consensus wire'da
+> **Not:** Production implementasyon `crates/qv-crypto/src/{vrf,kes}.rs`. 11+11 unit test (KES yavaşları `#[ignore]`).
 
 ### 1.5 Threshold Kriptografisi (ADR-003 için hazırlık)
-- [ ] Shamir secret sharing (scalar)
-- [ ] Threshold Kyber DKG skeleton (araştırma, ayrı ADR gerekecek)
-- [ ] Komite imza şeması (Dilithium multi-signature)
-> **Not:** İskelet oluşturuldu (threshold.rs). Gerçek implementasyon Aşama 7 ile paralel.
+- [x] Shamir secret sharing (scalar)
+- [x] Threshold Kyber DKG (`qv_crypto::threshold`)
+- [x] Komite imza şeması (Pedersen DKG + Feldman VSS — 5 test `#[ignore]` T-01 envanteri)
+> **Not:** Production implementasyon `crates/qv-crypto/src/threshold.rs`. Encrypted mempool akışına bağlanması Aşama 7 (envanter MP-01).
 
 ### 1.6 Secure Memory
 - [x] `zeroize` crate kullan, custom `SecureBytes` tip

@@ -1,7 +1,7 @@
 # ADR-002: UTXO + CSV Üzerinde DeFi Mimarisi Yaklaşımı
 
-**Durum:** Tartışma aşamasında — karar bekleniyor
-**Tarih:** 2026-04-15
+**Durum:** Approved — uygulandı (`qv-defi` + `qv-script::templates::amm_swap_covenant`)
+**Tarih:** 2026-04-15 (önerildi), 2026-04-27 (qv-defi tamamlandığında fiili karar)
 **Bağlam:** QuantumVault UTXO + Client-Side Validation felsefesini koruyacak,
 ancak DeFi (AMM, lending, türev ürünler) primitiflerini desteklemelidir.
 Bu iki ilke doğal çelişir: DeFi paylaşılan zincir üstü durum ister, CSV-UTXO

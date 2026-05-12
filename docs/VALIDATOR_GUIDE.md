@@ -148,22 +148,38 @@ QuantumVault uses four asymmetric keypairs:
 
 ### 4.2 Initial Key Generation
 
+Operatör anahtarları **tek bir 32-byte master seed**'den deterministik olarak
+türetilir (`OperatorKeys::from_seed`); master seed Argon2id+AES-256-GCM ile
+**tek bir keystore dosyasında** şifrelenir (envanter M-04, 2026-05-12).
+
 ```bash
-# Generate VRF key (offline recommended)
-qv-miner keys init \
+# Generate all three keys (VRF + KES + cold) from one master seed
+qv-miner init \
   --pool-name "MyValidator" \
-  --vrf-output /secure/vault/vrf_master.key \
-  --cold-output /secure/vault/cold_master.key \
+  --keystore /secure/vault/operator.keystore \
   --password-file /tmp/keypass.txt
 
 # Output:
+# Master seed generated (zeroize after backup)
 # VRF public key: vrf1...
-# Cold key public key: cold1...
-# KES epoch 0 derived
+# KES public key:  kes1...  (period 0)
+# Cold public key: cold1...
+# Keystore saved to /secure/vault/operator.keystore (Argon2id + AES-256-GCM)
 
 # Securely delete password file
 shred -u /tmp/keypass.txt
 ```
+
+Anahtar türetme şeması:
+```
+vrf_seed  = SHA3-256(master_seed || "vrf")
+kes_seed  = SHA3-256(master_seed || "kes")
+cold_seed = SHA3-256(master_seed || "cold")
+```
+Üç child seed bağımsız primitiflere besleniyor (Ristretto255-VRF, Sum-KES,
+ML-DSA-65). Master seed compromise olursa üçü de compromise olur; bu yüzden
+keystore parolası güçlü olmalı (Argon2id-64MiB-3-1) ve yedek master seed
+**yalnızca air-gapped** ortamda saklanmalıdır.
 
 ### 4.3 Key Rotation Schedule
 
@@ -299,9 +315,11 @@ metrics_port = 9090
 tracing_level = "info"
 
 [keys]
-vrf_key_path = "/etc/quantumvault/secrets/vrf_key"
-kes_key_path = "/var/quantumvault/kes_key"  # Hot, ephemeral
-cold_key_path = ""  # Never on disk; use HSM or offline
+# Single encrypted master keystore (envanter M-04, ADR-006 sonrası).
+# Argon2id (64 MiB / 3 iter / 1 lane) + AES-256-GCM. Contains:
+#   - 32-byte master seed (vrf/kes/cold deterministic derivation)
+#   - kes_period: u32 (forward-secure rotation pointer)
+keystore_path = "/etc/quantumvault/secrets/operator.keystore"
 
 [hsm]
 enabled = false  # Set to true if HSM available
@@ -513,10 +531,12 @@ Scenario: Validator crashes before epoch boundary, KES not rotated.
 ### 9.3 Manual Rotation (Emergency)
 
 ```bash
-# Only if automatic rotation failed or suspected compromise
+# Only if automatic rotation failed or suspected compromise.
+# Reads the keystore, evolves KES forward to target epoch, re-encrypts
+# with the same password, writes back to the single keystore file.
 qv-miner keys rotate-kes \
-  --epoch <current_epoch>
-  --output /var/quantumvault/kes_key
+  --keystore /etc/quantumvault/secrets/operator.keystore \
+  --target-epoch <epoch>
 ```
 
 ---
@@ -621,15 +641,17 @@ groups:
 
 ### 11.3 Key Errors
 
-**Symptom**: `ERR: KES key load failed` in logs.
+**Symptom**: `ERR: keystore load failed: wrong password or corrupted keystore` in logs.
 
 **Causes**:
-1. **KES file corrupted**: Usually after unclean shutdown
-   - Fix: `qv-miner keys rotate-kes --force`
-2. **KES password wrong**: Password changed or environment var unset
-   - Fix: `export QV_KES_PASS=<password>; systemctl restart quantumvault-miner`
-3. **VRF key inaccessible**: HSM offline or wrong slot
-   - Fix: Check HSM status; verify PKCS#11 connection
+1. **Keystore file corrupted**: Usually after disk failure (M-04 keystore writes
+   are not torn-write safe — single file replacement only).
+   - Fix: Restore from offline backup of the keystore file; recreate from master
+     seed if backed up separately.
+2. **Password wrong**: Argon2id KDF + AES-GCM tag mismatch
+   - Fix: `export QV_KEYSTORE_PASS=<password>; systemctl restart quantumvault-miner`
+3. **Keystore version mismatch**: Older miner version reading newer envelope
+   - Fix: Upgrade miner binary; current version: 1 (envelope schema).
 
 ### 11.4 Double-Sign Protection
 

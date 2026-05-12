@@ -63,11 +63,13 @@ This index provides quick access to all testing-related documentation for the Qu
 - Coverage target: 90%
 
 ### Consensus Module Tests
-*Coming soon*: tests/consensus/TEST_PLAN.md
-- PoW difficulty adjustment tests
-- PoS committee selection tests
-- Finality threshold tests
-- Coverage target: 85%
+Implemented in `crates/qv-consensus/{src,tests}/`:
+- VRF leader-election tests (Ristretto255-VRF; ADR-004)
+- KES sign/verify tests (Sum-KES on Dilithium L3; ADR-005)
+- Slot/epoch boundary tests; epoch nonce evolution
+- Stake distribution, snapshot, reward distribution
+- Fork choice (density-weighted longest chain); k-deep finality
+- Coverage target: 85% — current ~92% (80 unit + 12 integration tests passing)
 
 ---
 

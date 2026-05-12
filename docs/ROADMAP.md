@@ -16,7 +16,7 @@
 | Konu | Durum |
 |---|---|
 | Workspace derleme | ✅ 0 error, ~187 warning, 13 crate |
-| Test suite | ✅ **~736 passed / 0 failed / 34 ignored** (post-ADR-006: ml-dsa swap; qv-crypto +5 yeni `from_seed_*` + 2 integration ignored→passed; qv-miner +2 ignored→passed) |
+| Test suite | ✅ **~736 passed / 0 failed / 34 ignored** post-ADR-006; **M-04 sonrası beklenen ~741/32** (build/test verify kullanıcı tarafında pending, 2026-05-12) |
 | Çalışan binary'ler | qv-node (kısmen), qv-wallet (init/send/address çalışıyor), qv-miner (kabuk) |
 | Çalışan akışlar | CLI parse, mnemonic gen, PQC key gen, config save/load, **gerçek Ristretto255-VRF**, **gerçek Sum-KES (depth-11) on Dilithium**, in-memory blok pipeline, wallet keystore (Argon2id + AES-256-GCM), wallet send (TxBuilder + Dilithium sign + RPC), node `shutdown()` graceful flush |
 | **Eksik / placeholder** | Hibrit Kyber handshake, Bulletproofs gerçek implementasyon, mainnet genesis ceremony tooling, miner daemon (`cmd_run` sleep loop), 2 RPC metodu (stealth scan/balance), block producer UTXO commitment hash, ml-dsa swap (C-04 önkoşul) |
@@ -62,7 +62,7 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 | ~~M-01~~ | ✅ **KAPATILDI 2026-05-06** — `VrfKeyPair` artık `qv_crypto::VrfKeyPair`'i wrap ediyor; Ristretto255 keypair üretiyor. `into_evaluator` ile `RistrettoVrfEvaluator`'a dönüşür | — |
 | ~~M-02~~ | ✅ **KAPATILDI 2026-05-06** — `KesKeyPair` artık `qv_crypto::kes_generate`'i kullanıyor (real depth-11 Sum-KES on Dilithium) | — |
 | ~~M-03~~ | ✅ **KAPATILDI 2026-05-06** — `ColdKeyPair` artık `qv_crypto::generate_pqc_keypair(Level3)` (gerçek Dilithium 1952-byte pk) | — |
-| M-04 | `crates/qv-miner/src/keys.rs::OperatorKeys::{load,save}_encrypted` | Argon2+AES-GCM yok; load/save artık plain placeholder yerine **net hata** döner ("encrypted keystore not yet implemented"). Kullanıcı `register-pool` / `keys-show` çalıştıramaz | Faz 1 (qv-wallet keystore ile birlikte) |
+| ~~M-04~~ | ✅ **KAPATILDI 2026-05-12** — `qv-miner/src/keystore.rs` yazıldı (Argon2id + AES-256-GCM, wallet keystore port'u). `OperatorKeys::save_encrypted(path, password)` ve `load_encrypted(path, password)` tek dosyaya 32-byte master seed + KES current period yazar; load'da `from_seed` ile keys'i yeniden türetir + KES period kadar `evolve` eder. API 3-path → single-path: `OperatorConfig.keystore_path`. 5 keystore unit test + 2 ignored end-to-end roundtrip (yavaş KES). Build/test verify kullanıcı tarafında pending | — |
 | ~~M-05~~ | ✅ **KAPATILDI 2026-05-06** — `evolve_to_next_period` artık `qv_crypto::kes_evolve`'i çağırıyor (gerçek leaf zeroize + period advance) | — |
 | M-06 | `crates/qv-miner/src/registration.rs:54` | Locking script boş + `// TODO: Script::standard_registration_lock()` | Faz 6 |
 | M-07 | `crates/qv-miner/src/registration.rs:64-68` | UTXO seçimi/change/cold-key imzalama yok; tek dummy input | Faz 1 |
@@ -451,8 +451,7 @@ Tüm fazlar ──► Faz 9 ──► Faz 10
 
 **Tamamlanan (2026-05-06):**
 - ✅ DOC-05: ADR-004 (VRF) + ADR-005 (KES) yazıldı
-- ✅ C-04: `qv_crypto::from_seed_pqc` eklendi (fips204 crate); qv-wallet HD spend key
-  derivation artık gerçek deterministic
+- ✅ C-04: `qv_crypto::from_seed_pqc` eklendi (önce `fips204` denendi → 2026-05-07'de doğrulanamadı; ADR-006 ile `ml-dsa = 0.0.4` üzerinden kapatıldı). qv-wallet HD spend key derivation artık gerçek deterministic
 - ✅ DOC-04: `book/src/SUMMARY.md` ADR/MEMORY/STATUS linkleriyle güncellendi
 - 🆕 C-05 envanter girdisi açıldı (Hybrid KEM seeded keygen)
 

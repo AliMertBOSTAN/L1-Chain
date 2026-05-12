@@ -31,8 +31,9 @@
 | Threat | STRIDE | Severity | Status | Mitigation |
 |--------|--------|----------|--------|------------|
 | 1. RPC account enumeration (leak user keys) | Information Disclosure | Critical | Mitigated | RPC is unauthenticated; should not expose keys |
-| 2. Node crash on malformed block (panic) | Denial of Service | High | Partial | Error handling; block validation; fuzz testing |
+| 2. Node crash on malformed block (panic) | Denial of Service | High | Mitigated | `#![forbid(unsafe_code)]` + clippy `unwrap_used/expect_used/panic`/`indexing_slicing/integer_division/float_arithmetic` "deny" — yapısal olarak panic-free; fuzz target `node_integration.rs` mevcut |
 | 3. Block sync gap (missed blocks, stalled) | Denial of Service | High | Mitigated | Retry logic, peer rotation, backpressure |
+| 8. Node shutdown ungraceful (in-flight tx loss) | Denial of Service | Medium | Mitigated | N-04 closed 2026-05-06: `Node::shutdown` gossip kanalı kapatır + tip/mempool snapshot ile graceful flush |
 | 4. RPC result corruption (wrong balance returned) | Tampering | Medium | Mitigated | RPC layer validates chain state before response |
 | 5. State machine divergence (apply != revert) | Tampering | Medium | Mitigated | apply/revert are tested as inverse operations |
 | 6. Rate limit bypass (RPC exhaustion) | Denial of Service | Medium | Mitigated | RPC rate limiting per IP/method |

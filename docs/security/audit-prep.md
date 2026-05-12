@@ -11,9 +11,12 @@
 ### In Scope (Tier 1 — Critical)
 
 **Cryptographic layer** (`qv-crypto`):
-- Dilithium signature implementation (via `pqcrypto-dilithium`)
-- Kyber KEM integration (via `pqcrypto-kyber`)
+- FIPS 204 ML-DSA signature implementation (via `ml-dsa = 0.0.4` RustCrypto; ADR-006)
+- Kyber KEM integration (via `pqcrypto-kyber`; saf-Rust `ml-kem`'e geçiş gelecek)
 - Hybrid X25519 + Kyber protocol (transcript KDF)
+- Ristretto255-VRF via `schnorrkel = 0.11` (ADR-004)
+- Sum-KES on Dilithium L3, depth=11, N=2048 periyot (ADR-005)
+- Argon2id + AES-256-GCM keystore (wallet + miner; envanter M-04)
 - Secret key storage (`SecureBytes`, `zeroize`)
 - Constant-time operations (signature verification)
 
@@ -89,7 +92,7 @@
 
 ### Out of Scope (Tier 3 — Deferred)
 
-- **liboqs C backend** — Rely on upstream NIST audits + Open Quantum Safe reviews
+- **RustCrypto `ml-dsa` upstream audits** — Saf-Rust FIPS 204 ML-DSA implementation; rely on upstream RustCrypto reviews + NIST FIPS 204 conformance (ADR-006). liboqs/oqs-rs ADR-006 ile bırakıldı.
 - **Bitcoin-style Merkle** — Reference design; risk accepted (CVE-2012-2459 mitigated)
 - **Bulletproofs soundness** — Classical crypto; opt-in only; STARK migration planned
 - **Operational security** — Key management, infrastructure hardening (post-audit)
@@ -149,7 +152,7 @@ done
 ### Expected Build Output
 
 - **No compiler errors or warnings** (clippy with -D warnings)
-- **All tests pass** (~300 unit + integration tests)
+- **All tests pass** (~736 passed / 0 failed / 34 ignored — post-ADR-006, 2026-05-12; M-04 sonrası beklenen ~741/32)
 - **No Clippy violations** (forbid: unwrap, expect, panic in prod code)
 - **Code coverage >80%** (statement coverage, reported by CI)
 
@@ -221,7 +224,7 @@ done
 
 ### Deferred (Future Phases)
 
-1. **VRF/KES not finalized** — ADR-004/005 specify real implementations; currently using test mocks
+1. **VRF/KES finalized** — ADR-004/005 hayata geçirildi 2026-05-06 (`qv-crypto::vrf`, `qv-crypto::kes`). Test mocks (`TestVrf`, `TestKesVerifier`) sadece testler için duruyor; production akış gerçek primitif kullanıyor (`RistrettoVrfEvaluator`, `DilithiumSumKesVerifier`)
 2. **No formal verification** — Planned Phase 3; currently manual code review + fuzzing
 3. **No side-channel lab testing** — Requires equipment; planned Phase 2
 4. **No economic audit** — Game-theory analysis separate from code audit
@@ -239,11 +242,11 @@ See [`docs/threat-model/README.md`](../threat-model/README.md) for detailed STRI
 
 **Top 10 Critical/High Threats** (ordered by severity):
 
-1. VRF slot leader forgery (Critical, deferred)
+1. VRF slot leader forgery (Critical, **mitigated** — `RistrettoVrfEvaluator` üretimde; sk leak'i hâlâ tam tehdit modeli içinde)
 2. UTXO double-spend via TxId collision (Critical, mitigated)
-3. Script VM opcode bug → spending bypass (Critical, partial)
-4. KES signature forgery (Critical, deferred)
-5. Encrypted mempool threshold bypass (Critical, partial)
+3. Script VM opcode bug → spending bypass (Critical, partial — fuzz coverage genişletilmeli)
+4. KES signature forgery (Critical, **mitigated** — Sum-KES MMM construction; forward security per period zeroize)
+5. Encrypted mempool threshold bypass (Critical, **partial** — qv_crypto::threshold çalışıyor ama T-01 Pedersen DKG/Feldman VSS asymmetry 5 ignored test'le açık; MP-01 wiring eksik)
 6. Block reorg > k blocks (High)
 7. Stake snapshot off-by-one (High, mitigated)
 8. Reward calculation overflow (High, mitigated)
@@ -283,7 +286,7 @@ See [`docs/threat-model/README.md`](../threat-model/README.md) for detailed STRI
 
 **Security Impact**:
 - Rust memory safety eliminates entire classes of bugs (buffer overflow, use-after-free)
-- VRF/KES are now trait-based (testable with mocks; real implementations deferred)
+- VRF/KES are trait-based (`VrfEvaluator`, `KesVerifier`); production akış `RistrettoVrfEvaluator` ve `DilithiumSumKesVerifier` ile gerçek primitifleri kullanır (ADR-004/005, 2026-05-06)
 - New attack surface: Kyber threshold decryption (encrypted mempool)
 - Reduced attack surface: No UTXO index (eliminates index corruption attacks)
 

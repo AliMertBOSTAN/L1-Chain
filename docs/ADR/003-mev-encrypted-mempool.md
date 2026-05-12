@@ -1,7 +1,7 @@
 # ADR-003: MEV Stratejisi — Encrypted Mempool + Threshold Decryption
 
-**Durum:** Tartışma aşamasında
-**Tarih:** 2026-04-15
+**Durum:** Approved — uygulandı (`qv-mempool::encrypted` + `qv-crypto::threshold`)
+**Tarih:** 2026-04-15 (önerildi), 2026-04-24 (mempool tamamlandığında fiili karar). T-01 envanteri (Pedersen DKG/Feldman VSS asymmetry, 5 ignored test) hâlâ açık; encrypted mempool gerçek decryption committee'siyle production-grade çalışmadan önce kapanması gerekiyor.
 **Bağlam:** DeFi protokollerinin en büyük değer çıkışı Maximal Extractable
 Value (MEV). Kullanıcı ne kadar "doğru" işlem yaparsa yapsın, ara katmanlar
 (validatör, builder, searcher) işlem sırasını manipüle ederek ekstra kâr

@@ -16,7 +16,7 @@ getirdiği yeni mühendislik zorluklarını kayıt altına alır.
 | Durum Modeli | UTXO + CSV | **UTXO + Covenants** | CSV felsefesini koru; DeFi'yi gelişmiş script'lerle in'a et |
 | Konsensüs | Hibrit PoW+PoS | **Nakamoto PoS (Ouroboros Praos)** | DeFi için daha düşük gecikme, enerjisiz, kanıtlanabilir güvenlik |
 | Gizlilik | Stealth addresses | **Stealth + Confidential Amounts** | Bireysel pozisyon gizli, havuz şeffaf → DeFi uyumlu |
-| Kriptografi | X25519+Kyber, Dilithium, liboqs | **Aynı** (pqcrypto-rs / oqs-rs bağlaması) | Karar değişmedi |
+| Kriptografi | X25519+Kyber, Dilithium, liboqs | **ML-DSA (FIPS 204) + Kyber + X25519 + Ristretto255-VRF + Sum-KES** (RustCrypto saf-Rust; ADR-006 ile liboqs/oqs-rs bırakıldı) | Wire format FIPS 204 final spec; tek crate (`ml-dsa`); C bağımlılığı yok |
 | Build | Nix + CMake + Ninja | **Nix + Cargo + Workspaces** | Rust-native yaklaşım |
 
 ---
@@ -64,7 +64,7 @@ Pure Nakamoto PoS'u seçtik. Cardano'nun Ouroboros'u kanıtlanmış, ama
 **20 saniyelik slot'u DeFi için çok yavaş**. Parametreleri yeniden tune etmeliyiz:
 
 - **Slot süresi:** 2 saniye (DeFi için elverişli)
-- **Epoch uzunluğu:** 12 saat (864 slot)
+- **Epoch uzunluğu:** 12 saat (21 600 slot — 12 × 3600 / 2)
 - **Slot lider seçimi:** VRF ile stake-orantılı
 - **k-deep finality:** k=50 blok (~100 saniye olasılıksal finalite)
 - **Forward-secure imzalar:** uzun menzilli saldırılara karşı (KES)
@@ -116,12 +116,15 @@ Sıfırdan bespoke Rust seçtin — framework yok. Kullanılacak kütüphaneler:
 - **rayon** — paralel işlem
 
 ### Kriptografi
-- **oqs-rs** veya **pqcrypto** — liboqs Rust bağlaması
-- **x25519-dalek** — klasik X25519
-- **ed25519-dalek** — klasik imza (VRF için)
-- **blake3** — native Rust hash
-- **sha3** — RustCrypto, FIPS uyumlu
-- **vrf-rs** veya özel implementasyon — Ouroboros VRF
+- **ml-dsa** (RustCrypto, FIPS 204 final) — PQC imza, ADR-006 ile seçildi (`pqcrypto-dilithium` 2026-05-07'de kaldırıldı; wire-uyumsuzdu)
+- **pqcrypto-kyber** — ML-KEM (KEM tarafı; saf-Rust ml-kem alternatifi gelecekte)
+- **x25519-dalek** — klasik X25519, hibrit KEM için
+- **ed25519-dalek** — libp2p `NodeIdentity` için (VRF için **değil**)
+- **schnorrkel** (Ristretto255-VRF) — Ouroboros Praos slot lider seçimi, ADR-004
+- **merlin** — transcript için (schnorrkel bağımlılığı)
+- **sha3** — RustCrypto, FIPS uyumlu (transaction id, Merkle, blok hash)
+- **blake3** — native Rust hash (sıcak yol streaming)
+- **argon2 + aes-gcm** — keystore (wallet + miner, M-04)
 
 ### Test & Geliştirme
 - **proptest** — property-based testing
@@ -137,24 +140,26 @@ Sıfırdan bespoke Rust seçtin — framework yok. Kullanılacak kütüphaneler:
 
 ```
 quantumvault/
-├── Cargo.toml                 # workspace root
+├── Cargo.toml                 # workspace root (13 member crate)
 ├── flake.nix
-├── rust-toolchain.toml        # rustc pin
+├── rust-toolchain.toml        # rustc pin (stable 1.78+)
 ├── crates/
-│   ├── qv-crypto/             # hash, PQC, hybrid KEM, VRF
-│   ├── qv-core/               # UTXO, transaction, block primitives
-│   ├── qv-script/             # Covenant script VM (stack-based)
-│   ├── qv-consensus/          # Ouroboros Praos
-│   ├── qv-privacy/            # Stealth addresses, range proofs
-│   ├── qv-net/                # libp2p transport, gossip
-│   ├── qv-storage/            # RocksDB/redb abstraction, UTXO set
-│   ├── qv-mempool/            # Intent-aware mempool + aggregator
-│   ├── qv-defi/               # AMM, lending primitives (on-top of script)
-│   ├── qv-node/               # Full node binary
-│   ├── qv-wallet/             # CLI wallet binary
-│   └── qv-miner/              # Stake pool operator binary (slot leader)
+│   ├── qv-common/             # paylaşılan tipler, error wrap'leri
+│   ├── qv-crypto/             # hash, PQC sign (ml-dsa), hybrid KEM, VRF (schnorrkel), KES, threshold
+│   ├── qv-core/               # UTXO, transaction, block, Merkle, protocol params
+│   ├── qv-script/             # Covenant script VM (stack-based, 57 opcode, gas-limited)
+│   ├── qv-consensus/          # Ouroboros Praos (slot, epoch, leader, finality, rewards)
+│   ├── qv-privacy/            # Stealth addresses + opt-in confidential amounts
+│   ├── qv-storage/            # RocksDB/redb/memory KV abstraction, UTXO set, undo log
+│   ├── qv-net/                # libp2p transport, GossipSub, peer management
+│   ├── qv-mempool/            # Clear + encrypted mempool, deterministic ordering, AMM batcher
+│   ├── qv-defi/               # AMM, lending, oracle, intents
+│   ├── qv-node/               # Full node binary (RPC, validation, slot ticker, ceremony)
+│   ├── qv-wallet/             # CLI wallet binary (mnemonic, keystore, tx build, send)
+│   └── qv-miner/              # Stake pool operator binary (VRF leader, KES sign, block producer)
 ├── fuzz/
 ├── benches/
+├── spikes/                    # one-off API verification scratch projects (excluded)
 └── docs/
     └── ADR/
 ```

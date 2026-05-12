@@ -22,8 +22,8 @@
    - Confidentiality: CRITICAL (weak RNG = weak keys)
 
 ### Trust Boundaries
-- **Upstream**: `pqcrypto-dilithium`, `pqcrypto-kyber` crates + liboqs C library
-- **Consumer**: All other crates call `sign_pqc()`, `verify_pqc()`, `encapsulate_hybrid()`, `decapsulate_hybrid()`
+- **Upstream**: `ml-dsa = 0.0.4` (RustCrypto FIPS 204 final; ADR-006), `pqcrypto-kyber` (Kyber tarafı), `schnorrkel = 0.11` (Ristretto255-VRF; ADR-004), `argon2` + `aes-gcm` (keystore; M-04). `pqcrypto-dilithium` 2026-05-07'de tamamen kaldırıldı (wire-uyumsuzluk; bkz. ADR-006)
+- **Consumer**: All other crates call `sign_pqc()`, `verify_pqc()`, `from_seed_pqc()`, `encapsulate_hybrid()`, `decapsulate_hybrid()`, `kes_generate()`, `kes_sign()`, `kes_verify()`, `kes_evolve()`, `VrfKeyPair::evaluate/verify`
 - **Side-channel**: Timing, power, cache state during signing / KEM operations
 
 ---
@@ -106,8 +106,8 @@
 
 **Mitigation Status**: Partial
 - Current: `subtle::ConstantTimeEq` for byte-by-byte signature verification
-- Missing: Dilithium signature generation itself is not constant-time in `pqcrypto-dilithium`; uses early-exit loops
-- Future: Use constant-time Dilithium implementation from `liboqs` when available; deploy on resistant hardware (ARM with cache timing mitigations)
+- Missing: ML-DSA signature generation itself is not guaranteed constant-time in `ml-dsa = 0.0.4`; reference implementation uses rejection sampling loops with variable-time exits
+- Future: Audit `ml-dsa` for constant-time guarantees as crate matures (currently 0.x pre-stable); deploy on resistant hardware (ARM with cache timing mitigations)
 
 **Residual Risk**: Timing leak in signing (not verification) can extract key bits. Validator must be isolated from network timing.
 
@@ -173,9 +173,9 @@
 **Likelihood**: Low (requires specialized hardware; not practical for remote attacks).
 
 **Mitigation Status**: Partial
-- Current: No explicit constant-time Dilithium signing in `pqcrypto-dilithium`
-- Missing: `pqcrypto-dilithium` uses reference implementation with variable-time loops in rejection sampling
-- Future: Use constant-time Dilithium from formal verification (CRYSTALS-Dilithium ref or liboqs hardened variant)
+- Current: No explicit constant-time ML-DSA signing in `ml-dsa = 0.0.4`
+- Missing: `ml-dsa` reference implementation with variable-time loops in rejection sampling
+- Future: Use constant-time ML-DSA from formal verification when the crate stabilizes (currently 0.x pre-stable); ADR-006 follow-up tracks the version bump
 - Deployment: Run validators on hardware with cache-timing mitigations (Intel TSX, ARM SVE masking)
 
 **Residual Risk**: Signing is not constant-time; validator must assume isolated environment.
@@ -184,9 +184,9 @@
 
 ## Known Weaknesses & Future Work
 
-1. **VRF not yet implemented** — `vrf.rs` is a stub; real Ouroboros-Praos VRF required (ADR-004)
-2. **KES not yet implemented** — `kes.rs` is a stub; KES signature required (ADR-005)
-3. **Threshold Kyber not yet implemented** — `threshold.rs` is a stub; distributed decryption required (ADR-006)
+1. ~~**VRF not yet implemented**~~ — Implemented 2026-05-06 (ADR-004). `qv-crypto::vrf` Ristretto255-VRF via `schnorrkel = 0.11`; 11 unit test. `RistrettoVrfEvaluator` consensus'a bağlandı.
+2. ~~**KES not yet implemented**~~ — Implemented 2026-05-06 (ADR-005). `qv-crypto::kes` Sum-KES on Dilithium L3 (depth=11, N=2048); 11 unit test (6 yavaş `#[ignore]`). `DilithiumSumKesVerifier` block_validator'a bağlandı.
+3. **Threshold Kyber** — `qv-crypto::threshold` Pedersen DKG + Feldman VSS + threshold decryption gerçek implementasyonu var (yanlışlıkla "stub" denmiş eski metin). 5 ignored test (T-01 envanteri: Feldman verification asymmetry) — encrypted mempool gerçek wiring (MP-01) için bu açık.
 4. **RNG not seeded independently per thread** — single global seed could leak if threads share state
 5. **No formal verification** — Dilithium, Kyber, SHA3 rely on NIST review, not machine-checked proofs
 
@@ -231,7 +231,7 @@
 ## References
 
 - `crates/qv-crypto/src/lib.rs` — Public API surface
-- `crates/qv-crypto/src/pqc_sign.rs` — Dilithium wrapper
+- `crates/qv-crypto/src/pqc_sign.rs` — ML-DSA (FIPS 204) wrapper via `ml-dsa = 0.0.4` (ADR-006)
 - `crates/qv-crypto/src/hybrid_kem.rs` — X25519 + Kyber hybrid
 - [NIST PQC Standardization](https://csrc.nist.gov/projects/post-quantum-cryptography/) — ML-DSA, ML-KEM status
 - [liboqs Documentation](https://openquantumsafe.org/) — liboqs implementation details

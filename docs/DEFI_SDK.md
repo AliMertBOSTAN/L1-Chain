@@ -1,5 +1,13 @@
 # QuantumVault DeFi SDK Guide
 
+> **Status (2026-05-12):** Bu doküman ileride sunulacak QuantumVault DeFi SDK'sı
+> için **konsept ve pseudo-API rehberidir**. Kod örnekleri (`tx.sign(...)`,
+> `SignatureType::*`, `AmmPool::*` vb.) gerçek `qv-defi` / `qv-wallet` Rust
+> API'sini birebir yansıtmaz; gerçek API yüzeyleri için `crates/qv-defi/`,
+> `crates/qv-wallet/`, ve `docs/SYSTEM_OVERVIEW.md §10/§14` referans alınmalıdır.
+> İmza algoritması ADR-006 (2026-05-07) ile FIPS 204 ML-DSA olarak sabitlendi
+> (eski "Dilithium" terminolojisi aynı algoritma ailesi — `SignatureType::MlDsa`).
+
 Comprehensive guide for building DeFi applications on QuantumVault L1, including AMM, lending, oracle integration, and intent-based order flows.
 
 ## Table of Contents
@@ -97,7 +105,7 @@ let tx = TxBuilder::new()
     .build()?;
 
 // 4. Sign and submit
-let signed_tx = tx.sign(&pool_operator_key, SignatureType::Dilithium)?;
+let signed_tx = tx.sign(&pool_operator_key, SignatureType::MlDsa)?;
 node_client.submit_transaction(&signed_tx).await?;
 ```
 
@@ -147,7 +155,7 @@ let tx = TxBuilder::new()
     .fee(5_000)
     .build()?;
 
-let signed_tx = tx.sign(&user_key, SignatureType::Dilithium)?;
+let signed_tx = tx.sign(&user_key, SignatureType::MlDsa)?;
 node_client.submit_transaction(&signed_tx).await?;
 ```
 
@@ -193,7 +201,7 @@ let tx = TxBuilder::new()
     .fee(5_000)
     .build()?;
 
-let signed = tx.sign(&user_key, SignatureType::Dilithium)?;
+let signed = tx.sign(&user_key, SignatureType::MlDsa)?;
 node_client.submit_transaction(&signed).await?;
 ```
 
@@ -271,7 +279,7 @@ let tx = TxBuilder::new()
     .fee(5_000)
     .build()?;
 
-let signed = tx.sign(&user_key, SignatureType::Dilithium)?;
+let signed = tx.sign(&user_key, SignatureType::MlDsa)?;
 node_client.submit_transaction(&signed).await?;
 ```
 
@@ -333,7 +341,7 @@ let tx = TxBuilder::new()
     .fee(5_000)
     .build()?;
 
-let signed = tx.sign(&user_key, SignatureType::Dilithium)?;
+let signed = tx.sign(&user_key, SignatureType::MlDsa)?;
 node_client.submit_transaction(&signed).await?;
 ```
 
@@ -381,7 +389,7 @@ let tx = TxBuilder::new()
     .fee(5_000)
     .build()?;
 
-let signed = tx.sign(&liquidator_key, SignatureType::Dilithium)?;
+let signed = tx.sign(&liquidator_key, SignatureType::MlDsa)?;
 node_client.submit_transaction(&signed).await?;
 ```
 
@@ -486,7 +494,7 @@ pub async fn submit_price_observation(
         token_b,
     };
     
-    // Sign observation (Dilithium)
+    // Sign observation (ML-DSA-65, FIPS 204)
     let signature = validator_key.sign_dilithium(&obs.to_cbor())?;
     
     // Attach to oracle UTXO
@@ -511,7 +519,7 @@ pub async fn submit_price_observation(
         .fee(1_000)
         .build()?;
     
-    let signed = tx.sign(&validator_key, SignatureType::Dilithium)?;
+    let signed = tx.sign(&validator_key, SignatureType::MlDsa)?;
     submit_transaction(&signed).await?;
     Ok(())
 }
@@ -637,7 +645,7 @@ pub enum Opcode {
     Mod,
     
     // Cryptographic (50-200 gas)
-    CheckSig,            // 150 gas (Dilithium)
+    CheckSigPqc,         // 150 gas (ML-DSA-65, FIPS 204)
     CheckSigPQC,         // 200 gas (post-quantum)
     Hash256,             // 50 gas
     Hash512,             // 75 gas
@@ -807,12 +815,12 @@ use qv_crypto::{SecretKey, SignatureType};
 
 let secret_key = SecretKey::from_seed(&seed_bytes)?;
 
-// Sign with Dilithium (post-quantum)
-let signed_tx = tx.sign(&secret_key, SignatureType::Dilithium)?;
+// Sign with ML-DSA-65 (post-quantum, FIPS 204)
+let signed_tx = tx.sign(&secret_key, SignatureType::MlDsa)?;
 
 // Witness format (attached to transaction)
 // struct Witness {
-//     signatures: Vec<Vec<u8>>,  // Dilithium sigs
+//     signatures: Vec<Vec<u8>>,  // ML-DSA sigs (~3309 bytes each, ML-DSA-65)
 //     scripts: Vec<Vec<u8>>,     // Locking scripts for each input
 // }
 ```
@@ -835,7 +843,7 @@ let tx = TxBuilder::new()
     .fee(5_000)
     .build()?;
 
-let signed = tx.sign(&sender_key, SignatureType::Dilithium)?;
+let signed = tx.sign(&sender_key, SignatureType::MlDsa)?;
 submit_transaction(&signed).await?;
 
 // Recipient can decrypt stealth data using view_secret
@@ -912,7 +920,7 @@ async fn execute_amm_swap(
         .build()?;
     
     // 5. Sign and submit
-    let signed = tx.sign(&user_key, SignatureType::Dilithium)?;
+    let signed = tx.sign(&user_key, SignatureType::MlDsa)?;
     let tx_id = submit_transaction(&signed).await?;
     
     println!("Swap tx {}: {} -> {} (out={})", tx_id, token_in, 

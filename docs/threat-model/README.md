@@ -107,7 +107,7 @@ Each threat is classified by attack vector:
 - **Mitigated** — threat is prevented or detected by existing design + code
 - **Partial** — threat is partially mitigated; residual risk quantified
 - **Open** — threat is identified but not yet addressed; tracked for future phase
-- **Deferred** — threat requires upstream primitive finalization (e.g., KES from liboqs)
+- **Deferred** — threat requires upstream primitive finalization (e.g., `ml-dsa` reaching 1.0 with constant-time guarantees)
 
 ---
 
@@ -116,10 +116,10 @@ Each threat is classified by attack vector:
 ### Cryptographic Trust
 
 All crates relying on PQC assume:
-- CRYSTALS-Dilithium (ML-DSA) is unbroken for ≥15 years
-- CRYSTALS-Kyber (ML-KEM) KEM is IND-CCA2 secure
+- FIPS 204 ML-DSA (`ml-dsa = 0.0.4`, RustCrypto; ADR-006) is unbroken for ≥15 years
+- FIPS 203 ML-KEM (Kyber via `pqcrypto-kyber`) is IND-CCA2 secure
 - Hybrid X25519 + Kyber provides defense-in-depth against both classical and quantum breaking
-- `liboqs` implementation is free of side-channel leaks
+- `ml-dsa` saf-Rust implementation is free of obvious side-channel leaks (constant-time audit pending — crate hâlâ 0.x; ADR-006 follow-up)
 
 **Mitigation**: Hybrid (classical + PQC) model; constant-time ops; formal verification of threshold schemes (future)
 
@@ -211,7 +211,7 @@ See individual files for detailed threat matrices:
 
 ### Out of Scope (for initial audit)
 
-- [ ] liboqs C backend (relies on upstream audits)
+- [ ] RustCrypto `ml-dsa` upstream audit (saf-Rust FIPS 204; ADR-006); liboqs/oqs-rs ADR-006 ile bırakıldı
 - [ ] RocksDB internal consistency (production testing required)
 - [ ] Bulletproofs range proof soundness (classical, not PQC; opt-in only)
 - [ ] Full node operator security (OPSEC: key management, infrastructure)
