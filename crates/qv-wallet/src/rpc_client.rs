@@ -30,21 +30,29 @@ impl RpcClient {
             "id": 1,
         });
 
-        let response = self.client.post(&self.url).json(&payload).send().await
+        let response = self
+            .client
+            .post(&self.url)
+            .json(&payload)
+            .send()
+            .await
             .map_err(|e| WalletError::Rpc(format!("request: {}", e)))?;
 
         if !response.status().is_success() {
             return Err(WalletError::Rpc(format!("http {}", response.status())));
         }
 
-        let body: Value = response.json().await
+        let body: Value = response
+            .json()
+            .await
             .map_err(|e| WalletError::Rpc(format!("decode: {}", e)))?;
 
         if body.get("error").is_some() {
             return Err(WalletError::Rpc("rpc error".into()));
         }
 
-        body.get("result").cloned()
+        body.get("result")
+            .cloned()
             .ok_or_else(|| WalletError::Rpc("no result".into()))
     }
 }

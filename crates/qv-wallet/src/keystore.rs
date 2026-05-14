@@ -180,9 +180,9 @@ impl WalletKeystore {
         // 4. AES-256-GCM decrypt (tag check is automatic).
         let cipher = Aes256Gcm::new(&key.into());
         let nonce = Nonce::from_slice(&iv);
-        let plaintext = cipher.decrypt(nonce, ciphertext.as_slice()).map_err(|_| {
-            WalletError::Keystore("wrong password or corrupted keystore".into())
-        })?;
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext.as_slice())
+            .map_err(|_| WalletError::Keystore("wrong password or corrupted keystore".into()))?;
 
         // 5. Deserialize.
         bincode::deserialize::<WalletSecret>(&plaintext)
@@ -223,8 +223,7 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         WalletKeystore::save(file.path(), &secret, "correct horse battery staple").unwrap();
 
-        let loaded =
-            WalletKeystore::load(file.path(), "correct horse battery staple").unwrap();
+        let loaded = WalletKeystore::load(file.path(), "correct horse battery staple").unwrap();
         assert_eq!(loaded.mnemonic.phrase(), secret.mnemonic.phrase());
         assert_eq!(loaded.metadata.next_account, secret.metadata.next_account);
         assert_eq!(loaded.metadata.created_at, secret.metadata.created_at);
@@ -263,8 +262,8 @@ mod tests {
         WalletKeystore::save(file_a.path(), &secret, "pw").unwrap();
         WalletKeystore::save(file_b.path(), &secret, "pw").unwrap();
 
-        let a = std::fs::read_to_string(file_a.path()).unwrap();
-        let b = std::fs::read_to_string(file_b.path()).unwrap();
+        let a = fs::read_to_string(file_a.path()).unwrap();
+        let b = fs::read_to_string(file_b.path()).unwrap();
         assert_ne!(a, b);
     }
 }

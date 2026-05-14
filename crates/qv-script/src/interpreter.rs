@@ -337,8 +337,8 @@ pub fn execute_instructions(
                 let a = pop_int(&mut stack)?;
                 push(&mut stack, Value::Int(a.wrapping_abs()))?;
             }
-            OpCode::Min => bin_int_op(&mut stack, |a, b| core::cmp::min(a, b))?,
-            OpCode::Max => bin_int_op(&mut stack, |a, b| core::cmp::max(a, b))?,
+            OpCode::Min => bin_int_op(&mut stack, core::cmp::min)?,
+            OpCode::Max => bin_int_op(&mut stack, core::cmp::max)?,
 
             // -- Comparison --
             OpCode::Eq => {
@@ -569,7 +569,7 @@ pub fn execute_instructions(
     }
 
     // Script succeeds iff the top-of-stack is truthy (or stack is empty → fail).
-    let success = stack.last().map_or(false, Value::is_truthy);
+    let success = stack.last().is_some_and(Value::is_truthy);
 
     Ok(ExecResult {
         success,

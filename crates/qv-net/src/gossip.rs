@@ -7,9 +7,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use libp2p::gossipsub::{
-    self, MessageAuthenticity, MessageId, ValidationMode,
-};
+use libp2p::gossipsub::{self, MessageAuthenticity, MessageId, ValidationMode};
 use libp2p::identity::Keypair;
 use serde::{Deserialize, Serialize};
 
@@ -107,7 +105,12 @@ pub fn topic_for_kind(kind: MessageKind) -> Option<&'static str> {
 /// All gossip topic strings.
 #[must_use]
 pub fn all_topics() -> Vec<&'static str> {
-    vec![TOPIC_BLOCKS, TOPIC_TRANSACTIONS, TOPIC_VRF_PROOFS, TOPIC_VOTES]
+    vec![
+        TOPIC_BLOCKS,
+        TOPIC_TRANSACTIONS,
+        TOPIC_VRF_PROOFS,
+        TOPIC_VOTES,
+    ]
 }
 
 /// Build the GossipSub [`gossipsub::Behaviour`] from a config and keypair.
@@ -206,7 +209,7 @@ impl SeenCache {
     pub fn contains(&self, hash: &[u8]) -> bool {
         self.entries
             .get(hash)
-            .map_or(false, |ts| ts.elapsed() < self.ttl)
+            .is_some_and(|ts| ts.elapsed() < self.ttl)
     }
 
     /// Number of (non-expired) entries.
@@ -251,8 +254,14 @@ mod tests {
     #[test]
     fn topic_mapping() {
         assert_eq!(topic_for_kind(MessageKind::Block), Some(TOPIC_BLOCKS));
-        assert_eq!(topic_for_kind(MessageKind::Transaction), Some(TOPIC_TRANSACTIONS));
-        assert_eq!(topic_for_kind(MessageKind::VrfProof), Some(TOPIC_VRF_PROOFS));
+        assert_eq!(
+            topic_for_kind(MessageKind::Transaction),
+            Some(TOPIC_TRANSACTIONS)
+        );
+        assert_eq!(
+            topic_for_kind(MessageKind::VrfProof),
+            Some(TOPIC_VRF_PROOFS)
+        );
         assert_eq!(topic_for_kind(MessageKind::Vote), Some(TOPIC_VOTES));
         assert_eq!(topic_for_kind(MessageKind::Ping), None);
         assert_eq!(topic_for_kind(MessageKind::GetHeaders), None);

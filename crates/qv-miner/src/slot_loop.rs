@@ -7,9 +7,7 @@
 //! 4. Advances to the next slot.
 
 use crate::MinerResult;
-use qv_consensus::{
-    check_leadership, EpochNonce, SlotClock, StakeDistribution, VrfEvaluator,
-};
+use qv_consensus::{check_leadership, EpochNonce, SlotClock, StakeDistribution, VrfEvaluator};
 use qv_core::{Epoch, Hash256, ProtocolParams, Slot, Timestamp};
 use std::time::Duration;
 use tokio::time::interval;
@@ -133,20 +131,15 @@ where
         };
 
         // Check if elected as leader.
-        let is_leader = match check_leadership(
-            vrf,
-            pool_id,
-            &nonce,
-            slot_loop.current_slot,
-            distribution,
-        ) {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(e) => {
-                tracing::error!(?e, "failed to check leadership");
-                continue;
-            }
-        };
+        let is_leader =
+            match check_leadership(vrf, pool_id, &nonce, slot_loop.current_slot, distribution) {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(e) => {
+                    tracing::error!(?e, "failed to check leadership");
+                    continue;
+                }
+            };
 
         if is_leader {
             tracing::info!(slot = %slot_loop.current_slot, "elected as slot leader");
@@ -184,7 +177,10 @@ mod tests {
         let initial_slot = slot_loop.current_slot;
         slot_loop.advance_slot();
 
-        assert_eq!(slot_loop.current_slot, Slot::from(initial_slot.as_u64() + 1));
+        assert_eq!(
+            slot_loop.current_slot,
+            Slot::from(initial_slot.as_u64() + 1)
+        );
     }
 
     #[test]
@@ -223,17 +219,12 @@ mod tests {
         let vrf = qv_consensus::TestVrf::new([0u8; 32]);
         let pool_id = qv_consensus::PoolId::ZERO;
 
-        let mut block_produced = false;
-
         // Run for a short time and then return.
         let handle = tokio::spawn(async move {
-            let mut sl = slot_loop;
-            let producer = |_slot: Slot| {
-                Box::pin(async move {
-                    Ok::<(), MinerError>(())
-                })
-                    as std::pin::Pin<Box<dyn std::future::Future<Output = MinerResult<()>> + Send>>
-            };
+            let sl = slot_loop;
+            let producer = |_slot: Slot| -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = MinerResult<()>> + Send>,
+            > { Box::pin(async move { Ok::<(), MinerError>(()) }) };
 
             // This will run forever; we'll cancel it after a short time.
             let _ = run_slot_loop(sl, &vrf, &pool_id, producer).await;

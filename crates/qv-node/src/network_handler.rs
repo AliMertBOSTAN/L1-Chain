@@ -6,7 +6,7 @@
 
 use crate::node::NodeEvent;
 use qv_core::{Block, Transaction};
-use qv_net::{NetEvent, NetError, NetworkMessage, NetworkNode};
+use qv_net::{NetError, NetEvent, NetworkMessage, NetworkNode};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -74,25 +74,27 @@ impl NetworkHandler {
                 self.event_tx
                     .send(NodeEvent::BlockReceived(*block))
                     .await
-                    .map_err(|e| {
-                        format!("failed to forward block to node event loop: {e}")
-                    })
+                    .map_err(|e| format!("failed to forward block to node event loop: {e}"))
             }
             NetworkMessage::Transaction(tx) => {
                 debug!("received transaction from network");
                 self.event_tx
                     .send(NodeEvent::TxReceived(*tx))
                     .await
-                    .map_err(|e| {
-                        format!("failed to forward transaction to node event loop: {e}")
-                    })
+                    .map_err(|e| format!("failed to forward transaction to node event loop: {e}"))
             }
             NetworkMessage::VrfProof(vrf) => {
-                debug!(slot = vrf.slot, "received VRF proof from network (not yet handled)");
+                debug!(
+                    slot = vrf.slot,
+                    "received VRF proof from network (not yet handled)"
+                );
                 Ok(())
             }
             NetworkMessage::Vote(vote) => {
-                debug!(slot = vote.slot, "received vote from network (not yet handled)");
+                debug!(
+                    slot = vote.slot,
+                    "received vote from network (not yet handled)"
+                );
                 Ok(())
             }
             // Request-response and ping/pong messages are not gossip-propagated
@@ -147,11 +149,12 @@ impl NetworkHandler {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use qv_core::{
-        Amount, Block, BlockHash, BlockHeader, Hash256, Height, MerkleRoot, OutPoint, Script,
-        Slot, Timestamp, TxId, TxInput, TxOutput, UtxoCommitment, BLOCK_VERSION,
+        Amount, Block, BlockHash, BlockHeader, Hash256, Height, MerkleRoot, OutPoint, Script, Slot,
+        Timestamp, TxId, TxInput, TxOutput, UtxoCommitment, BLOCK_VERSION,
     };
     use qv_net::PeerId;
 
@@ -160,7 +163,10 @@ mod tests {
         let prev = OutPoint::new(TxId::from_bytes([0u8; 32]), 0);
         Transaction::new(
             vec![TxInput::new(prev)],
-            vec![TxOutput::new(Amount::from_smallest_units(100), Script::new(vec![]))],
+            vec![TxOutput::new(
+                Amount::from_smallest_units(100),
+                Script::new(vec![]),
+            )],
         )
     }
 

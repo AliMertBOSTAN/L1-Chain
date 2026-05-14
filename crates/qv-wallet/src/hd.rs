@@ -44,7 +44,11 @@ impl DefaultSeedDeriver {
     /// `Err` — wallet `init` will surface that error to the user. Keystore
     /// save / mnemonic flow still works; only the address derivation step
     /// fails until C-06 closes.
-    fn derive_spend_key(&self, seed: &[u8; 64], account_idx: u32) -> WalletResult<qv_crypto::PqcKeyPair> {
+    fn derive_spend_key(
+        &self,
+        seed: &[u8; 64],
+        account_idx: u32,
+    ) -> WalletResult<qv_crypto::PqcKeyPair> {
         // Path: "QuantumVault-Spend-v1" || seed || account_idx (big-endian u32)
         let mut input = Vec::with_capacity(64 + 22 + 4);
         input.extend_from_slice(b"QuantumVault-Spend-v1");
@@ -66,7 +70,11 @@ impl DefaultSeedDeriver {
     /// envanter ID **C-05** (qv-crypto Hybrid KEM seeded keygen). Until then,
     /// view keys are NOT reproducible from a wallet seed; the user must
     /// back up the view key separately or accept the operational risk.
-    fn derive_view_key(&self, seed: &[u8; 64], account_idx: u32) -> WalletResult<qv_crypto::HybridKeyPair> {
+    fn derive_view_key(
+        &self,
+        seed: &[u8; 64],
+        account_idx: u32,
+    ) -> WalletResult<qv_crypto::HybridKeyPair> {
         // Construct the derivation path: "view" || seed || account_idx (big-endian u32)
         let mut input = Vec::with_capacity(64 + 21 + 4);
         input.extend_from_slice(b"QuantumVault-View-v1");
@@ -86,9 +94,6 @@ impl SeedDeriver for DefaultSeedDeriver {
         let view_kp = self.derive_view_key(seed, account_idx)?;
         let spend_kp = self.derive_spend_key(seed, account_idx)?;
 
-        Ok(StealthKeys {
-            view_kp,
-            spend_kp,
-        })
+        Ok(StealthKeys { view_kp, spend_kp })
     }
 }

@@ -92,9 +92,9 @@ impl PeerInfo {
     /// Panics if the stored bytes are not a valid `PeerId` (should never happen
     /// for properly-constructed `PeerInfo`).
     #[must_use]
+    #[allow(clippy::expect_used)] // SAFETY: invariant — peer_id_bytes is set via PeerId::to_bytes
     pub fn peer_id(&self) -> PeerId {
-        PeerId::from_bytes(&self.peer_id_bytes)
-            .expect("PeerInfo always stores a valid PeerId")
+        PeerId::from_bytes(&self.peer_id_bytes).expect("PeerInfo always stores a valid PeerId")
     }
 
     /// Record a successful interaction and bump `last_seen`.
@@ -248,8 +248,7 @@ impl PeerStore {
             if info.state != ConnectionState::Disconnected {
                 return true;
             }
-            info.idle_duration()
-                .map_or(true, |idle| idle < max_idle)
+            info.idle_duration().is_none_or(|idle| idle < max_idle)
         });
         before - self.peers.len()
     }
@@ -356,9 +355,8 @@ mod tests {
         let mut info = PeerInfo::new(pid);
 
         for i in 0..20u16 {
-            let addr: libp2p::Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", 9000 + i)
-                .parse()
-                .unwrap();
+            let addr: libp2p::Multiaddr =
+                format!("/ip4/127.0.0.1/tcp/{}", 9000 + i).parse().unwrap();
             info.add_address(addr);
         }
 

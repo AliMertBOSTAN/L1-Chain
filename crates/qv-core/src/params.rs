@@ -83,7 +83,7 @@ pub struct ConsensusParams {
     ///
     /// Default is `51 / 100` (a ≥51% honest stake assumption).
     pub honest_stake_num: u32,
-    /// Denominator for [`honest_stake_num`]. Must be non-zero.
+    /// Denominator for [`Self::honest_stake_num`]. Must be non-zero.
     pub honest_stake_den: u32,
 }
 
@@ -189,9 +189,7 @@ impl LedgerParams {
             ));
         }
         if self.max_tx_inputs == 0 || self.max_tx_outputs == 0 {
-            return Err(ParamsError::Invalid(
-                "tx input/output limits must be > 0",
-            ));
+            return Err(ParamsError::Invalid("tx input/output limits must be > 0"));
         }
         if self.max_block_txs == 0 {
             return Err(ParamsError::Invalid("max_block_txs must be > 0"));
@@ -248,9 +246,7 @@ impl MonetaryParams {
             ));
         }
         if self.halving_interval_blocks == 0 {
-            return Err(ParamsError::Invalid(
-                "halving_interval_blocks must be > 0",
-            ));
+            return Err(ParamsError::Invalid("halving_interval_blocks must be > 0"));
         }
         Ok(())
     }
@@ -365,16 +361,14 @@ impl ProtocolParams {
 
     /// Deserialize from a JSON string.
     pub fn from_json(s: &str) -> Result<Self, ParamsError> {
-        let p: Self =
-            serde_json::from_str(s).map_err(|e| ParamsError::Parse(e.to_string()))?;
+        let p: Self = serde_json::from_str(s).map_err(|e| ParamsError::Parse(e.to_string()))?;
         p.validate()?;
         Ok(p)
     }
 
     /// Serialize to JSON.
     pub fn to_json(&self) -> Result<String, ParamsError> {
-        serde_json::to_string_pretty(self)
-            .map_err(|e| ParamsError::Parse(e.to_string()))
+        serde_json::to_string_pretty(self).map_err(|e| ParamsError::Parse(e.to_string()))
     }
 }
 

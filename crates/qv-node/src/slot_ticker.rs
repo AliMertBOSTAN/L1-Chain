@@ -9,17 +9,15 @@
 //! The [`SlotTicker`] is parametrized over a [`VrfEvaluator`] so it can work
 //! with both test deterministic VRFs and production lattice-based ones.
 
-use qv_consensus::leader_schedule::{
-    check_leadership, VrfEvaluator, VrfOutput, VrfProof,
-};
+use qv_consensus::epoch::EpochNonce;
+use qv_consensus::leader_schedule::{check_leadership, VrfEvaluator, VrfOutput, VrfProof};
 use qv_consensus::slot::SlotClock;
 use qv_consensus::stake::{PoolId, StakeDistribution};
-use qv_consensus::epoch::EpochNonce;
-use qv_core::{Block, BlockHeader, Height, Slot, Timestamp, Hash256, MerkleRoot};
-use qv_storage::utxo_store::UtxoStore;
+use qv_core::{Block, BlockHeader, Hash256, Height, MerkleRoot, Slot, Timestamp};
+use qv_crypto::sha3_256;
 use qv_storage::block_store::BlockStore;
 use qv_storage::kv::MemoryKvStore;
-use qv_crypto::sha3_256;
+use qv_storage::utxo_store::UtxoStore;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::Mutex;
@@ -228,9 +226,7 @@ impl<V: VrfEvaluator> SlotTicker<V> {
         // Step 3: Compute the Merkle root from transactions.
         let mut tx_ids = Vec::with_capacity(transactions.len());
         for tx in &transactions {
-            let tx_id = tx
-                .id()
-                .map_err(|_| SlotTickerError::TransactionError)?;
+            let tx_id = tx.id().map_err(|_| SlotTickerError::TransactionError)?;
             tx_ids.push(tx_id);
         }
         let merkle_root = merkle_root_of(&tx_ids);
@@ -294,9 +290,7 @@ impl<V: VrfEvaluator> SlotTicker<V> {
             .map_err(|_| SlotTickerError::Storage)?;
 
         // Step 9: Update chain state.
-        let block_hash = block
-            .hash()
-            .map_err(|_| SlotTickerError::BlockValidation)?;
+        let block_hash = block.hash().map_err(|_| SlotTickerError::BlockValidation)?;
 
         let mut chain_state_lock = self.chain_state.lock().await;
         let chain_entry = qv_consensus::ChainEntry {
@@ -355,10 +349,7 @@ fn merkle_root_of(tx_ids: &[qv_core::TxId]) -> MerkleRoot {
         return MerkleRoot::ZERO;
     }
 
-    let mut level: Vec<Vec<u8>> = tx_ids
-        .iter()
-        .map(|id| id.as_bytes().to_vec())
-        .collect();
+    let mut level: Vec<Vec<u8>> = tx_ids.iter().map(|id| id.as_bytes().to_vec()).collect();
 
     while level.len() > 1 {
         let mut next_level = Vec::new();
@@ -408,7 +399,7 @@ fn current_time_ms() -> u64 {
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
-    clippy::indexing_slicing,
+    clippy::indexing_slicing
 )]
 mod tests {
     use super::*;
@@ -436,12 +427,12 @@ mod tests {
     #[test]
     fn merkle_root_empty_is_zero() {
         let root = merkle_root_of(&[]);
-        assert_eq!(root, qv_core::MerkleRoot::ZERO);
+        assert_eq!(root, MerkleRoot::ZERO);
     }
 
     #[test]
     fn merkle_root_single_tx_is_tx_hash() {
-        let tx_id = qv_core::TxId(qv_core::Hash256::from_bytes([0x42; 32]));
+        let tx_id = qv_core::TxId(Hash256::from_bytes([0x42; 32]));
         let root = merkle_root_of(&[tx_id]);
         // With a single leaf, the root's inner Hash256 should equal the
         // tx's inner Hash256 (TxId wraps Hash256).
@@ -450,24 +441,24 @@ mod tests {
 
     #[test]
     fn merkle_root_two_txs() {
-        let tx1 = qv_core::TxId(qv_core::Hash256::from_bytes([0x11; 32]));
-        let tx2 = qv_core::TxId(qv_core::Hash256::from_bytes([0x22; 32]));
+        let tx1 = qv_core::TxId(Hash256::from_bytes([0x11; 32]));
+        let tx2 = qv_core::TxId(Hash256::from_bytes([0x22; 32]));
         let root = merkle_root_of(&[tx1, tx2]);
         // Root should be hash(tx1 || tx2), which is deterministic.
         let expected = {
             let mut preimage = Vec::with_capacity(64);
             preimage.extend_from_slice(tx1.as_bytes());
             preimage.extend_from_slice(tx2.as_bytes());
-            qv_core::Hash256::from_bytes(sha3_256(&preimage))
+            Hash256::from_bytes(sha3_256(&preimage))
         };
         assert_eq!(root.0, expected);
     }
 
     #[test]
     fn merkle_root_odd_count_duplicates_last() {
-        let tx1 = qv_core::TxId(qv_core::Hash256::from_bytes([0x11; 32]));
-        let tx2 = qv_core::TxId(qv_core::Hash256::from_bytes([0x22; 32]));
-        let tx3 = qv_core::TxId(qv_core::Hash256::from_bytes([0x33; 32]));
+        let tx1 = qv_core::TxId(Hash256::from_bytes([0x11; 32]));
+        let tx2 = qv_core::TxId(Hash256::from_bytes([0x22; 32]));
+        let tx3 = qv_core::TxId(Hash256::from_bytes([0x33; 32]));
         let root_123 = merkle_root_of(&[tx1, tx2, tx3]);
 
         // With 3 txs: [0,1] hash to h01, [2,2] (duplicated) hash to h22,
@@ -488,7 +479,7 @@ mod tests {
             let mut preimage = Vec::with_capacity(64);
             preimage.extend_from_slice(&h01);
             preimage.extend_from_slice(&h22);
-            qv_core::Hash256::from_bytes(sha3_256(&preimage))
+            Hash256::from_bytes(sha3_256(&preimage))
         };
         assert_eq!(root_123.0, expected);
     }
@@ -509,7 +500,7 @@ mod tests {
         let block_store = Arc::new(BlockStore::new(MemoryKvStore::new()));
         let utxo_store = Arc::new(UtxoStore::new(MemoryKvStore::new()));
         let chain_state = Arc::new(Mutex::new(ChainState::genesis(&ConsensusParams::mainnet())));
-        let clear_pool = Arc::new(Mutex::new(qv_mempool::clear::ClearPool::new(
+        let clear_pool = Arc::new(Mutex::new(ClearPool::new(
             qv_mempool::clear::ClearPoolConfig::ephemeral(),
         )));
 
@@ -531,8 +522,8 @@ mod tests {
 
     #[test]
     fn merkle_root_is_deterministic() {
-        let tx1 = qv_core::TxId(qv_core::Hash256::from_bytes([0xAA; 32]));
-        let tx2 = qv_core::TxId(qv_core::Hash256::from_bytes([0xBB; 32]));
+        let tx1 = qv_core::TxId(Hash256::from_bytes([0xAA; 32]));
+        let tx2 = qv_core::TxId(Hash256::from_bytes([0xBB; 32]));
         let root_a = merkle_root_of(&[tx1, tx2]);
         let root_b = merkle_root_of(&[tx1, tx2]);
         assert_eq!(root_a, root_b);

@@ -27,7 +27,10 @@ use qv_mempool::MempoolError;
 
 fn make_tx(marker: u8) -> (Transaction, TxId) {
     let tx = Transaction::new(
-        vec![TxInput::new(OutPoint::new(TxId::from_bytes([marker; 32]), 0))],
+        vec![TxInput::new(OutPoint::new(
+            TxId::from_bytes([marker; 32]),
+            0,
+        ))],
         vec![TxOutput::new(
             Amount::from_smallest_units(100),
             Script::new(vec![marker]),
@@ -89,8 +92,13 @@ fn clear_pool_prevents_cross_tx_double_spend() {
 
     // tx1 spends OutPoint([10;32], 0)
     let (tx1, id1) = make_tx(10);
-    pool.add(MempoolEntry::new(tx1, id1, Amount::from_smallest_units(100), 200))
-        .unwrap();
+    pool.add(MempoolEntry::new(
+        tx1,
+        id1,
+        Amount::from_smallest_units(100),
+        200,
+    ))
+    .unwrap();
 
     // tx2 also spends OutPoint([10;32], 0) — same outpoint!
     let tx2 = Transaction::new(
@@ -103,7 +111,12 @@ fn clear_pool_prevents_cross_tx_double_spend() {
     let id2 = tx2.id().unwrap();
 
     let err = pool
-        .add(MempoolEntry::new(tx2, id2, Amount::from_smallest_units(200), 200))
+        .add(MempoolEntry::new(
+            tx2,
+            id2,
+            Amount::from_smallest_units(200),
+            200,
+        ))
         .unwrap_err();
     assert!(matches!(err, MempoolError::DoubleSpend { .. }));
 }
@@ -137,8 +150,14 @@ fn encrypted_pool_decrypt_roundtrip() {
     pool.add(etx).unwrap();
 
     let shares = vec![
-        DecryptionShare { member_index: 0, share_bytes: key.clone() },
-        DecryptionShare { member_index: 1, share_bytes: key },
+        DecryptionShare {
+            member_index: 0,
+            share_bytes: key.clone(),
+        },
+        DecryptionShare {
+            member_index: 1,
+            share_bytes: key,
+        },
     ];
 
     let results = pool.decrypt_batch(&decryptor, &shares).unwrap();
@@ -411,7 +430,7 @@ fn encrypted_to_ordering_pipeline() {
 
     // Encrypt 3 "transactions" (just marker bytes for testing)
     for i in 1..=3u8 {
-        let plaintext = vec![i; 32];
+        let plaintext = [i; 32];
         let encrypted_body: Vec<u8> = plaintext
             .iter()
             .enumerate()

@@ -359,15 +359,16 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use qv_core::{
-        Amount, OutPoint, Script, Transaction, TxId, TxInput, TxOutput,
-    };
+    use qv_core::{Amount, OutPoint, Script, Transaction, TxId, TxInput, TxOutput};
 
     use super::*;
 
     fn make_tx(marker: u8) -> (Transaction, TxId) {
         let tx = Transaction::new(
-            vec![TxInput::new(OutPoint::new(TxId::from_bytes([marker; 32]), 0))],
+            vec![TxInput::new(OutPoint::new(
+                TxId::from_bytes([marker; 32]),
+                0,
+            ))],
             vec![TxOutput::new(
                 Amount::from_smallest_units(100),
                 Script::new(vec![marker]),
@@ -482,7 +483,7 @@ mod tests {
         };
         let mut pool = ClearPool::new(config);
 
-        pool.add(entry(20, 10, 100)).unwrap();  // lowest fee
+        pool.add(entry(20, 10, 100)).unwrap(); // lowest fee
         pool.add(entry(21, 100, 100)).unwrap();
         pool.add(entry(22, 200, 100)).unwrap();
         assert_eq!(pool.len(), 3);

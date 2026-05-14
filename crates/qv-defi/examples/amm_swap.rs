@@ -57,7 +57,10 @@ fn main() {
     println!("1. Pool created");
     println!("   Token A: QV  |  Token B: USDT");
     println!("   Fee: {} bps ({}%)", fee_bps, fee_bps as f64 / 100.0);
-    println!("   Reserves: A={}, B={}", pool.datum.reserve_a, pool.datum.reserve_b);
+    println!(
+        "   Reserves: A={}, B={}",
+        pool.datum.reserve_a, pool.datum.reserve_b
+    );
     println!();
 
     // ── Step 2: Add initial liquidity ──────────────────────────────────
@@ -83,7 +86,10 @@ fn main() {
     println!("2. Initial liquidity added (Alice)");
     println!("   Deposited: {} QV + {} USDT", amount_a, amount_b);
     println!("   LP tokens minted: {}", lp_issued);
-    println!("   Reserves: A={}, B={}", pool.datum.reserve_a, pool.datum.reserve_b);
+    println!(
+        "   Reserves: A={}, B={}",
+        pool.datum.reserve_a, pool.datum.reserve_b
+    );
     println!("   Invariant k = {}", pool.datum.invariant());
     println!();
 
@@ -108,9 +114,19 @@ fn main() {
     println!("   Input:  {} QV", swap_in);
     println!("   Output: {} USDT", swap_out);
     println!("   Fee:    {} QV", fee_collected);
-    println!("   Effective price: 1 QV = {:.4} USDT", swap_out as f64 / swap_in as f64);
-    println!("   Reserves: A={}, B={}", pool.datum.reserve_a, pool.datum.reserve_b);
-    println!("   Invariant k = {} (was {})", pool.datum.invariant(), k_initial);
+    println!(
+        "   Effective price: 1 QV = {:.4} USDT",
+        swap_out as f64 / swap_in as f64
+    );
+    println!(
+        "   Reserves: A={}, B={}",
+        pool.datum.reserve_a, pool.datum.reserve_b
+    );
+    println!(
+        "   Invariant k = {} (was {})",
+        pool.datum.invariant(),
+        k_initial
+    );
     assert!(
         pool.datum.invariant() >= k_initial,
         "INVARIANT VIOLATED: x·y must not decrease"
@@ -138,9 +154,19 @@ fn main() {
     println!("   Input:  {} USDT", swap_in_b);
     println!("   Output: {} QV", swap_out_b);
     println!("   Fee:    {} USDT", fee_b);
-    println!("   Effective price: 1 QV = {:.4} USDT", swap_in_b as f64 / swap_out_b as f64);
-    println!("   Reserves: A={}, B={}", pool.datum.reserve_a, pool.datum.reserve_b);
-    println!("   Invariant k = {} (was {})", pool.datum.invariant(), k_before);
+    println!(
+        "   Effective price: 1 QV = {:.4} USDT",
+        swap_in_b as f64 / swap_out_b as f64
+    );
+    println!(
+        "   Reserves: A={}, B={}",
+        pool.datum.reserve_a, pool.datum.reserve_b
+    );
+    println!(
+        "   Invariant k = {} (was {})",
+        pool.datum.invariant(),
+        k_before
+    );
     assert!(
         pool.datum.invariant() >= k_before,
         "INVARIANT VIOLATED: x·y must not decrease"
@@ -170,15 +196,22 @@ fn main() {
     println!("   LP burned: {}", lp_to_burn);
     println!("   Received:  {} QV + {} USDT", withdraw_a, withdraw_b);
     println!("   Remaining LP: {}", pool.datum.lp_total);
-    println!("   Reserves: A={}, B={}", pool.datum.reserve_a, pool.datum.reserve_b);
+    println!(
+        "   Reserves: A={}, B={}",
+        pool.datum.reserve_a, pool.datum.reserve_b
+    );
     println!();
 
     // ── Step 6: Price impact demonstration ────────────────────────────
     // Show how a large swap has significant price impact.
 
     println!("6. Price impact analysis");
-    println!("   Current reserves: A={}, B={}", pool.datum.reserve_a, pool.datum.reserve_b);
-    println!("   Implied price: 1 QV = {:.4} USDT",
+    println!(
+        "   Current reserves: A={}, B={}",
+        pool.datum.reserve_a, pool.datum.reserve_b
+    );
+    println!(
+        "   Implied price: 1 QV = {:.4} USDT",
         pool.datum.reserve_b as f64 / pool.datum.reserve_a as f64
     );
     println!();

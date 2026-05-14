@@ -252,8 +252,7 @@ mod tests {
     #[test]
     fn version_mismatch_rejected() {
         let msg = NetworkMessage::Pong(PongMsg { nonce: 99 });
-        let payload =
-            bincode::serialize(&msg).unwrap();
+        let payload = bincode::serialize(&msg).unwrap();
 
         let bad_envelope = Envelope {
             version: 999,

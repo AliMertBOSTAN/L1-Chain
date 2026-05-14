@@ -13,6 +13,27 @@ rustflags = [
     "-Wunused_import_braces",
 ]
 
+# Windows main-thread stack bump.
+#
+# ml-dsa 0.0.4 (FIPS 204, ADR-006) allocates several KByte/key for NTT buffers
+# during keypair generation; with #[tokio::main] async fn main, the runtime
+# block_on runs in the OS main thread which on Windows defaults to a 1 MiB
+# stack. That blows up `devnet_genesis()` (10× from_seed_pqc on the main
+# thread). 8 MiB is plenty of headroom for the deepest expected call chain
+# without measurably bloating binary size.
+#
+# Linux/macOS default 8 MiB on the main thread already, so this is Windows
+# only.
+[target.'cfg(target_os = "windows")']
+rustflags = [
+    "-Wunsafe_op_in_unsafe_fn",
+    "-Wtrivial_casts",
+    "-Wtrivial_numeric_casts",
+    "-Wunused_extern_crates",
+    "-Wunused_import_braces",
+    "-C", "link-arg=/STACK:8388608",
+]
+
 [alias]
 # Handy shortcuts.
 ci           = "run --package qv-node --"

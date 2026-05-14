@@ -13,13 +13,14 @@
 //! - TUI publish/subscribe smoke test
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use qv_core::{Epoch, ProtocolParams, Slot};
-    use qv_miner::config::{Network, OperatorConfig};
-    use qv_miner::keys::OperatorKeys;
-    use qv_miner::committee::is_committee_member;
-    use qv_miner::dashboard::MetricsStore;
     use qv_consensus::TestVrf;
+    use qv_core::{Epoch, ProtocolParams, Slot};
+    use qv_miner::committee::is_committee_member;
+    use qv_miner::config::{Network, OperatorConfig};
+    use qv_miner::dashboard::MetricsStore;
+    use qv_miner::keys::OperatorKeys;
     use std::path::PathBuf;
 
     fn sample_config() -> OperatorConfig {
@@ -98,10 +99,7 @@ mod tests {
         // Verify TX has the registration output.
         assert_eq!(tx.outputs.len(), 1);
         assert!(tx.outputs[0].datum.is_some());
-        assert_eq!(
-            tx.outputs[0].value,
-            qv_core::Amount::from(config.pledge)
-        );
+        assert_eq!(tx.outputs[0].value, qv_core::Amount::from(config.pledge));
     }
 
     /// Test 3: Leadership check determinism (with TestVrf).
@@ -115,10 +113,24 @@ mod tests {
         let committee_threshold = 3;
 
         // Call twice with same inputs.
-        let result1 = is_committee_member(&vrf, &pool_id, &epoch_nonce, epoch, committee_size, committee_threshold)
-            .unwrap();
-        let result2 = is_committee_member(&vrf, &pool_id, &epoch_nonce, epoch, committee_size, committee_threshold)
-            .unwrap();
+        let result1 = is_committee_member(
+            &vrf,
+            &pool_id,
+            &epoch_nonce,
+            epoch,
+            committee_size,
+            committee_threshold,
+        )
+        .unwrap();
+        let result2 = is_committee_member(
+            &vrf,
+            &pool_id,
+            &epoch_nonce,
+            epoch,
+            committee_size,
+            committee_threshold,
+        )
+        .unwrap();
 
         // Should be identical.
         assert_eq!(result1, result2);
@@ -177,16 +189,25 @@ mod tests {
         let mut members_count = 0;
         for i in 0..100 {
             let pool_id = qv_consensus::PoolId(qv_core::Hash256::from_bytes([i as u8; 32]));
-            let is_member =
-                is_committee_member(&vrf, &pool_id, &epoch_nonce, epoch, committee_size, committee_threshold)
-                    .unwrap();
+            let is_member = is_committee_member(
+                &vrf,
+                &pool_id,
+                &epoch_nonce,
+                epoch,
+                committee_size,
+                committee_threshold,
+            )
+            .unwrap();
             if is_member {
                 members_count += 1;
             }
         }
 
         // Expect roughly 50 members (threshold/size ratio).
-        assert!(members_count > 0, "At least some pools should be on committee");
+        assert!(
+            members_count > 0,
+            "At least some pools should be on committee"
+        );
     }
 
     /// Test 6: Encrypted mempool decryption (via MockThresholdDecryptor).
@@ -305,7 +326,14 @@ mod tests {
         use qv_miner::cli::Cli;
 
         // Parse init subcommand
-        let args = vec!["prog", "init", "--pool-name", "TestPool", "--pledge", "5000000000"];
+        let args = vec![
+            "prog",
+            "init",
+            "--pool-name",
+            "TestPool",
+            "--pledge",
+            "5000000000",
+        ];
         let cli = Cli::try_parse_from(&args);
         assert!(cli.is_ok());
 

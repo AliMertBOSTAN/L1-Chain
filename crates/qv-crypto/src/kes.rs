@@ -239,11 +239,7 @@ fn merkle_path_for(leaves: &[[u8; 32]], leaf_index: u32, depth: u32) -> Vec<[u8;
 }
 
 /// Re-walk a Merkle path back to the root from a given leaf hash + index.
-fn merkle_root_from_path(
-    leaf_hash: &[u8; 32],
-    leaf_index: u32,
-    path: &[[u8; 32]],
-) -> [u8; 32] {
+fn merkle_root_from_path(leaf_hash: &[u8; 32], leaf_index: u32, path: &[[u8; 32]]) -> [u8; 32] {
     let mut current = *leaf_hash;
     let mut idx = leaf_index;
     for sibling in path {
@@ -318,11 +314,10 @@ pub fn sign(sk: &KesSecretKey, msg: &[u8]) -> Result<KesSignature> {
 
     // Re-derive the current leaf keypair from the stored seed. The seed is
     // zeroized later by `evolve()`; here we just borrow it.
-    let seed = sk
-        .leaf_seeds
-        .get(period as usize)
-        .copied()
-        .ok_or_else(|| CryptoError::Other(format!("kes leaf seed missing for period {period}")))?;
+    let seed =
+        sk.leaf_seeds.get(period as usize).copied().ok_or_else(|| {
+            CryptoError::Other(format!("kes leaf seed missing for period {period}"))
+        })?;
     let kp: PqcKeyPair = from_seed_pqc(KES_LEAF_LEVEL, &seed)?;
 
     let bound = period_bound_message(period, msg);

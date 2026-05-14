@@ -114,8 +114,7 @@ impl DisclosureProof {
         amount: Option<u64>,
         blinding: Option<&BlindingFactor>,
     ) -> Self {
-        let binding_hash =
-            compute_binding_hash(shared_secret, onetime_pk_hash, amount, blinding);
+        let binding_hash = compute_binding_hash(shared_secret, onetime_pk_hash, amount, blinding);
 
         Self {
             shared_secret_bytes: *shared_secret.as_bytes(),
@@ -307,7 +306,12 @@ mod tests {
         );
 
         let valid = proof
-            .verify(&output, &keys.spend_kp.public, Some(&commitment), &committer)
+            .verify(
+                &output,
+                &keys.spend_kp.public,
+                Some(&commitment),
+                &committer,
+            )
             .unwrap();
         assert!(valid);
     }
@@ -332,7 +336,12 @@ mod tests {
         );
 
         let valid = proof
-            .verify(&output, &keys.spend_kp.public, Some(&commitment), &committer)
+            .verify(
+                &output,
+                &keys.spend_kp.public,
+                Some(&commitment),
+                &committer,
+            )
             .unwrap();
         assert!(!valid, "wrong amount should fail commitment verification");
     }
@@ -345,12 +354,7 @@ mod tests {
 
         // Use a wrong shared secret.
         let fake_ss = SharedSecret([0xFF; 32]);
-        let proof = DisclosureProof::create(
-            &fake_ss,
-            &output.onetime_pk_hash,
-            Some(1000),
-            None,
-        );
+        let proof = DisclosureProof::create(&fake_ss, &output.onetime_pk_hash, Some(1000), None);
 
         let committer = MockCommitter::new();
         let valid = proof

@@ -13,14 +13,14 @@ _Son güncelleme: 2026-05-12 (M-04 keystore implementasyonu + ADR-006 sonrası)_
 
 ## Dürüst Özet (2026-05-12 — M-04 + ADR-006 sonrası)
 
-**Olgunluk:** Workspace derleniyor (0 error, ~187 warning), **tüm test suite yeşil
-— ~736 passed / 0 failed / 34 ignored** (M-04 keystore build/test sonrası beklenen
-~741/32). 34 ignored testin her biri ROADMAP envanterinde ID'li (T-01, A-01..A-03
-yavaş KES, B-03, D-07..D-12). In-memory devnet uçtan uca akış **gerçek primitif
-kullanan** seviyede çalışıyor: Ristretto255-VRF (`schnorrkel`), Sum-KES (depth-11)
-on Dilithium L3, FIPS 204 ML-DSA imza (RustCrypto `ml-dsa`), Argon2id+AES-256-GCM
-keystore (hem wallet hem miner). **Bu hâlâ mainnet-ready değildir, ancak iç
-testnet-ready bir çekirdek artık var.**
+**Olgunluk:** Workspace derleniyor (0 error, **0 warning** — D cilalama 2026-05-12), **tüm test suite yeşil
+— 744 passed / 0 failed / 36 ignored** (2026-05-12, post-M-04 + N-07 + D cilalama + **M-09 core + K-06 wire**).
+36 ignored testin her biri ROADMAP envanterinde ID'li (T-01 Pedersen DKG, A-01..A-03
+yavaş KES, B-03 Node !Send, D-07..D-12 DeFi yan vakalar, M-04 slow keystore roundtrip).
+In-memory devnet uçtan uca akış **gerçek primitif kullanan** seviyede çalışıyor:
+Ristretto255-VRF (`schnorrkel`), Sum-KES (depth-11) on Dilithium L3, FIPS 204 ML-DSA
+imza (RustCrypto `ml-dsa`), Argon2id+AES-256-GCM keystore (hem wallet hem miner).
+**Bu hâlâ mainnet-ready değildir, ancak iç testnet-ready bir çekirdek artık var.**
 
 **Faz 3 (kriptografi) tamamlandı, Faz 1 (devnet MVP) ~%90 kapalı:**
 
@@ -31,7 +31,7 @@ testnet-ready bir çekirdek artık var.**
 | KES | ✅ **Gerçek**: `qv-crypto/src/kes.rs` — Sum-KES on Dilithium L3, depth=11, N=2048. Master seed + per-leaf zeroize. `DilithiumSumKesVerifier` block_validator'a bağlandı. |
 | `from_seed_pqc` | ✅ **C-04+C-06 kapalı** (ADR-006). `<MlDsaP as KeyGen>::key_gen_internal(&B32)` deterministik FIPS 204 §6.1. HD wallet, KES leaf, stealth recovery, miner cold key hepsi runtime'da çalışır. |
 | Wallet keystore | ✅ **Gerçek**: Argon2id KDF + AES-256-GCM encrypt; `qv-wallet/src/keystore.rs`. 4 unit test. |
-| Miner keystore (M-04) | ✅ **Gerçek** (2026-05-12, build/test verify bekliyor): tek `keystore_path` master seed bazlı Argon2id+AES-GCM; `qv-miner/src/keystore.rs`. |
+| Miner keystore (M-04) | ✅ **Gerçek** (2026-05-12, build+test verify ✅): tek `keystore_path` master seed bazlı Argon2id+AES-GCM; `qv-miner/src/keystore.rs`. 5 unit test + 2 ignored slow KES roundtrip. |
 | Wallet `Send` | ✅ **Gerçek**: TxBuilder + ML-DSA imza + RPC submit_tx; `cmd_send` çalışıyor (devnet smoke pending). |
 | Wallet `Init` | ✅ **Gerçek**: BIP-39 mnemonic → seed → keystore.enc dosyası. |
 | `Node::shutdown` | ✅ Network kanalı kapanır + tip/mempool snapshot ile graceful flush. |
@@ -1376,15 +1376,16 @@ artık `docs/ROADMAP.md` içindeki **Faz 0-10** üzerinden yürütülüyor.
 - ⏳ W-02, W-04: Wallet `address`/`balance` daha derin — mevcut `address` kapatıldı; `balance` scan_stealth (N-01/N-02) bekliyor
 - ⏳ D-02 / D-05: 10_simple_transfer.sh ve faucet bash script'leri artık W-05 sayesinde çalıştırılabilir; doğrulama gerekiyor
 
-**Bir sonraki seçim (öncelik sırası, 2026-05-12 M-04 sonrası):**
+**Bir sonraki seçim (öncelik sırası, 2026-05-12 devnet smoke test sonrası):**
 1. ✅ ~~C-06: ml-dsa swap~~ — **kapandı** (ADR-006, 2026-05-07).
-2. ✅ ~~M-04: Miner Argon2 keystore~~ — **implemente edildi** (2026-05-12), build/test verify bekliyor. Single `keystore_path` (master seed) + Argon2id+AES-GCM + KES period state.
-3. **Devnet smoke test** — `qv-node` → `qv-wallet init` → `qv-wallet send --broadcast`. C-06 kapandıktan sonra runtime'da anlamlı; ilk gerçek devnet transferi. **Önerilen sıradaki adım.**
-4. **M-09: Miner daemon ana loop** — `cmd_run` şu an `sleep(u64::MAX)`; gerçek slot leader scheduling + block production akışı bağlanmalı.
-5. **K-06/K-07**: Encrypted mempool decrypt + AMM batcher → block producer wiring.
-6. **N-03: Vote/finality**: gossip'te Vote mesajı placeholder; BFT vote toplama gerekli.
-7. **T-01: Feldman VSS asymmetry** — `qv-crypto::threshold` 5 ignored test (Pedersen DKG / Feldman). Şifreli mempool çalışırlık için ön koşul.
-8. **B-03: Node Send/Sync refactor** — `tests/integration.rs` smoke test'leri tokio::spawn(node.run()) yapamıyor (Node !Send).
+2. ✅ ~~M-04: Miner Argon2 keystore~~ — **kapandı 2026-05-12** (build+test+production verified).
+3. ✅ ~~Devnet smoke test~~ — **TAMAMLANDI 2026-05-12**. İlk gerçek uçtan uca transfer: ML-DSA imzalı TX zincire alındı (block height=18, tx_count=1, ~4.9s latency). G-01 (deterministic genesis), G-02 (Windows stack) kapatıldı; N-07 (RPC outpoint parser) açıldı.
+4. **N-07: RPC `qv_getUtxo` outpoint parser fix** — `<txid_hex>:<idx>` format'ını doğru parse edecek şekilde düzelt. Hızlı, izole fix.
+5. **M-09: Miner daemon ana loop** — `qv-miner cmd_run` şu an `sleep(u64::MAX)`; gerçek slot leader scheduling + block production akışı bağlanmalı. (Not: qv-node tek başına devnet'te leader+producer rolünü yapabiliyor, M-09 production-grade pool operator için.)
+6. **K-06/K-07**: Encrypted mempool decrypt + AMM batcher → block producer wiring.
+7. **N-03: Vote/finality**: gossip'te Vote mesajı placeholder; BFT vote toplama gerekli.
+8. **T-01: Feldman VSS asymmetry** — `qv-crypto::threshold` 5 ignored test (Pedersen DKG / Feldman). Şifreli mempool çalışırlık için ön koşul.
+9. **B-03: Node Send/Sync refactor** — `tests/integration.rs` smoke test'leri tokio::spawn(node.run()) yapamıyor (Node !Send).
 
 **Yararlı build verify komutu (lokalde):**
 ```

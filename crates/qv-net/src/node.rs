@@ -242,17 +242,13 @@ impl NetworkNode {
         let kademlia = kad::Behaviour::new(local_peer_id, kad_store);
 
         // Build Identify
-        let identify_config = identify::Config::new(
-            QV_PROTOCOL_VERSION.to_owned(),
-            keypair.public(),
-        )
-        .with_agent_version(QV_AGENT_VERSION.to_owned());
+        let identify_config =
+            identify::Config::new(QV_PROTOCOL_VERSION.to_owned(), keypair.public())
+                .with_agent_version(QV_AGENT_VERSION.to_owned());
         let identify = identify::Behaviour::new(identify_config);
 
         // Build Ping
-        let ping = ping::Behaviour::new(
-            ping::Config::new().with_interval(Duration::from_secs(30)),
-        );
+        let ping = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(30)));
 
         let behaviour = QvBehaviour {
             gossipsub: gossipsub_behaviour,
@@ -502,8 +498,6 @@ impl NetworkNode {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use std::time::Duration;
-
     use libp2p::identity::Keypair;
     use libp2p::PeerId;
 

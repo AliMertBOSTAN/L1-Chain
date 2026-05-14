@@ -214,8 +214,7 @@ async fn cmd_send(
     let (txid_hex, idx_str) = input
         .split_once(':')
         .ok_or_else(|| anyhow::anyhow!("--input must be 'txid_hex:idx', got {input:?}"))?;
-    let txid_bytes = hex::decode(txid_hex)
-        .map_err(|e| anyhow::anyhow!("invalid txid hex: {e}"))?;
+    let txid_bytes = hex::decode(txid_hex).map_err(|e| anyhow::anyhow!("invalid txid hex: {e}"))?;
     let txid_arr: [u8; 32] = txid_bytes
         .as_slice()
         .try_into()
@@ -227,8 +226,8 @@ async fn cmd_send(
     let outpoint = OutPoint::new(txid, idx);
 
     // 5. Parse recipient public key.
-    let to_pk_bytes = hex::decode(to_pubkey_hex)
-        .map_err(|e| anyhow::anyhow!("invalid --to-pubkey hex: {e}"))?;
+    let to_pk_bytes =
+        hex::decode(to_pubkey_hex).map_err(|e| anyhow::anyhow!("invalid --to-pubkey hex: {e}"))?;
     let to_pk = PqcPublicKey::from_bytes(DilithiumLevel::Level3, to_pk_bytes)
         .map_err(|e| anyhow::anyhow!("recipient pk parse failed: {e}"))?;
 
@@ -255,8 +254,8 @@ async fn cmd_send(
     let tx_id = tx
         .id()
         .map_err(|e| anyhow::anyhow!("tx id compute failed: {e}"))?;
-    let tx_bytes = bincode::serialize(&tx)
-        .map_err(|e| anyhow::anyhow!("bincode serialize failed: {e}"))?;
+    let tx_bytes =
+        bincode::serialize(&tx).map_err(|e| anyhow::anyhow!("bincode serialize failed: {e}"))?;
     let tx_hex = hex::encode(&tx_bytes);
 
     println!();
@@ -267,7 +266,11 @@ async fn cmd_send(
     println!("  fee:          {fee}");
     println!("  change:       {change}");
     println!("  local tx_id:  {}", tx_id.to_hex());
-    println!("  tx size:      {} bytes ({} hex)", tx_bytes.len(), tx_hex.len());
+    println!(
+        "  tx size:      {} bytes ({} hex)",
+        tx_bytes.len(),
+        tx_hex.len()
+    );
     println!();
 
     // 10. Broadcast or print.

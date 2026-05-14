@@ -74,9 +74,7 @@ pub use lending::{
 };
 
 // Oracle
-pub use oracle::{
-    aggregate_median, compute_twap, OracleError, OracleWindow, PriceObservation,
-};
+pub use oracle::{aggregate_median, compute_twap, OracleError, OracleWindow, PriceObservation};
 
 // Intents
 pub use intents::{IntentBundle, IntentError, OrderIntent, OrderKind, SwapIntentBuilder};
@@ -93,31 +91,28 @@ mod tests {
 
     #[test]
     fn error_aggregation_amm() {
-        let amm_err = amm::AmmError::Overflow;
+        let amm_err = AmmError::Overflow;
         let defi_err: DefiError = amm_err.into();
         assert!(matches!(defi_err, DefiError::Amm(_)));
     }
 
     #[test]
     fn error_aggregation_lending() {
-        let lend_err = lending::LendingError::NoDebt;
+        let lend_err = LendingError::NoDebt;
         let defi_err: DefiError = lend_err.into();
         assert!(matches!(defi_err, DefiError::Lending(_)));
     }
 
     #[test]
     fn error_aggregation_oracle() {
-        let oracle_err = oracle::OracleError::InsufficientObservations {
-            have: 0,
-            need: 3,
-        };
+        let oracle_err = OracleError::InsufficientObservations { have: 0, need: 3 };
         let defi_err: DefiError = oracle_err.into();
         assert!(matches!(defi_err, DefiError::Oracle(_)));
     }
 
     #[test]
     fn error_aggregation_intent() {
-        let intent_err = intents::IntentError::InvalidAmount(0);
+        let intent_err = IntentError::InvalidAmount(0);
         let defi_err: DefiError = intent_err.into();
         assert!(matches!(defi_err, DefiError::Intent(_)));
     }
@@ -136,7 +131,7 @@ mod tests {
 
     #[test]
     fn integration_lending_pool_creation() {
-        let pool = lending::LendingPoolDatum::new(
+        let pool = LendingPoolDatum::new(
             Hash256::from_bytes([3; 32]),
             Hash256::from_bytes([4; 32]),
             100_000,

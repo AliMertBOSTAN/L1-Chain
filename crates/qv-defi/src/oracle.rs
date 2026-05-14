@@ -312,15 +312,12 @@ pub fn detect_manipulation(
 // Helpers
 // ============================================================================
 
-
 // Add reexports for VecDeque if not already in scope
 mod alloc {
     pub(super) mod collections {
         pub(crate) use std::collections::VecDeque;
     }
-    pub(super) mod vec {
-        
-    }
+    pub(super) mod vec {}
 }
 
 // ============================================================================

@@ -116,6 +116,7 @@ impl StakePool {
     /// This is used only for display / reward computation; consensus-critical
     /// paths use the rational representation.
     #[must_use]
+    #[allow(clippy::float_arithmetic)] // display/reward — not consensus-critical
     pub fn margin_ratio(&self) -> f64 {
         if self.margin_den == 0 {
             return 0.0;
@@ -149,8 +150,8 @@ pub struct Delegation {
 /// Frozen snapshot of per-pool stake used for one epoch of leader election.
 ///
 /// Once built, a `StakeDistribution` is immutable for the entire epoch.
-/// The consensus layer queries it via [`relative_stake`] and
-/// [`is_slot_leader_eligible`].
+/// The consensus layer queries it via [`StakeDistribution::relative_stake`]
+/// and [`crate::leader_schedule::check_leadership`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StakeDistribution {
     /// Epoch this snapshot applies to.

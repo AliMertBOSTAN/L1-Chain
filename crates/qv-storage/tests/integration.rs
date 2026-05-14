@@ -13,9 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use qv_consensus::{
-    ChainEntry, Delegation, PoolId, StakeDistribution, StakePool,
-};
+use qv_consensus::{ChainEntry, Delegation, PoolId, StakeDistribution, StakePool};
 use qv_core::{
     Amount, Block, BlockHash, BlockHeader, Epoch, Hash256, Height, OutPoint, Script, Slot,
     Timestamp, Transaction, TxId, TxInput, TxOutput,
@@ -190,10 +188,7 @@ fn commitment_root_stable_across_apply_revert() {
     utxo_store.revert_block(&block).unwrap();
 
     let root_after = utxo_store.commitment_root().unwrap();
-    assert_eq!(
-        root_before, root_after,
-        "revert must restore original root"
-    );
+    assert_eq!(root_before, root_after, "revert must restore original root");
 }
 
 // ---------------------------------------------------------------------------
@@ -288,10 +283,7 @@ fn state_store_full_lifecycle() {
     };
 
     state_store.put_ledger_state(&ledger).unwrap();
-    assert_eq!(
-        state_store.get_ledger_state().unwrap().unwrap(),
-        ledger
-    );
+    assert_eq!(state_store.get_ledger_state().unwrap().unwrap(), ledger);
 
     // Epoch snapshots
     let dist = StakeDistribution::snapshot(Epoch::from(5), &[p], &[]).unwrap();
@@ -391,14 +383,8 @@ fn double_spend_inside_block_rejected() {
     utxo_store.insert(op, tx_output(100, 0xEE)).unwrap();
 
     // Build a block with two transactions both spending the same outpoint
-    let tx1 = Transaction::new(
-        vec![TxInput::new(op)],
-        vec![tx_output(50, 1)],
-    );
-    let tx2 = Transaction::new(
-        vec![TxInput::new(op)],
-        vec![tx_output(40, 2)],
-    );
+    let tx1 = Transaction::new(vec![TxInput::new(op)], vec![tx_output(50, 1)]);
+    let tx2 = Transaction::new(vec![TxInput::new(op)], vec![tx_output(40, 2)]);
 
     let mut header = BlockHeader::genesis_template();
     header.height = Height::from(1);
@@ -423,8 +409,7 @@ fn epoch_snapshots_ordering() {
     let p = pool(1, 1000);
 
     for epoch_num in [3u64, 1, 5, 2, 4] {
-        let dist =
-            StakeDistribution::snapshot(Epoch::from(epoch_num), &[p.clone()], &[]).unwrap();
+        let dist = StakeDistribution::snapshot(Epoch::from(epoch_num), &[p.clone()], &[]).unwrap();
         let snap = EpochSnapshot {
             epoch: Epoch::from(epoch_num),
             stake_distribution: dist,
@@ -486,18 +471,12 @@ fn intra_block_chained_spending() {
     utxo_store.insert(seed_op, tx_output(1000, 0xBB)).unwrap();
 
     // tx1 spends seed → creates output A
-    let tx1 = Transaction::new(
-        vec![TxInput::new(seed_op)],
-        vec![tx_output(900, 1)],
-    );
+    let tx1 = Transaction::new(vec![TxInput::new(seed_op)], vec![tx_output(900, 1)]);
     let tx1_id = tx1.id().unwrap();
     let op_a = OutPoint::new(tx1_id, 0);
 
     // tx2 spends output A (created by tx1 in same block) → creates output B
-    let tx2 = Transaction::new(
-        vec![TxInput::new(op_a)],
-        vec![tx_output(800, 2)],
-    );
+    let tx2 = Transaction::new(vec![TxInput::new(op_a)], vec![tx_output(800, 2)]);
     let tx2_id = tx2.id().unwrap();
     let op_b = OutPoint::new(tx2_id, 0);
 

@@ -10,16 +10,13 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use qv_core::{Amount, OutPoint, Script as CoreScript, Slot, Transaction, TxId, TxInput, TxOutput};
 use qv_crypto::{generate_pqc_keypair, sign_pqc, DilithiumLevel};
-use bincode;
-use qv_script::{
-    decode_script, p2pkh_pqc, pubkey_hash, validate_script, ScriptBuilder, OpCode,
-};
+use qv_script::{decode_script, p2pkh_pqc, pubkey_hash, validate_script, OpCode, ScriptBuilder};
 
 // ---------------------------------------------------------------------------
 // Helper: create a simple transaction with witness data
 // ---------------------------------------------------------------------------
 
-fn create_test_tx_with_witness(witness_bytes: Vec<u8>) -> (Transaction, Vec<TxOutput>) {
+fn create_test_tx_with_witness(_witness_bytes: Vec<u8>) -> (Transaction, Vec<TxOutput>) {
     // Create a simple transaction with one input
     let tx_id = TxId::from_bytes([42; 32]);
     let input = TxInput::new(OutPoint::new(tx_id, 0));

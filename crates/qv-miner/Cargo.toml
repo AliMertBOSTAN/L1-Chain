@@ -48,6 +48,9 @@ rand               = { workspace = true }
 argon2             = { workspace = true }
 aes-gcm            = { workspace = true }
 
+# Interactive password prompt for `qv-miner run` (M-09).
+rpassword          = { workspace = true }
+
 ratatui            = { version = "0.27", optional = true }
 crossterm          = { version = "0.27", optional = true }
 

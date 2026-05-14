@@ -32,10 +32,7 @@ pub enum LendingError {
 
     /// Position is under-collateralized (debt > max borrow).
     #[error("under-collateralized: collateral value {collateral_value}, debt {debt}")]
-    UnderCollateralized {
-        collateral_value: u64,
-        debt: u64,
-    },
+    UnderCollateralized { collateral_value: u64, debt: u64 },
 
     /// Insufficient liquidity to satisfy borrow or withdraw.
     #[error("insufficient liquidity")]
@@ -119,11 +116,11 @@ impl LendingPoolDatum {
             debt_token_id,
             total_collateral,
             total_debt,
-            base_rate_bps: 100,    // 1% base
-            slope_bps: 5_000,      // 50% slope
-            ltv_max_bps: 7_500,    // 75% max LTV
-            liquidation_threshold_bps: 8_000, // 80%
-            liquidation_bonus_bps: 1_000, // 10% bonus
+            base_rate_bps: 100,                   // 1% base
+            slope_bps: 5_000,                     // 50% slope
+            ltv_max_bps: 7_500,                   // 75% max LTV
+            liquidation_threshold_bps: 8_000,     // 80%
+            liquidation_bonus_bps: 1_000,         // 10% bonus
             interest_multiplier_q64: 1u128 << 64, // 1.0 in Q64
             last_accrual_slot: 0,
         }
@@ -191,11 +188,7 @@ impl LendingPosition {
     ///
     /// health_factor = (collateral_value * ltv_threshold) / debt
     /// If > 1.0 (> 1 << 64 in Q64), position is healthy.
-    pub fn health_factor(
-        &self,
-        collateral_value: u64,
-        ltv_threshold_bps: u16,
-    ) -> Result<u128> {
+    pub fn health_factor(&self, collateral_value: u64, ltv_threshold_bps: u16) -> Result<u128> {
         if self.debt == 0 {
             return Ok(u128::MAX);
         }
@@ -395,7 +388,11 @@ pub fn borrow(
 }
 
 /// Repay debt.
-pub fn repay(pool: &mut LendingPoolDatum, position: &mut LendingPosition, amount: u64) -> Result<u64> {
+pub fn repay(
+    pool: &mut LendingPoolDatum,
+    position: &mut LendingPosition,
+    amount: u64,
+) -> Result<u64> {
     if position.debt == 0 {
         return Err(LendingError::NoDebt);
     }
@@ -469,9 +466,7 @@ pub fn liquidate(
 
     // Collateral seized = repaid + bonus
     let bonus = compute_liquidation_bonus(repaid, pool.liquidation_bonus_bps)?;
-    let collateral_seized = repaid
-        .checked_add(bonus)
-        .ok_or(LendingError::Overflow)?;
+    let collateral_seized = repaid.checked_add(bonus).ok_or(LendingError::Overflow)?;
 
     if collateral_seized > position.collateral_shares {
         return Err(LendingError::Overflow);

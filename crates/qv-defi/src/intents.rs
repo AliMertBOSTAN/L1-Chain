@@ -230,9 +230,7 @@ impl OrderIntent {
 
         match &self.kind {
             OrderKind::Swap {
-                offer,
-                min_receive,
-                ..
+                offer, min_receive, ..
             } => {
                 if *offer == 0 || *min_receive == 0 {
                     return Err(IntentError::InvalidAmount(0));
@@ -272,14 +270,12 @@ impl OrderIntent {
 
     /// Encode intent to bincode bytes.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self)
-            .map_err(|e| IntentError::InvalidEncoding(e.to_string()))
+        bincode::serialize(self).map_err(|e| IntentError::InvalidEncoding(e.to_string()))
     }
 
     /// Decode intent from bincode bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| IntentError::DecodeFailed(e.to_string()))
+        bincode::deserialize(bytes).map_err(|e| IntentError::DecodeFailed(e.to_string()))
     }
 }
 
@@ -347,14 +343,12 @@ impl IntentBundle {
 
     /// Encode bundle to bincode bytes.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self)
-            .map_err(|e| IntentError::InvalidEncoding(e.to_string()))
+        bincode::serialize(self).map_err(|e| IntentError::InvalidEncoding(e.to_string()))
     }
 
     /// Decode bundle from bincode bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| IntentError::DecodeFailed(e.to_string()))
+        bincode::deserialize(bytes).map_err(|e| IntentError::DecodeFailed(e.to_string()))
     }
 }
 
@@ -434,9 +428,10 @@ impl SwapIntentBuilder {
             .saturating_mul(10_000_u128 - slippage_bps as u128)
             .saturating_div(10_000);
 
-        let min_receive = Amount::from_smallest_units(
-            core::cmp::min(min_receive_amount, u64::MAX as u128) as u64
-        );
+        let min_receive = Amount::from_smallest_units(core::cmp::min(
+            min_receive_amount,
+            u64::MAX as u128,
+        ) as u64);
 
         let mut intent = OrderIntent::new_swap(
             self.order_id.unwrap_or(TxId::ZERO),

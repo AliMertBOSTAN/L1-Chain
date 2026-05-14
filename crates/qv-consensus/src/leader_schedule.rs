@@ -55,6 +55,7 @@ impl VrfOutput {
     ///
     /// This is the consensus-critical comparison value.
     #[must_use]
+    #[allow(clippy::float_arithmetic)] // Praos: VRF output → probability mapping
     pub fn to_unit_interval(&self) -> f64 {
         // Take the first 8 bytes as a u64 for sufficient precision.
         let mut buf = [0u8; 8];
@@ -185,6 +186,7 @@ pub fn vrf_input(nonce: &EpochNonce, slot: Slot) -> Vec<u8> {
 ///
 /// Formula: `T = 1 − (1 − f)^σ`
 #[must_use]
+#[allow(clippy::float_arithmetic)] // Praos: stake share → threshold probability
 pub fn leader_threshold(sigma: f64) -> f64 {
     // 1 - (1-f)^sigma  =  1 - exp(sigma * ln(1-f))
     let ln_1_minus_f = (1.0 - ACTIVE_SLOT_COEFF).ln();
@@ -199,6 +201,7 @@ pub fn leader_threshold(sigma: f64) -> f64 {
 /// 3. Compares the output against the stake-proportional threshold.
 ///
 /// Returns `Ok(Some((output, proof)))` if elected, `Ok(None)` if not.
+#[allow(clippy::float_arithmetic)] // Praos: stake share → threshold comparison
 pub fn check_leadership<V: VrfEvaluator>(
     vrf: &V,
     pool_id: &PoolId,
@@ -232,6 +235,7 @@ pub fn check_leadership<V: VrfEvaluator>(
 /// Verify that a claimed leadership proof is valid.
 ///
 /// Used by block validators to confirm a received block's VRF proof.
+#[allow(clippy::float_arithmetic)] // Praos: stake share → threshold comparison
 pub fn verify_leadership<V: VrfEvaluator>(
     vrf: &V,
     vrf_pk: &[u8],
@@ -298,9 +302,8 @@ impl RistrettoVrfEvaluator {
     /// Derive deterministically from a 32-byte seed (e.g. operator's
     /// HD-derived VRF seed).
     pub fn from_seed(seed: &[u8; 32]) -> Result<Self, LeaderError> {
-        let kp = qv_crypto::VrfKeyPair::from_seed(seed).map_err(|e| {
-            LeaderError::VrfEvaluation(format!("vrf keypair from_seed: {e}"))
-        })?;
+        let kp = qv_crypto::VrfKeyPair::from_seed(seed)
+            .map_err(|e| LeaderError::VrfEvaluation(format!("vrf keypair from_seed: {e}")))?;
         Ok(Self::new(kp))
     }
 
@@ -322,7 +325,10 @@ impl VrfEvaluator for RistrettoVrfEvaluator {
     fn evaluate(&self, input: &[u8]) -> Result<(VrfOutput, VrfProof), LeaderError> {
         let (out, proof) = qv_crypto::vrf_evaluate(&self.secret, input)
             .map_err(|e| LeaderError::VrfEvaluation(e.to_string()))?;
-        Ok((VrfOutput(*out.as_bytes()), VrfProof(proof.as_bytes().to_vec())))
+        Ok((
+            VrfOutput(*out.as_bytes()),
+            VrfProof(proof.as_bytes().to_vec()),
+        ))
     }
 
     fn verify(

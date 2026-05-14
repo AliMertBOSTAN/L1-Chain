@@ -6,7 +6,7 @@
 //!
 //! # Merkle construction
 //!
-//! [`merkle_root`] constructs a binary Merkle tree over the transactions'
+//! [`merkle_root_of`] constructs a binary Merkle tree over the transactions'
 //! `TxId`s, padding the last level by **duplicating the rightmost leaf**
 //! until the level's length is a power of two. This is the same scheme as
 //! Bitcoin; it has a well-known "CVE-2012-2459" duplicate-txn malleability,
@@ -25,9 +25,7 @@ use thiserror::Error;
 use qv_crypto::sha3_256;
 
 use crate::transaction::{Transaction, TransactionError};
-use crate::types::{
-    BlockHash, Hash256, Height, MerkleRoot, Slot, Timestamp, TxId, UtxoCommitment,
-};
+use crate::types::{BlockHash, Hash256, Height, MerkleRoot, Slot, Timestamp, TxId, UtxoCommitment};
 
 // ============================================================================
 // Errors
@@ -146,7 +144,10 @@ impl Block {
     /// Compose a block from a header and a transaction list.
     #[must_use]
     pub fn new(header: BlockHeader, transactions: Vec<Transaction>) -> Self {
-        Self { header, transactions }
+        Self {
+            header,
+            transactions,
+        }
     }
 
     /// Compute the Merkle root of the block's transactions. Matches the
@@ -451,7 +452,7 @@ mod tests {
         // even in a genesis block (since genesis txs still need outputs).
         let bad = Transaction::new(
             vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
-            vec![],  // zero outputs
+            vec![], // zero outputs
         );
         let ids = vec![bad.id().unwrap()];
         let header = BlockHeader {
@@ -470,28 +471,28 @@ mod tests {
     fn genesis_block_accepts_genesis_tx() {
         // A genesis block (height=0) should accept transactions with zero inputs
         // as long as they have outputs.
-        let genesis_tx = Transaction::genesis(
-            vec![TxOutput::new(Amount::from(100), Script::default())],
-        );
+        let genesis_tx =
+            Transaction::genesis(vec![TxOutput::new(Amount::from(100), Script::default())]);
         let ids = vec![genesis_tx.id().unwrap()];
         let header = BlockHeader {
             merkle_root: merkle_root_of(&ids),
             ..BlockHeader::genesis_template()
         };
         let block = Block::new(header, vec![genesis_tx]);
-        block.validate_structure().expect("genesis block with genesis tx should validate");
+        block
+            .validate_structure()
+            .expect("genesis block with genesis tx should validate");
     }
 
     #[test]
     fn non_genesis_block_rejects_genesis_tx() {
         // A non-genesis block should reject transactions with zero inputs,
         // even if they have outputs.
-        let genesis_tx = Transaction::genesis(
-            vec![TxOutput::new(Amount::from(100), Script::default())],
-        );
+        let genesis_tx =
+            Transaction::genesis(vec![TxOutput::new(Amount::from(100), Script::default())]);
         let ids = vec![genesis_tx.id().unwrap()];
         let header = BlockHeader {
-            height: Height::from(1),  // non-genesis height
+            height: Height::from(1), // non-genesis height
             merkle_root: merkle_root_of(&ids),
             ..BlockHeader::genesis_template()
         };

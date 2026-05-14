@@ -19,14 +19,14 @@
 
 use qv_consensus::{
     block_subsidy, check_leadership, cumulative_emission, distribute_reward, is_emission_exhausted,
-    leader_threshold, total_block_reward, validate_block_header, verify_leadership, vrf_input,
+    total_block_reward, validate_block_header, verify_leadership, vrf_input,
     BlockValidationContext, ChainEntry, ChainState, Delegation, EpochBoundary, EpochInfo,
-    EpochNonce, PoolId, RewardShare, SlotClock, SlotInfo, StakeDistribution, StakePool,
-    TestKesVerifier, TestVrf, VrfEvaluator, VrfOutput, ACTIVE_SLOT_COEFF,
+    EpochNonce, PoolId, SlotClock, StakeDistribution, StakePool, TestKesVerifier, TestVrf,
+    VrfEvaluator,
 };
 use qv_core::{
     Amount, BlockHash, BlockHeader, ConsensusParams, Epoch, Hash256, Height, MerkleRoot,
-    MonetaryParams, ProtocolParams, Slot, Timestamp, UtxoCommitment, BLOCK_VERSION,
+    MonetaryParams, ProtocolParams, Slot, UtxoCommitment, BLOCK_VERSION,
 };
 
 // ============================================================================
@@ -440,7 +440,6 @@ fn reward_lifecycle_with_halving() {
     };
 
     // Track cumulative minting
-    let mut total_minted: u64 = 0;
     let mut prev_subsidy = u64::MAX;
 
     for h in 0..200u64 {
@@ -454,8 +453,6 @@ fn reward_lifecycle_with_halving() {
 
         // Total reward includes fees
         assert!(reward.as_u64() >= fees.as_u64());
-
-        total_minted += subsidy.as_u64();
     }
 
     // Cumulative emission should match

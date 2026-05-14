@@ -233,11 +233,7 @@ pub trait RangeProver: Send + Sync {
 /// Abstraction over range proof verification.
 pub trait RangeVerifier: Send + Sync {
     /// Verify a range proof against a commitment.
-    fn verify(
-        &self,
-        commitment: &Commitment,
-        proof: &RangeProof,
-    ) -> Result<bool, PrivacyError>;
+    fn verify(&self, commitment: &Commitment, proof: &RangeProof) -> Result<bool, PrivacyError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,11 +320,7 @@ impl MockRangeVerifier {
 }
 
 impl RangeVerifier for MockRangeVerifier {
-    fn verify(
-        &self,
-        commitment: &Commitment,
-        proof: &RangeProof,
-    ) -> Result<bool, PrivacyError> {
+    fn verify(&self, commitment: &Commitment, proof: &RangeProof) -> Result<bool, PrivacyError> {
         if proof.0.len() < 40 {
             return Ok(false);
         }
@@ -492,7 +484,9 @@ mod tests {
         let committer = MockCommitter::new();
         let blinding = test_blinding();
         let commitment = committer.commit(42, &blinding).unwrap();
-        assert!(committer.verify_opening(&commitment, 42, &blinding).unwrap());
+        assert!(committer
+            .verify_opening(&commitment, 42, &blinding)
+            .unwrap());
     }
 
     #[test]
@@ -500,7 +494,9 @@ mod tests {
         let committer = MockCommitter::new();
         let blinding = test_blinding();
         let commitment = committer.commit(42, &blinding).unwrap();
-        assert!(!committer.verify_opening(&commitment, 43, &blinding).unwrap());
+        assert!(!committer
+            .verify_opening(&commitment, 43, &blinding)
+            .unwrap());
     }
 
     #[test]
@@ -557,7 +553,6 @@ mod tests {
     #[test]
     fn blinding_factor_zeroized_on_drop() {
         let b = BlindingFactor::from_seed(b"secret");
-        let ptr = b.0.as_ptr();
         let val = b.0;
         assert_ne!(val, [0u8; 32]);
         drop(b);

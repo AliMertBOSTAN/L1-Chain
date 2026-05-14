@@ -50,12 +50,11 @@
 //! ```
 
 use qv_core::{
-    Amount, Block, BlockHash, BlockHeader, Hash256, Height, Script, Slot,
-    Timestamp, Transaction, TxOutput, UtxoCommitment, BLOCK_VERSION, merkle_root_of,
+    merkle_root_of, Amount, Block, BlockHash, BlockHeader, Hash256, Height, Script, Slot,
+    Timestamp, Transaction, TxOutput, UtxoCommitment, BLOCK_VERSION,
 };
 use qv_crypto::{
-    sha3_256, verify_pqc, DilithiumLevel, PqcPublicKey, PqcSecretKey, PqcSignature,
-    sign_pqc,
+    sha3_256, sign_pqc, verify_pqc, DilithiumLevel, PqcPublicKey, PqcSecretKey, PqcSignature,
 };
 use qv_script::templates::{p2pkh_pqc, pubkey_hash};
 use serde::{Deserialize, Serialize};
@@ -397,8 +396,10 @@ impl CeremonyCoordinator {
 
         // Parse identity key (level from ceremony params).
         let level = self.params.dilithium_level();
-        let identity_key = PqcPublicKey::from_bytes(level, reg.identity_key.clone())
-            .map_err(|e| CeremonyError::InvalidRegistration(format!("invalid identity key: {e}")))?;
+        let identity_key =
+            PqcPublicKey::from_bytes(level, reg.identity_key.clone()).map_err(|e| {
+                CeremonyError::InvalidRegistration(format!("invalid identity key: {e}"))
+            })?;
 
         // Verify key level matches requirement.
         if identity_key.level() != level {
@@ -413,15 +414,16 @@ impl CeremonyCoordinator {
         let key_hash = sha3_256(&reg.identity_key);
 
         if self.registrations.contains_key(&key_hash) {
-            return Err(CeremonyError::DuplicateParticipant(
-                hex::encode(&key_hash[..8]),
-            ));
+            return Err(CeremonyError::DuplicateParticipant(hex::encode(
+                &key_hash[..8],
+            )));
         }
 
         // Verify signature over the registration payload.
         let payload = self.registration_signing_payload(&reg);
-        let sig = PqcSignature::from_bytes(level, reg.signature.clone())
-            .map_err(|e| CeremonyError::SignatureVerification(format!("invalid signature bytes: {e}")))?;
+        let sig = PqcSignature::from_bytes(level, reg.signature.clone()).map_err(|e| {
+            CeremonyError::SignatureVerification(format!("invalid signature bytes: {e}"))
+        })?;
 
         match verify_pqc(&identity_key, &payload, &sig) {
             Ok(true) => {}
@@ -438,11 +440,7 @@ impl CeremonyCoordinator {
         }
 
         // Check total stake won't overflow.
-        let current_total: u64 = self
-            .registrations
-            .values()
-            .map(|r| r.stake_pledge)
-            .sum();
+        let current_total: u64 = self.registrations.values().map(|r| r.stake_pledge).sum();
         let new_total = current_total.checked_add(reg.stake_pledge).ok_or_else(|| {
             CeremonyError::StakeOverflow {
                 total: u64::MAX,
@@ -528,16 +526,17 @@ impl CeremonyCoordinator {
 
         // Check for duplicate contribution.
         if self.contributions.contains_key(&key_hash) {
-            return Err(CeremonyError::DuplicateParticipant(
-                hex::encode(&key_hash[..8]),
-            ));
+            return Err(CeremonyError::DuplicateParticipant(hex::encode(
+                &key_hash[..8],
+            )));
         }
 
         // Verify signature over domain || randomness.
         let level = self.params.dilithium_level();
         let payload = self.contribution_signing_payload(&contrib);
-        let sig = PqcSignature::from_bytes(level, contrib.signature.clone())
-            .map_err(|e| CeremonyError::SignatureVerification(format!("invalid signature bytes: {e}")))?;
+        let sig = PqcSignature::from_bytes(level, contrib.signature.clone()).map_err(|e| {
+            CeremonyError::SignatureVerification(format!("invalid signature bytes: {e}"))
+        })?;
 
         match verify_pqc(&registration.identity_key, &payload, &sig) {
             Ok(true) => {}
@@ -689,10 +688,7 @@ impl CeremonyCoordinator {
         for (_, reg) in &self.registrations {
             let pk_hash = pubkey_hash(reg.identity_key.as_bytes());
             let locking_script = p2pkh_pqc(&pk_hash);
-            let output = TxOutput::new(
-                Amount::from(reg.stake_pledge),
-                Script::new(locking_script),
-            );
+            let output = TxOutput::new(Amount::from(reg.stake_pledge), Script::new(locking_script));
             outputs.push(output);
         }
 
@@ -899,13 +895,9 @@ mod tests {
         )
         .unwrap();
 
-        let contrib = Participant::create_contribution(
-            &kp.secret,
-            &kp.public,
-            entropy,
-            &params.domain,
-        )
-        .unwrap();
+        let contrib =
+            Participant::create_contribution(&kp.secret, &kp.public, entropy, &params.domain)
+                .unwrap();
 
         (kp.secret, kp.public, reg, contrib)
     }
@@ -972,11 +964,16 @@ mod tests {
         let entropy = [7u8; 32];
 
         let reg = Participant::create_registration(
-            &kp.secret, &kp.public, 1_000_000, &vrf_key, &params.domain,
-        ).unwrap();
-        let contrib = Participant::create_contribution(
-            &kp.secret, &kp.public, entropy, &params.domain,
-        ).unwrap();
+            &kp.secret,
+            &kp.public,
+            1_000_000,
+            &vrf_key,
+            &params.domain,
+        )
+        .unwrap();
+        let contrib =
+            Participant::create_contribution(&kp.secret, &kp.public, entropy, &params.domain)
+                .unwrap();
 
         // Run 1
         let mut c1 = CeremonyCoordinator::new(params.clone());
@@ -1020,11 +1017,21 @@ mod tests {
         let vrf_key = vec![42u8; 32];
 
         let reg1 = Participant::create_registration(
-            &kp.secret, &kp.public, 1_000_000, &vrf_key, &params.domain,
-        ).unwrap();
+            &kp.secret,
+            &kp.public,
+            1_000_000,
+            &vrf_key,
+            &params.domain,
+        )
+        .unwrap();
         let reg2 = Participant::create_registration(
-            &kp.secret, &kp.public, 2_000_000, &vrf_key, &params.domain,
-        ).unwrap();
+            &kp.secret,
+            &kp.public,
+            2_000_000,
+            &vrf_key,
+            &params.domain,
+        )
+        .unwrap();
 
         coordinator.accept_registration(reg1).unwrap();
         let err = coordinator.accept_registration(reg2).unwrap_err();
@@ -1040,13 +1047,18 @@ mod tests {
         let vrf_key = vec![42u8; 32];
 
         let reg = Participant::create_registration(
-            &kp.secret, &kp.public, 1_000_000, &vrf_key, &params.domain,
-        ).unwrap();
+            &kp.secret,
+            &kp.public,
+            1_000_000,
+            &vrf_key,
+            &params.domain,
+        )
+        .unwrap();
 
         // Create contribution with all-zero randomness.
-        let zero_contrib = Participant::create_contribution(
-            &kp.secret, &kp.public, [0u8; 32], &params.domain,
-        ).unwrap();
+        let zero_contrib =
+            Participant::create_contribution(&kp.secret, &kp.public, [0u8; 32], &params.domain)
+                .unwrap();
 
         coordinator.accept_registration(reg).unwrap();
         coordinator.close_registration().unwrap();
@@ -1064,7 +1076,10 @@ mod tests {
 
         // Only 1 participant, need 2.
         let err = coordinator.close_registration().unwrap_err();
-        assert!(matches!(err, CeremonyError::InsufficientParticipants { .. }));
+        assert!(matches!(
+            err,
+            CeremonyError::InsufficientParticipants { .. }
+        ));
     }
 
     #[test]

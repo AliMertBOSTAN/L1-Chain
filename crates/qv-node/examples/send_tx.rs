@@ -148,7 +148,11 @@ fn main() -> anyhow::Result<()> {
                     if let Some(outputs) = first_tx.get("outputs").and_then(|o| o.as_array()) {
                         println!("  Genesis has {} outputs:", outputs.len());
                         for (i, out) in outputs.iter().enumerate().take(3) {
-                            println!("    [{}] value: {}", i, out.get("value").unwrap_or(&serde_json::json!("?")));
+                            println!(
+                                "    [{}] value: {}",
+                                i,
+                                out.get("value").unwrap_or(&serde_json::json!("?"))
+                            );
                         }
                         if outputs.len() > 3 {
                             println!("    ... and {} more", outputs.len() - 3);
@@ -176,7 +180,11 @@ fn main() -> anyhow::Result<()> {
     let keys_json: Vec<serde_json::Value> =
         serde_json::from_str(&std::fs::read_to_string(&keys_path)?)?;
 
-    println!("  Loaded {} genesis accounts from {}", keys_json.len(), keys_path.display());
+    println!(
+        "  Loaded {} genesis accounts from {}",
+        keys_json.len(),
+        keys_path.display()
+    );
 
     let sender_hex = keys_json[0]["secret_key_hex"]
         .as_str()
@@ -204,13 +212,21 @@ fn main() -> anyhow::Result<()> {
     let genesis_tx_id = genesis_tx.id().expect("genesis tx must produce valid id");
 
     println!("  Genesis tx ID: {}", genesis_tx_id);
-    println!("  Spending output 0 (value: {} tokens)", genesis_tx.outputs[0].value);
+    println!(
+        "  Spending output 0 (value: {} tokens)",
+        genesis_tx.outputs[0].value
+    );
 
     let outpoint = OutPoint::new(genesis_tx_id, 0);
 
-    // Query that specific UTXO on the node
-    let outpoint_str = format!("{}:{}", genesis_tx_id, 0);
-    print!("\n  UTXO lookup ({}): ", &outpoint_str[..20]);
+    // Query that specific UTXO on the node. Use canonical `Display` impl
+    // (`txid#idx`) — both `#` and `:` are accepted server-side post N-07 but
+    // the canonical form matches the round-trip contract.
+    let outpoint_str = outpoint.to_string();
+    print!(
+        "\n  UTXO lookup ({}): ",
+        &outpoint_str[..outpoint_str.len().min(20)]
+    );
     if let Some(utxo) = rpc_call("qv_getUtxo", serde_json::json!([outpoint_str])) {
         if utxo.is_null() {
             println!("not found (genesis UTXO may not be in store yet)");
@@ -226,10 +242,7 @@ fn main() -> anyhow::Result<()> {
 
     // Receiver output
     let receiver_script = p2pkh_pqc(&receiver_pk_hash);
-    let receiver_output = TxOutput::new(
-        Amount::from(send_amount),
-        Script::new(receiver_script),
-    );
+    let receiver_output = TxOutput::new(Amount::from(send_amount), Script::new(receiver_script));
 
     // Change output (sender gets change back)
     let sender_pk = {
@@ -238,10 +251,7 @@ fn main() -> anyhow::Result<()> {
     };
     let sender_pk_hash = pubkey_hash(sender_pk.as_bytes());
     let change_script = p2pkh_pqc(&sender_pk_hash);
-    let change_output = TxOutput::new(
-        Amount::from(change_amount),
-        Script::new(change_script),
-    );
+    let change_output = TxOutput::new(Amount::from(change_amount), Script::new(change_script));
 
     // Assemble
     let input = TxInput::new(outpoint);
@@ -254,15 +264,21 @@ fn main() -> anyhow::Result<()> {
     println!("    Output 0: {} tokens -> receiver", send_amount);
     println!("    Output 1: {} tokens -> sender (change)", change_amount);
     println!("    Fee:      {} tokens", fee);
-    println!("    Total:    {} = {} + {} + {} ✓",
-        send_amount + change_amount + fee, send_amount, change_amount, fee
+    println!(
+        "    Total:    {} = {} + {} + {} ✓",
+        send_amount + change_amount + fee,
+        send_amount,
+        change_amount,
+        fee
     );
 
     // ── Sign ───────────────────────────────────────────────────────────────
 
     separator("5. SIGNING");
 
-    let payload = tx.canonical_bytes().expect("canonical encoding must succeed");
+    let payload = tx
+        .canonical_bytes()
+        .expect("canonical encoding must succeed");
     let signature = qv_crypto::sign_pqc(&sender_sk, &payload)?;
 
     let witness_script = ScriptBuilder::new()
@@ -288,7 +304,11 @@ fn main() -> anyhow::Result<()> {
     let tx_bytes = bincode::serialize(&tx)?;
     let tx_hex = hex::encode(&tx_bytes);
 
-    println!("  Serialized: {} bytes ({} hex chars)", tx_bytes.len(), tx_hex.len());
+    println!(
+        "  Serialized: {} bytes ({} hex chars)",
+        tx_bytes.len(),
+        tx_hex.len()
+    );
     println!("  Sending to {}...\n", current_rpc_url());
 
     if let Some(result) = rpc_call("qv_sendTransaction", serde_json::json!([tx_hex])) {
@@ -312,7 +332,10 @@ fn main() -> anyhow::Result<()> {
 
     // Look up our tx by ID
     let tx_id_hex = format!("{}", tx_id);
-    print!("\n  TX lookup ({}...): ", &tx_id_hex[..tx_id_hex.len().min(20)]);
+    print!(
+        "\n  TX lookup ({}...): ",
+        &tx_id_hex[..tx_id_hex.len().min(20)]
+    );
     if let Some(found_tx) = rpc_call("qv_getTx", serde_json::json!([tx_id_hex])) {
         if found_tx.is_null() {
             println!("not found in mempool/blocks");

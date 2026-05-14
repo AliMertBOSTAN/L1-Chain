@@ -5,9 +5,7 @@
 //! sortition that depends on the epoch nonce and pool ID.
 
 use crate::{MinerError, MinerResult};
-use qv_consensus::{
-    PoolId, VrfEvaluator, VrfOutput,
-};
+use qv_consensus::{PoolId, VrfEvaluator, VrfOutput};
 use qv_core::Epoch;
 
 /// Determine whether a pool operator is on the decryption committee for a given epoch.
@@ -95,12 +93,7 @@ pub struct DecryptionShare {
 
 impl DecryptionShare {
     /// Construct a new decryption share.
-    pub fn new(
-        pool_id: PoolId,
-        share_index: u32,
-        share_data: Vec<u8>,
-        epoch: Epoch,
-    ) -> Self {
+    pub fn new(pool_id: PoolId, share_index: u32, share_data: Vec<u8>, epoch: Epoch) -> Self {
         Self {
             pool_id,
             share_index,
@@ -121,7 +114,7 @@ mod tests {
         let vrf = TestVrf::new([0u8; 32]);
         let pool_id = PoolId::ZERO;
         let epoch_nonce = vec![0u8; 32];
-        let epoch = qv_core::Epoch::from(1);
+        let epoch = Epoch::from(1);
 
         // committee_size = 0 should error
         let result = is_committee_member(&vrf, &pool_id, &epoch_nonce, epoch, 0, 0);
@@ -137,7 +130,7 @@ mod tests {
         let vrf = TestVrf::new([0u8; 32]);
         let pool_id = PoolId::ZERO;
         let epoch_nonce = vec![0u8; 32];
-        let epoch = qv_core::Epoch::from(1);
+        let epoch = Epoch::from(1);
 
         let result1 = is_committee_member(&vrf, &pool_id, &epoch_nonce, epoch, 10, 3).unwrap();
         let result2 = is_committee_member(&vrf, &pool_id, &epoch_nonce, epoch, 10, 3).unwrap();
@@ -150,7 +143,7 @@ mod tests {
         let vrf = TestVrf::new([0u8; 32]);
         let pool_id = PoolId::ZERO;
         let epoch_nonce = vec![0u8; 32];
-        let epoch = qv_core::Epoch::from(1);
+        let epoch = Epoch::from(1);
 
         // If threshold = size, all pools are members.
         let result = is_committee_member(&vrf, &pool_id, &epoch_nonce, epoch, 5, 5).unwrap();
@@ -170,12 +163,7 @@ mod tests {
     #[test]
     fn decryption_share_construction() {
         let pool_id = PoolId::ZERO;
-        let share = DecryptionShare::new(
-            pool_id,
-            0,
-            vec![1, 2, 3],
-            qv_core::Epoch::from(1),
-        );
+        let share = DecryptionShare::new(pool_id, 0, vec![1, 2, 3], Epoch::from(1));
 
         assert_eq!(share.pool_id, pool_id);
         assert_eq!(share.share_index, 0);
@@ -186,15 +174,22 @@ mod tests {
     fn committee_member_ranks_distributed() {
         let vrf = TestVrf::new([0u8; 32]);
         let epoch_nonce = vec![0u8; 32];
-        let epoch = qv_core::Epoch::from(1);
+        let epoch = Epoch::from(1);
         let committee_size = 20;
         let committee_threshold = 10;
 
         let mut ranks = vec![];
         for i in 0..20 {
             let pool_id = PoolId(qv_core::Hash256::from_bytes([i as u8; 32]));
-            let is_member = is_committee_member(&vrf, &pool_id, &epoch_nonce, epoch, committee_size, committee_threshold)
-                .unwrap();
+            let is_member = is_committee_member(
+                &vrf,
+                &pool_id,
+                &epoch_nonce,
+                epoch,
+                committee_size,
+                committee_threshold,
+            )
+            .unwrap();
             if is_member {
                 ranks.push(i);
             }

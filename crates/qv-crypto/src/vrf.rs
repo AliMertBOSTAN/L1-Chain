@@ -254,7 +254,10 @@ fn build_transcript(msg: &[u8]) -> merlin::Transcript {
 pub fn evaluate(secret: &VrfSecretKey, msg: &[u8]) -> Result<(VrfOutput, VrfProof)> {
     let sk = secret.to_inner();
     let pk = sk.to_public();
-    let kp = Keypair { secret: sk, public: pk };
+    let kp = Keypair {
+        secret: sk,
+        public: pk,
+    };
 
     let transcript = build_transcript(msg);
 
@@ -362,7 +365,11 @@ mod tests {
     fn proof_is_96_bytes() {
         let kp = VrfKeyPair::from_seed(&[11u8; 32]).unwrap();
         let (_out, proof) = evaluate(&kp.secret, b"x").unwrap();
-        assert_eq!(proof.as_bytes().len(), 96, "wire format = pre_out(32) + proof(64)");
+        assert_eq!(
+            proof.as_bytes().len(),
+            96,
+            "wire format = pre_out(32) + proof(64)"
+        );
     }
 
     #[test]

@@ -9,11 +9,11 @@
 //! leader election, stake distribution, or script execution. Higher-level
 //! crates compose on top of these types:
 //!
-//! - [`qv_script`] consumes `Transaction`/`TxOutput` to run the locking
+//! - `qv_script` consumes `Transaction`/`TxOutput` to run the locking
 //!   script VM.
-//! - [`qv_consensus`] consumes `BlockHeader` + `ProtocolParams` to drive
+//! - `qv_consensus` consumes `BlockHeader` + `ProtocolParams` to drive
 //!   Ouroboros Praos.
-//! - [`qv_storage`] persists `Block`s and the `UtxoSet`.
+//! - `qv_storage` persists `Block`s and the `UtxoSet`.
 //!
 //! ## Modules
 //!
@@ -73,8 +73,8 @@ pub use crate::params::{
 
 /// Transaction types and validation; see [`crate::transaction`] for module docs.
 pub use crate::transaction::{
-    Datum, Script, StealthInfo, Transaction, TransactionError, TxInput, TxOutput,
-    ValidityInterval, Witness, TX_VERSION,
+    Datum, Script, StealthInfo, Transaction, TransactionError, TxInput, TxOutput, ValidityInterval,
+    Witness, TX_VERSION,
 };
 
 /// Core newtypes (amounts, hashes, identifiers, timestamps); see [`crate::types`] for module docs.
@@ -84,9 +84,7 @@ pub use crate::types::{
 };
 
 /// UTXO set abstraction and in-memory implementation; see [`crate::utxo`] for module docs.
-pub use crate::utxo::{
-    commitment_root_of_sorted_entries, InMemoryUtxoSet, UtxoError, UtxoSet,
-};
+pub use crate::utxo::{commitment_root_of_sorted_entries, InMemoryUtxoSet, UtxoError, UtxoSet};
 
 // ---------------------------------------------------------------------------
 // Aggregate error
@@ -152,7 +150,10 @@ mod tests {
     #[test]
     fn core_error_wraps_block_error() {
         let e: CoreError = BlockError::MerkleRootMismatch.into();
-        assert!(matches!(e, CoreError::Block(BlockError::MerkleRootMismatch)));
+        assert!(matches!(
+            e,
+            CoreError::Block(BlockError::MerkleRootMismatch)
+        ));
     }
 
     #[test]

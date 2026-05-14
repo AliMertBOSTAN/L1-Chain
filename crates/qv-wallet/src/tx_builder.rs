@@ -39,7 +39,7 @@ impl TxBuilder {
         // we only need to override the validity interval here. Per-input
         // witnesses are carried inside each `TxInput`, not on `Transaction`.
         let mut tx = Transaction::new(self.inputs.clone(), self.outputs.clone());
-        tx.validity_interval = self.validity.clone();
+        tx.validity_interval = self.validity;
         Ok(tx)
     }
 

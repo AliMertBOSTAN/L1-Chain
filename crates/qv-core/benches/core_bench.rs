@@ -7,8 +7,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use bincode;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use qv_core::{
     merkle_root_of, Amount, Block, BlockHash, BlockHeader, Height, MerkleRoot, OutPoint,
     Script as CoreScript, Slot, Timestamp, Transaction, TxId, TxInput, TxOutput, UtxoCommitment,
@@ -48,9 +48,13 @@ fn bench_merkle_root(c: &mut Criterion) {
             .map(|tx| tx.id().expect("compute txid"))
             .collect();
 
-        group.bench_with_input(BenchmarkId::from_parameter(format!("{}_txs", n)), &ids, |b, ids| {
-            b.iter(|| merkle_root_of(black_box(ids)));
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(format!("{}_txs", n)),
+            &ids,
+            |b, ids| {
+                b.iter(|| merkle_root_of(black_box(ids)));
+            },
+        );
     }
     group.finish();
 }
@@ -103,5 +107,10 @@ fn bench_block_validate_structure(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_merkle_root, bench_transaction_serialization, bench_block_validate_structure);
+criterion_group!(
+    benches,
+    bench_merkle_root,
+    bench_transaction_serialization,
+    bench_block_validate_structure
+);
 criterion_main!(benches);

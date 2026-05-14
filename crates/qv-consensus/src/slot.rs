@@ -193,7 +193,7 @@ mod tests {
     }
 
     fn ephemeral_clock() -> SlotClock {
-        let params = qv_core::ProtocolParams::ephemeral();
+        let params = ProtocolParams::ephemeral();
         SlotClock::from_params(&params)
     }
 

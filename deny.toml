@@ -39,10 +39,13 @@ wildcards         = "deny"
 highlight         = "all"
 
 deny = [
-    # Unmaintained crypto implementations we should never see
+    # Unmaintained or weak crypto implementations we should never use in our
+    # own code. `wrappers` allows a specific transitive crate to use them when
+    # the protocol mandates it (e.g. WebSocket handshake — RFC 6455 — uses
+    # SHA-1 for the Accept-Key, not as a security primitive).
     { name = "openssl-sys", use-instead = "rustls or system openssl via pqcrypto" },
     { name = "md5" },
-    { name = "sha1" },
+    { name = "sha1", wrappers = ["soketto"] },
     { name = "time", version = "<0.3" },  # known soundness issue in 0.1
 ]
 

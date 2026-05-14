@@ -13,13 +13,12 @@
 use qv_crypto::{DilithiumLevel, KyberLevel};
 use qv_privacy::confidential::{
     BlindingFactor, Committer, ConfidentialAmount, MockCommitter, MockRangeProver,
-    MockRangeVerifier, RangeProver, RangeVerifier,
+    MockRangeVerifier, RangeVerifier,
 };
 use qv_privacy::stealth::{
     create_stealth_output, recover_spend_key, scan_output, MockSpendKeyDeriver, StealthKeys,
 };
 use qv_privacy::view_key::{DisclosureProof, PrivacyMode, ViewKey};
-use qv_privacy::PrivacyError;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -207,13 +206,9 @@ fn confidential_balance_multi_output() {
     let out2 = ConfidentialAmount::confidential(2500, &b_out2, &committer, &prover).unwrap();
     let fee = qv_core::Amount::from_smallest_units(500);
 
-    let balanced = qv_privacy::confidential::verify_balance_mock(
-        &[input],
-        &[out1, out2],
-        fee,
-        &verifier,
-    )
-    .unwrap();
+    let balanced =
+        qv_privacy::confidential::verify_balance_mock(&[input], &[out1, out2], fee, &verifier)
+            .unwrap();
     assert!(balanced);
 }
 
@@ -291,7 +286,10 @@ fn stealth_different_kyber_levels() {
         let keys = StealthKeys::generate(level, DilithiumLevel::Level3).unwrap();
         let (output, _) = create_stealth_output(&keys.address()).unwrap();
         let scan = scan_output(&keys, &output).unwrap();
-        assert!(scan.is_some(), "stealth should work at Kyber level {level:?}");
+        assert!(
+            scan.is_some(),
+            "stealth should work at Kyber level {level:?}"
+        );
     }
 }
 

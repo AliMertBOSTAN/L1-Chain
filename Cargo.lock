@@ -3834,6 +3834,7 @@ dependencies = [
  "qv-storage",
  "rand 0.8.6",
  "ratatui",
+ "rpassword",
  "serde",
  "serde_json",
  "tempfile",

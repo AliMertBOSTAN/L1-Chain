@@ -1,8 +1,8 @@
 //! Configuration for the stake pool operator.
 
+use crate::MinerError;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use crate::MinerError;
 
 /// Network selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,17 +95,22 @@ impl OperatorConfig {
         }
 
         if self.margin_bps > 10000 {
-            return Err(MinerError::Config(
-                format!("margin_bps {} exceeds 10000", self.margin_bps),
-            ));
+            return Err(MinerError::Config(format!(
+                "margin_bps {} exceeds 10000",
+                self.margin_bps
+            )));
         }
 
         if self.node_rpc_url.is_empty() {
-            return Err(MinerError::Config("node_rpc_url must not be empty".to_string()));
+            return Err(MinerError::Config(
+                "node_rpc_url must not be empty".to_string(),
+            ));
         }
 
         if self.reward_account.is_empty() {
-            return Err(MinerError::Config("reward_account must not be empty".to_string()));
+            return Err(MinerError::Config(
+                "reward_account must not be empty".to_string(),
+            ));
         }
 
         Ok(())

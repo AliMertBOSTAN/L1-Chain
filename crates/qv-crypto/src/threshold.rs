@@ -214,8 +214,18 @@ mod field {
         // Since p = 2^256 − 189, we can use the identity:
         //   x mod p = x_lo + 189 * x_hi   (mod p)
         // where x = x_hi * 2^256 + x_lo.
-        let x_hi = [prod[0] as u64, prod[1] as u64, prod[2] as u64, prod[3] as u64];
-        let x_lo = [prod[4] as u64, prod[5] as u64, prod[6] as u64, prod[7] as u64];
+        let x_hi = [
+            prod[0] as u64,
+            prod[1] as u64,
+            prod[2] as u64,
+            prod[3] as u64,
+        ];
+        let x_lo = [
+            prod[4] as u64,
+            prod[5] as u64,
+            prod[6] as u64,
+            prod[7] as u64,
+        ];
 
         // 189 * x_hi (up to 256 + 8 = 264 bits, fits in 5 limbs).
         let c = 189u128;
@@ -294,6 +304,7 @@ mod field {
     }
 
     #[cfg(test)]
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     mod tests {
         use super::*;
 
@@ -503,7 +514,9 @@ pub fn reconstruct_secret(shares: &[ShamirShare], threshold: u32) -> Result<[u8;
         }
     }
     if indices.first() == Some(&0) {
-        return Err(CryptoError::Other("share index must be non-zero".to_string()));
+        return Err(CryptoError::Other(
+            "share index must be non-zero".to_string(),
+        ));
     }
 
     // Lagrange interpolation at x = 0.
@@ -800,9 +813,7 @@ pub struct DkgResult {
 /// # Errors
 ///
 /// Returns error if any participant fails to generate commitments or shares.
-pub fn run_pedersen_dkg(
-    participants: &[FeldmanVssParticipant],
-) -> Result<DkgResult> {
+pub fn run_pedersen_dkg(participants: &[FeldmanVssParticipant]) -> Result<DkgResult> {
     let n = participants.len();
     if n < 2 {
         return Err(CryptoError::Other(
@@ -817,19 +828,14 @@ pub fn run_pedersen_dkg(
         .collect();
 
     // Step 2: All participants compute shares for each other.
-    let all_shares: Vec<Vec<DkgShare>> = participants
-        .iter()
-        .map(|p| p.compute_shares())
-        .collect();
+    let all_shares: Vec<Vec<DkgShare>> = participants.iter().map(|p| p.compute_shares()).collect();
 
     // Step 3: Verify all shares (each recipient checks shares from issuers).
     for (issuer_idx, shares) in all_shares.iter().enumerate() {
         for share in shares {
             let recipient = &participants[share.recipient_id as usize];
-            let valid = recipient.verify_share_against_commitments(
-                share,
-                &all_commitments[issuer_idx],
-            );
+            let valid =
+                recipient.verify_share_against_commitments(share, &all_commitments[issuer_idx]);
             if !valid {
                 return Err(CryptoError::Other(format!(
                     "share verification failed: issuer={}, recipient={}",
@@ -950,7 +956,11 @@ impl DkgThresholdDecryptor {
     ///
     /// Returns `(C1, C2)` concatenated (64 bytes total).
     /// `C1 = g^r`, `C2 = m XOR H(pk^r)`.
-    pub fn encrypt(public_key: &ThresholdPublicKey, message: &[u8; 32], randomness: &[u8; 32]) -> [u8; 64] {
+    pub fn encrypt(
+        public_key: &ThresholdPublicKey,
+        message: &[u8; 32],
+        randomness: &[u8; 32],
+    ) -> [u8; 64] {
         let g = field::from_u32(GENERATOR);
         let r = field::reduce_bytes(randomness);
 
@@ -1181,6 +1191,7 @@ impl ThresholdDecryptor for MockThresholdDecryptor {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -1218,12 +1229,21 @@ mod tests {
         let shares = split_secret(&secret, 3, 5).expect("split failed");
 
         // Any 3 of 5 shares should reconstruct the same secret.
-        let r1 = reconstruct_secret(&[shares[0].clone(), shares[1].clone(), shares[2].clone()], 3)
-            .expect("r1 failed");
-        let r2 = reconstruct_secret(&[shares[0].clone(), shares[2].clone(), shares[4].clone()], 3)
-            .expect("r2 failed");
-        let r3 = reconstruct_secret(&[shares[1].clone(), shares[3].clone(), shares[4].clone()], 3)
-            .expect("r3 failed");
+        let r1 = reconstruct_secret(
+            &[shares[0].clone(), shares[1].clone(), shares[2].clone()],
+            3,
+        )
+        .expect("r1 failed");
+        let r2 = reconstruct_secret(
+            &[shares[0].clone(), shares[2].clone(), shares[4].clone()],
+            3,
+        )
+        .expect("r2 failed");
+        let r3 = reconstruct_secret(
+            &[shares[1].clone(), shares[3].clone(), shares[4].clone()],
+            3,
+        )
+        .expect("r3 failed");
 
         assert_eq!(r1, secret);
         assert_eq!(r2, secret);
@@ -1256,7 +1276,10 @@ mod tests {
         let shares = split_secret(&secret, 3, 5).expect("split failed");
         let result = reconstruct_secret(&shares[0..2], 3);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("insufficient shares"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("insufficient shares"));
     }
 
     #[test]
@@ -1490,25 +1513,23 @@ mod tests {
         // Encrypt a message.
         let message = [0xABu8; 32];
         let randomness = sha3_256(b"test randomness");
-        let ciphertext = DkgThresholdDecryptor::encrypt(
-            &dkg_result.public_key,
-            &message,
-            &randomness,
-        );
+        let ciphertext =
+            DkgThresholdDecryptor::encrypt(&dkg_result.public_key, &message, &randomness);
 
         // Create decryptors from DKG shares.
         let decryptors: Vec<DkgThresholdDecryptor> = dkg_result
             .participant_shares
             .iter()
-            .map(|share| {
-                DkgThresholdDecryptor::new(share.index, share.value, threshold)
-            })
+            .map(|share| DkgThresholdDecryptor::new(share.index, share.value, threshold))
             .collect();
 
         // Each decryptor creates a decryption share.
         let dec_shares: Vec<DecryptionShare> = decryptors
             .iter()
-            .map(|d| d.create_decryption_share(&ciphertext).expect("dec share failed"))
+            .map(|d| {
+                d.create_decryption_share(&ciphertext)
+                    .expect("dec share failed")
+            })
             .collect();
 
         // Combine threshold shares to recover the shared value.
@@ -1562,9 +1583,7 @@ mod tests {
     #[test]
     fn test_mock_dkg_3_of_5_key_generation() {
         let seed = [77u8; 32];
-        let participants: Vec<_> = (0..5)
-            .map(|id| MockDkgParticipant::new(id, seed))
-            .collect();
+        let participants: Vec<_> = (0..5).map(|id| MockDkgParticipant::new(id, seed)).collect();
 
         let commitments: Vec<_> = participants
             .iter()
@@ -1573,7 +1592,9 @@ mod tests {
 
         let mut public_keys = Vec::new();
         for participant in &participants {
-            let pk = participant.derive_public_key(&commitments).expect("derive failed");
+            let pk = participant
+                .derive_public_key(&commitments)
+                .expect("derive failed");
             public_keys.push(pk);
         }
 

@@ -83,8 +83,8 @@ mod tests {
     #[test]
     fn error_double_spend_display() {
         let err = MempoolError::DoubleSpend {
-            outpoint: qv_core::OutPoint::new(qv_core::TxId::from_bytes([1; 32]), 0),
-            existing_tx: qv_core::TxId::from_bytes([2; 32]),
+            outpoint: OutPoint::new(TxId::from_bytes([1; 32]), 0),
+            existing_tx: TxId::from_bytes([2; 32]),
         };
         let s = format!("{err}");
         assert!(s.contains("double spend"));
@@ -93,8 +93,8 @@ mod tests {
     #[test]
     fn error_wrong_epoch_display() {
         let err = MempoolError::WrongEpoch {
-            got: qv_core::Epoch::from(5),
-            expected: qv_core::Epoch::from(3),
+            got: Epoch::from(5),
+            expected: Epoch::from(3),
         };
         let s = format!("{err}");
         assert!(s.contains("wrong epoch"));

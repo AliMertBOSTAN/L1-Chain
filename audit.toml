@@ -1,0 +1,29 @@
+# cargo-audit configuration for QuantumVault.
+# Docs: https://github.com/RustSec/rustsec/tree/main/cargo-audit
+#
+# Every entry in `ignore` MUST have a justification comment naming the
+# tracked work-item that will remove it. Re-review every minor release.
+#
+# Faz 9 (audit prep) will close out these ignores; see docs/ROADMAP.md.
+
+[advisories]
+ignore = [
+    # ----- ml-dsa 0.0.4 timing side-channel in decomposition -------------------
+    # We pin ml-dsa = "=0.0.4" per ADR-006 (2026-05-07). The 0.1.0-rc.3 fix
+    # changes the seeded-keygen API we rely on (key_gen_internal(&B32)). Bumping
+    # requires re-verifying wire format (FIPS 204) compatibility and re-running
+    # the seeded-keygen determinism tests. Tracked: Faz 9 / C-XX (see roadmap).
+    "RUSTSEC-2025-0144",
+
+    # ----- libp2p 0.54 transitive vulnerabilities -----------------------------
+    # The following are all reachable only via the libp2p-quic / libp2p-tls /
+    # libp2p-mdns transitive stack. Fix requires libp2p 0.55+ upgrade, which
+    # also bumps the libp2p-* sub-crate API surface (gossipsub, kad, swarm).
+    # Tracked: Faz 9 / N-XX (libp2p major bump).
+    "RUSTSEC-2026-0119",  # hickory-proto: O(n^2) name compression in DNS encoder
+    "RUSTSEC-2025-0009",  # ring 0.16 AES panic with overflow checking on AES op
+    "RUSTSEC-2026-0098",  # rustls-webpki name-constraints URI accepted
+    "RUSTSEC-2026-0099",  # rustls-webpki wildcard name constraints accepted
+    "RUSTSEC-2026-0104",  # rustls-webpki CRL parse panic (we don't use CRLs)
+    "RUSTSEC-2025-0010",  # ring < 0.17 unmaintained — same transitive chain
+]

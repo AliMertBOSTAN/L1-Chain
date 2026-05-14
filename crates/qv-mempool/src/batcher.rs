@@ -372,7 +372,7 @@ mod tests {
 
         // Two orders with different fee densities
         let mut orders = vec![
-            make_order(10, pool_id, SwapDirection::AtoB, 100, 1, 50, 1000),  // low fee
+            make_order(10, pool_id, SwapDirection::AtoB, 100, 1, 50, 1000), // low fee
             make_order(11, pool_id, SwapDirection::AtoB, 100, 1, 200, 2000), // high fee
         ];
 

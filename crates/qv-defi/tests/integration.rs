@@ -27,7 +27,7 @@ fn test_amm_swap_e2e() {
     );
 
     // Swap 1000 A for B
-    let (output, fee) = compute_swap_output(10_000, 10_000, 1_000, 30).unwrap();
+    let (output, _fee) = compute_swap_output(10_000, 10_000, 1_000, 30).unwrap();
 
     // Apply to pool
     pool.apply_swap(SwapDirection::AtoB, 1_000, output).unwrap();
@@ -40,7 +40,7 @@ fn test_amm_swap_e2e() {
 
 #[test]
 fn test_amm_add_remove_liquidity() {
-    let (lp_add, mut datum) = compute_add_liquidity(10_000, 10_000, 10_000, 5_000, 5_000).unwrap();
+    let (lp_add, datum) = compute_add_liquidity(10_000, 10_000, 10_000, 5_000, 5_000).unwrap();
     assert_eq!(lp_add, 5_000);
     assert_eq!(datum.lp_total, 15_000);
 
@@ -69,13 +69,8 @@ fn test_amm_invariant_preservation() {
     );
 
     for i in 1..=5 {
-        let (out, _) = compute_swap_output(
-            pool.datum.reserve_a,
-            pool.datum.reserve_b,
-            1_000,
-            30,
-        )
-        .unwrap();
+        let (out, _) =
+            compute_swap_output(pool.datum.reserve_a, pool.datum.reserve_b, 1_000, 30).unwrap();
 
         pool.apply_swap(SwapDirection::AtoB, 1_000, out).unwrap();
 
@@ -93,7 +88,7 @@ fn test_amm_invariant_preservation() {
 #[ignore]
 fn test_lending_full_lifecycle() {
     // Create pool
-    let mut pool = lending::LendingPoolDatum::new(
+    let mut pool = LendingPoolDatum::new(
         Hash256::from_bytes([1; 32]),
         Hash256::from_bytes([2; 32]),
         100_000,
@@ -107,7 +102,7 @@ fn test_lending_full_lifecycle() {
     assert!(ctokens > 0);
 
     // User creates position
-    let mut position = lending::LendingPosition {
+    let mut position = LendingPosition {
         collateral_shares: ctokens,
         debt: 20_000,
         last_interest_update: 0,
@@ -138,7 +133,7 @@ fn test_lending_full_lifecycle() {
 #[test]
 #[ignore]
 fn test_lending_liquidation_scenario() {
-    let mut position = lending::LendingPosition {
+    let position = LendingPosition {
         collateral_shares: 1000,
         debt: 800,
         last_interest_update: 0,
@@ -164,21 +159,21 @@ fn test_lending_collateral_ratio_computation() {
 
     let ltv_max = 7500u16; // 75%
 
-    let pos_1 = lending::LendingPosition {
+    let pos_1 = LendingPosition {
         collateral_shares: collateral,
         debt: debt_1,
         last_interest_update: 0,
     };
     assert!(pos_1.is_collateralized(collateral, debt_1, ltv_max));
 
-    let pos_2 = lending::LendingPosition {
+    let pos_2 = LendingPosition {
         collateral_shares: collateral,
         debt: debt_2,
         last_interest_update: 0,
     };
     assert!(pos_2.is_collateralized(collateral, debt_2, ltv_max));
 
-    let pos_3 = lending::LendingPosition {
+    let pos_3 = LendingPosition {
         collateral_shares: collateral,
         debt: debt_3,
         last_interest_update: 0,
@@ -346,7 +341,7 @@ fn test_intent_builder_computed_slippage() {
 #[ignore]
 fn test_amm_oracle_feedback_loop() {
     // AMM produces price
-    let mut pool = PoolState::new(
+    let pool = PoolState::new(
         Hash256::from_bytes([1; 32]),
         PoolDatum::new(
             Hash256::from_bytes([10; 32]),
@@ -425,12 +420,7 @@ fn test_intent_to_amm_execution_flow() {
 #[ignore]
 fn test_lending_oracle_price_feedback() {
     let collateral = Hash256::from_bytes([1; 32]);
-    let mut pool = lending::LendingPoolDatum::new(
-        collateral,
-        Hash256::from_bytes([2; 32]),
-        1_000_000,
-        500_000,
-    );
+    let pool = LendingPoolDatum::new(collateral, Hash256::from_bytes([2; 32]), 1_000_000, 500_000);
     pool.validate().unwrap();
 
     // Oracle reports price
@@ -444,7 +434,7 @@ fn test_lending_oracle_price_feedback() {
     assert!(price_obs.validate(1000, 150).is_ok());
 
     // Use price to check position health
-    let position = lending::LendingPosition {
+    let position = LendingPosition {
         collateral_shares: 100_000,
         debt: 50_000,
         last_interest_update: 0,

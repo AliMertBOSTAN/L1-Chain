@@ -7,13 +7,13 @@ use std::sync::Arc;
 
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
-use qv_core::{Amount, Block, BlockHash, Height, OutPoint, Transaction, TxId};
-use qv_storage::block_store::BlockStore;
-use qv_storage::utxo_store::UtxoStore;
-use qv_storage::kv::KvStore;
 use qv_consensus::ChainState;
+use qv_core::{Amount, Block, BlockHash, Height, OutPoint, Transaction, TxId};
 use qv_mempool::clear::{ClearPool, MempoolEntry};
 use qv_mempool::encrypted::EncryptedPool;
+use qv_storage::block_store::BlockStore;
+use qv_storage::kv::KvStore;
+use qv_storage::utxo_store::UtxoStore;
 
 /// Describes the RPC API surface.
 #[rpc(server, client)]
@@ -145,17 +145,22 @@ impl<S: KvStore> RpcServer<S> {
 impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
     async fn get_block_by_hash(&self, block_hash: String) -> RpcResult<Option<Block>> {
         let hash = BlockHash::from_hex(&block_hash).map_err(|e| {
-            jsonrpsee::types::ErrorObject::owned(-32602, format!("invalid block hash: {}", e), None::<()>)
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                format!("invalid block hash: {}", e),
+                None::<()>,
+            )
         })?;
 
         tracing::debug!(hash = %hash, "RPC: getBlockByHash");
 
-        match self
-            .block_store
-            .get_block(&hash)
-            .map_err(|e| {
-                jsonrpsee::types::ErrorObject::owned(-32603, format!("storage error: {}", e), None::<()>)
-            })? {
+        match self.block_store.get_block(&hash).map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32603,
+                format!("storage error: {}", e),
+                None::<()>,
+            )
+        })? {
             Some(block) => Ok(Some(block)),
             None => Ok(None),
         }
@@ -165,12 +170,13 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
         let h = Height::from(height);
         tracing::debug!(height = %height, "RPC: getBlockByHeight");
 
-        match self
-            .block_store
-            .get_block_by_height(h)
-            .map_err(|e| {
-                jsonrpsee::types::ErrorObject::owned(-32603, format!("storage error: {}", e), None::<()>)
-            })? {
+        match self.block_store.get_block_by_height(h).map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32603,
+                format!("storage error: {}", e),
+                None::<()>,
+            )
+        })? {
             Some(block) => Ok(Some(block)),
             None => Ok(None),
         }
@@ -190,7 +196,11 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
 
     async fn get_tx(&self, tx_id: String) -> RpcResult<Option<Transaction>> {
         let target_id = TxId::from_hex(&tx_id).map_err(|e| {
-            jsonrpsee::types::ErrorObject::owned(-32602, format!("invalid tx id: {}", e), None::<()>)
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                format!("invalid tx id: {}", e),
+                None::<()>,
+            )
         })?;
 
         tracing::debug!(tx_id = %tx_id, "RPC: getTx");
@@ -228,22 +238,38 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
     async fn send_transaction(&self, tx_bytes: String) -> RpcResult<TxId> {
         // Hex-decode the transaction bytes
         let raw_bytes = hex::decode(&tx_bytes).map_err(|e| {
-            jsonrpsee::types::ErrorObject::owned(-32602, format!("invalid hex encoding: {}", e), None::<()>)
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                format!("invalid hex encoding: {}", e),
+                None::<()>,
+            )
         })?;
 
         // Deserialize as bincode
         let tx: Transaction = bincode::deserialize(&raw_bytes).map_err(|e| {
-            jsonrpsee::types::ErrorObject::owned(-32602, format!("invalid transaction encoding: {}", e), None::<()>)
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                format!("invalid transaction encoding: {}", e),
+                None::<()>,
+            )
         })?;
 
         // Validate transaction structure
         tx.validate_structure().map_err(|e| {
-            jsonrpsee::types::ErrorObject::owned(-32602, format!("transaction validation failed: {}", e), None::<()>)
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                format!("transaction validation failed: {}", e),
+                None::<()>,
+            )
         })?;
 
         // Compute transaction ID
         let tx_id = tx.id().map_err(|e| {
-            jsonrpsee::types::ErrorObject::owned(-32603, format!("failed to compute tx id: {}", e), None::<()>)
+            jsonrpsee::types::ErrorObject::owned(
+                -32603,
+                format!("failed to compute tx id: {}", e),
+                None::<()>,
+            )
         })?;
 
         // Simplified fee: use 0 for now; full validation uses qv-node/validation.rs
@@ -256,7 +282,11 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
             let entry = MempoolEntry::new(tx, tx_id, fee, estimated_size);
             let mut pool = self.clear_pool.lock().await;
             pool.add(entry).map_err(|e| {
-                jsonrpsee::types::ErrorObject::owned(-32603, format!("mempool insertion failed: {}", e), None::<()>)
+                jsonrpsee::types::ErrorObject::owned(
+                    -32603,
+                    format!("mempool insertion failed: {}", e),
+                    None::<()>,
+                )
             })?;
         }
 
@@ -266,17 +296,22 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
 
     async fn get_utxo(&self, outpoint: String) -> RpcResult<Option<UtxoInfo>> {
         let op = OutPoint::from_str(&outpoint).map_err(|e| {
-            jsonrpsee::types::ErrorObject::owned(-32602, format!("invalid outpoint: {}", e), None::<()>)
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                format!("invalid outpoint: {}", e),
+                None::<()>,
+            )
         })?;
 
         tracing::debug!(outpoint = %op, "RPC: getUtxo");
 
-        match self
-            .utxo_store
-            .get(&op)
-            .map_err(|e| {
-                jsonrpsee::types::ErrorObject::owned(-32603, format!("storage error: {}", e), None::<()>)
-            })? {
+        match self.utxo_store.get(&op).map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32603,
+                format!("storage error: {}", e),
+                None::<()>,
+            )
+        })? {
             Some(output) => Ok(Some(UtxoInfo {
                 value: output.value.as_u64(),
                 script_hash: output.locking_script.hash().to_hex(),
@@ -299,7 +334,12 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
         // This requires the privacy module and a way to iterate all UTXOs efficiently.
         // For now, return a stub error since stealth key parsing requires actual key material.
 
-        Err(jsonrpsee::types::ErrorObject::owned(-32603, "stealth key scanning not yet implemented in RPC", None::<()>).into())
+        Err(jsonrpsee::types::ErrorObject::owned(
+            -32603,
+            "stealth key scanning not yet implemented in RPC",
+            None::<()>,
+        )
+        .into())
     }
 
     async fn scan_stealth(
@@ -325,7 +365,12 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
         //
         // For now, return a stub error since this requires key parsing.
 
-        Err(jsonrpsee::types::ErrorObject::owned(-32603, "stealth scanning not yet implemented in RPC", None::<()>).into())
+        Err(jsonrpsee::types::ErrorObject::owned(
+            -32603,
+            "stealth scanning not yet implemented in RPC",
+            None::<()>,
+        )
+        .into())
     }
 
     async fn get_mempool_status(&self) -> RpcResult<MempoolStatus> {
@@ -356,6 +401,7 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 

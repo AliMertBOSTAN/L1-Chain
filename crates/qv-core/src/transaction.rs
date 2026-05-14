@@ -424,8 +424,7 @@ impl Transaction {
             return Err(TransactionError::NoOutputs);
         }
 
-        let mut seen: Vec<OutPoint> =
-            self.inputs.iter().map(|i| i.prev_output).collect();
+        let mut seen: Vec<OutPoint> = self.inputs.iter().map(|i| i.prev_output).collect();
         seen.sort_unstable();
         if seen.windows(2).any(|w| match w {
             [a, b] => a == b,

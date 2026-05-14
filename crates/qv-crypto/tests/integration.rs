@@ -101,7 +101,7 @@ proptest! {
 fn from_seed_models_hd_derivation_pattern() {
     let mnemonic_seed = [0xABu8; 32];
 
-    let mut derive_account = |idx: u32| -> PqcKeyPair {
+    let derive_account = |idx: u32| -> PqcKeyPair {
         let mut input = Vec::with_capacity(40);
         input.extend_from_slice(b"QuantumVault-Spend-v1");
         input.extend_from_slice(&mnemonic_seed);
@@ -125,7 +125,7 @@ fn from_seed_models_hd_derivation_pattern() {
 fn from_seed_models_kes_leaf_derivation_pattern() {
     let kes_master_seed = [0xCDu8; 32];
 
-    let mut leaf_for_period = |period: u32| -> PqcKeyPair {
+    let leaf_for_period = |period: u32| -> PqcKeyPair {
         let mut input = Vec::with_capacity(48);
         input.extend_from_slice(b"QuantumVault-KES-leaf-v1");
         input.extend_from_slice(&kes_master_seed);

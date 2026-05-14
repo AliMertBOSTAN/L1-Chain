@@ -6,7 +6,7 @@
 use crate::config::OperatorConfig;
 use crate::keys::OperatorKeys;
 use crate::{MinerError, MinerResult};
-use qv_core::{Amount, Script, Datum, Transaction, TxInput, TxOutput, OutPoint, TxId};
+use qv_core::{Amount, Datum, OutPoint, Script, Transaction, TxId, TxInput, TxOutput};
 
 /// Build a pool registration transaction.
 ///
@@ -96,10 +96,7 @@ pub struct PoolRegistrationDatum {
 }
 
 /// Submit a pool registration transaction via node RPC.
-pub async fn submit_via_rpc(
-    _tx: &Transaction,
-    _node_rpc_url: &str,
-) -> MinerResult<String> {
+pub async fn submit_via_rpc(_tx: &Transaction, _node_rpc_url: &str) -> MinerResult<String> {
     // Placeholder: in a real implementation, call the node's RPC method.
     // e.g., qv_submitTransaction or qv_broadcastTx
     // For now, return a dummy tx hash.
@@ -160,7 +157,7 @@ mod tests {
     #[ignore]
     fn build_pool_registration_tx_ok() {
         let config = sample_config();
-        let keys = crate::keys::OperatorKeys::generate().unwrap();
+        let keys = OperatorKeys::generate().unwrap();
 
         let tx = build_pool_registration_tx(
             &config,
@@ -179,7 +176,7 @@ mod tests {
     #[ignore] // same slow-KES reason as `build_pool_registration_tx_ok` (post-ADR-006)
     fn registration_output_has_correct_value() {
         let config = sample_config();
-        let keys = crate::keys::OperatorKeys::generate().unwrap();
+        let keys = OperatorKeys::generate().unwrap();
 
         let tx = build_pool_registration_tx(
             &config,

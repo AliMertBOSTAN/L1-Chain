@@ -8,8 +8,8 @@ use crate::signals::shutdown_signal;
 use crate::slot_ticker::SlotTicker;
 use jsonrpsee::server::Server;
 use qv_consensus::{
-    ChainEntry, ChainState, epoch::EpochNonce, leader_schedule::TestVrf,
-    slot::SlotClock, stake::StakeDistribution,
+    epoch::EpochNonce, leader_schedule::TestVrf, slot::SlotClock, stake::StakeDistribution,
+    ChainEntry, ChainState,
 };
 use qv_core::{Amount, Block, Epoch, ProtocolParams, Transaction};
 use qv_crypto::{generate_pqc_keypair, DilithiumLevel};
@@ -152,10 +152,7 @@ impl Node {
         let config_path = PathBuf::from(format!("config/{}.toml", config.network));
         if config_path.exists() {
             let content = std::fs::read_to_string(&config_path).map_err(|e| {
-                crate::NodeError::Config(format!(
-                    "failed to read {}: {e}",
-                    config_path.display()
-                ))
+                crate::NodeError::Config(format!("failed to read {}: {e}", config_path.display()))
             })?;
             ProtocolParams::from_toml(&content).map_err(|e| {
                 crate::NodeError::Config(format!(
@@ -185,7 +182,10 @@ impl Node {
         let count = utxo_store.len()?;
 
         if count > 0 {
-            info!(utxo_count = count, "existing chain state found, skipping genesis");
+            info!(
+                utxo_count = count,
+                "existing chain state found, skipping genesis"
+            );
             return Ok(());
         }
 
@@ -207,9 +207,8 @@ impl Node {
             _ => {
                 // For mainnet/testnet, create a minimal genesis with a single foundation output.
                 // Real genesis ceremony would use threshold Kyber DKG — placeholder for now.
-                let kp = generate_pqc_keypair(DilithiumLevel::Level3).map_err(|e| {
-                    crate::NodeError::Other(format!("keygen failed: {e}"))
-                })?;
+                let kp = generate_pqc_keypair(DilithiumLevel::Level3)
+                    .map_err(|e| crate::NodeError::Other(format!("keygen failed: {e}")))?;
                 crate::genesis::build_genesis_block(&[(kp.public, 2_100_000_000_000_000)])
             }
         };
@@ -229,7 +228,8 @@ impl Node {
     /// Initialize the network node from configuration.
     async fn init_network_node(config: &NodeConfig) -> Result<NetworkNode, crate::NodeError> {
         let identity = NodeIdentity::generate();
-        let listen_addr: Multiaddr = config.listen_addr
+        let listen_addr: Multiaddr = config
+            .listen_addr
             .parse()
             .map_err(|e| crate::NodeError::Other(format!("invalid listen_addr: {e}")))?;
 
@@ -259,16 +259,14 @@ impl Node {
 
         for seed_str in seed_nodes {
             match seed_str.parse::<Multiaddr>() {
-                Ok(addr) => {
-                    match net_node.dial(addr.clone()) {
-                        Ok(()) => {
-                            info!(addr = %addr, "dialing seed node");
-                        }
-                        Err(e) => {
-                            warn!(addr = %addr, error = %e, "failed to dial seed node");
-                        }
+                Ok(addr) => match net_node.dial(addr.clone()) {
+                    Ok(()) => {
+                        info!(addr = %addr, "dialing seed node");
                     }
-                }
+                    Err(e) => {
+                        warn!(addr = %addr, error = %e, "failed to dial seed node");
+                    }
+                },
                 Err(e) => {
                     warn!(seed_addr = %seed_str, error = %e, "invalid seed node multiaddr");
                 }
@@ -310,8 +308,7 @@ impl Node {
 
         // Spawn network handler if we have a network node event receiver.
         if let Some(net_rx) = net_event_rx {
-            let network_handler =
-                NetworkHandler::new(net_rx, self.event_tx.clone());
+            let network_handler = NetworkHandler::new(net_rx, self.event_tx.clone());
             tokio::spawn(async move {
                 network_handler.run().await;
             });
@@ -527,32 +524,34 @@ impl Node {
     }
 
     /// Spawn the slot ticker background task if stake pool config is provided.
-    async fn spawn_slot_ticker(&self, pool_cfg: &crate::config::StakePoolConfig) -> crate::NodeResult<()> {
+    async fn spawn_slot_ticker(
+        &self,
+        pool_cfg: &crate::config::StakePoolConfig,
+    ) -> crate::NodeResult<()> {
         // Parse VRF seed from hex.
         let vrf_seed_bytes = hex::decode(&pool_cfg.vrf_seed_hex)
             .map_err(|e| crate::NodeError::Config(format!("invalid vrf_seed_hex: {e}")))?;
-        let vrf_seed: [u8; 32] = vrf_seed_bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| crate::NodeError::Config("vrf_seed must be exactly 32 bytes".to_string()))?;
+        let vrf_seed: [u8; 32] = vrf_seed_bytes.as_slice().try_into().map_err(|_| {
+            crate::NodeError::Config("vrf_seed must be exactly 32 bytes".to_string())
+        })?;
 
         // Create VRF evaluator (test deterministic for now).
         let vrf = TestVrf::new(vrf_seed);
 
         // Create slot clock from protocol params.
-        let slot_clock = SlotClock::new(&self.protocol_params.consensus, self.protocol_params.genesis_time);
+        let slot_clock = SlotClock::new(
+            &self.protocol_params.consensus,
+            self.protocol_params.genesis_time,
+        );
 
         // Create stake distribution with a single pool.
         let pool_id = qv_consensus::stake::PoolId::from_vrf_key(&vrf_seed);
         let initial_stake = Amount::from_smallest_units(pool_cfg.initial_stake);
-        let stake_dist = StakeDistribution::new(
-            Epoch::GENESIS,
-            vec![(pool_id, initial_stake)],
-        )
-        .map_err(|e| {
-            let ce: qv_consensus::ConsensusError = e.into();
-            crate::NodeError::Consensus(ce)
-        })?;
+        let stake_dist = StakeDistribution::new(Epoch::GENESIS, vec![(pool_id, initial_stake)])
+            .map_err(|e| {
+                let ce: qv_consensus::ConsensusError = e.into();
+                crate::NodeError::Consensus(ce)
+            })?;
 
         // Create slot ticker.
         let ticker = SlotTicker::new(
@@ -689,6 +688,7 @@ impl Node {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 

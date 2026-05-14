@@ -75,6 +75,11 @@ impl<S: KvStore> UtxoStore<S> {
         Ok(self.kv.scan_prefix(UTXO_ENTRY_PREFIX)?.len())
     }
 
+    /// `true` iff the UTXO set is empty.
+    pub fn is_empty(&self) -> StorageResult<bool> {
+        Ok(self.len()? == 0)
+    }
+
     /// Return all UTXO entries.
     pub fn entries(&self) -> StorageResult<Vec<(OutPoint, TxOutput)>> {
         let pairs = self.kv.scan_prefix(UTXO_ENTRY_PREFIX)?;
@@ -100,7 +105,7 @@ impl<S: KvStore> UtxoStore<S> {
 
     /// Apply all transaction effects in `block` to the persistent UTXO set.
     ///
-    /// Stores an undo log under `block.hash()` so [`revert_block`] can restore
+    /// Stores an undo log under `block.hash()` so [`Self::revert_block`] can restore
     /// the prior state.
     pub fn apply_block(&self, block: &Block) -> StorageResult<()> {
         block.validate_structure()?;

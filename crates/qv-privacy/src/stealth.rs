@@ -211,8 +211,7 @@ pub fn compute_onetime_pk_hash(
     shared_secret: &SharedSecret,
     spend_pk: &PqcPublicKey,
 ) -> HashDigest {
-    let mut input =
-        Vec::with_capacity(STEALTH_KDF_TAG.len() + 32 + spend_pk.as_bytes().len());
+    let mut input = Vec::with_capacity(STEALTH_KDF_TAG.len() + 32 + spend_pk.as_bytes().len());
     input.extend_from_slice(STEALTH_KDF_TAG);
     input.extend_from_slice(shared_secret.as_bytes());
     input.extend_from_slice(spend_pk.as_bytes());
@@ -243,8 +242,8 @@ pub fn create_stealth_output(
     recipient: &StealthAddress,
 ) -> Result<(StealthOutput, SharedSecret), PrivacyError> {
     // 1. KEM encapsulate against recipient's view key.
-    let (ciphertext, shared_secret) = encapsulate_hybrid(&recipient.view_pk)
-        .map_err(|e| PrivacyError::Crypto(e.to_string()))?;
+    let (ciphertext, shared_secret) =
+        encapsulate_hybrid(&recipient.view_pk).map_err(|e| PrivacyError::Crypto(e.to_string()))?;
 
     // 2. Derive view tag.
     let view_tag = compute_view_tag(&shared_secret);
@@ -308,8 +307,7 @@ pub fn scan_output(
     }
 
     // 4. Verify one-time pk hash.
-    let expected_hash =
-        compute_onetime_pk_hash(&shared_secret, &stealth_keys.spend_kp.public);
+    let expected_hash = compute_onetime_pk_hash(&shared_secret, &stealth_keys.spend_kp.public);
     if expected_hash != output.onetime_pk_hash {
         // View tag matched by coincidence (1/256 probability) but hash doesn't.
         return Ok(None);

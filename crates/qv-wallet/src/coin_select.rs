@@ -17,7 +17,10 @@ pub struct CoinSelector {
 
 impl CoinSelector {
     pub fn new(utxos: BTreeMap<OutPoint, Amount>, fee_per_byte: u64) -> Self {
-        CoinSelector { utxos, fee_per_byte }
+        CoinSelector {
+            utxos,
+            fee_per_byte,
+        }
     }
 
     pub fn select(&self, target: Amount) -> WalletResult<CoinSelection> {
@@ -29,7 +32,7 @@ impl CoinSelector {
         // Reserve a flat 1000-unit buffer for fees / change-dust avoidance.
         const RESERVE: u64 = 1000;
         for (op, amt) in &self.utxos {
-            selected.push(op.clone());
+            selected.push(*op);
             total = total
                 .checked_add(*amt)
                 .ok_or_else(|| WalletError::CoinSelection("amount overflow".into()))?;

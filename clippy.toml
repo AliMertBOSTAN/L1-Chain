@@ -2,7 +2,7 @@
 # Fine-tune thresholds appropriate for a cryptographic/blockchain codebase.
 
 avoid-breaking-exported-api      = false
-msrv                             = "1.78"
+msrv                             = "1.86"
 cognitive-complexity-threshold   = 30
 too-many-lines-threshold         = 150
 type-complexity-threshold        = 250

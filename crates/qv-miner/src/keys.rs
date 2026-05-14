@@ -162,10 +162,8 @@ impl ColdKeyPair {
 
     /// Derive deterministically from a 32-byte seed.
     pub fn from_seed(seed: &[u8; 32]) -> MinerResult<Self> {
-        let inner =
-            qv_crypto::from_seed_pqc(qv_crypto::DilithiumLevel::Level3, seed).map_err(|e| {
-                MinerError::KeyGeneration(format!("cold from_seed: {e}"))
-            })?;
+        let inner = qv_crypto::from_seed_pqc(qv_crypto::DilithiumLevel::Level3, seed)
+            .map_err(|e| MinerError::KeyGeneration(format!("cold from_seed: {e}")))?;
         Ok(Self { inner })
     }
 

@@ -152,10 +152,22 @@ mod tests {
         let testnet = TransportConfig::testnet();
         let ephemeral = TransportConfig::ephemeral();
 
-        assert!(mainnet.listen_multiaddr().unwrap().to_string().contains("9944"));
-        assert!(testnet.listen_multiaddr().unwrap().to_string().contains("19944"));
+        assert!(mainnet
+            .listen_multiaddr()
+            .unwrap()
+            .to_string()
+            .contains("9944"));
+        assert!(testnet
+            .listen_multiaddr()
+            .unwrap()
+            .to_string()
+            .contains("19944"));
         // ephemeral uses port 0
-        assert!(ephemeral.listen_multiaddr().unwrap().to_string().contains("/tcp/0"));
+        assert!(ephemeral
+            .listen_multiaddr()
+            .unwrap()
+            .to_string()
+            .contains("/tcp/0"));
     }
 
     #[test]

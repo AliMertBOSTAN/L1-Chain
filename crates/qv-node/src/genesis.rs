@@ -3,10 +3,10 @@
 //! Provides utilities to construct the genesis block with initial UTXO allocation.
 
 use qv_core::{
-    Block, BlockHash, BlockHeader, Script, Transaction, TxOutput, Amount, Height, Slot, Timestamp,
-    Hash256, UtxoCommitment, BLOCK_VERSION, merkle_root_of,
+    merkle_root_of, Amount, Block, BlockHash, BlockHeader, Hash256, Height, Script, Slot,
+    Timestamp, Transaction, TxOutput, UtxoCommitment, BLOCK_VERSION,
 };
-use qv_crypto::{PqcPublicKey, PqcSecretKey, generate_pqc_keypair, DilithiumLevel};
+use qv_crypto::{from_seed_pqc, sha3_256, DilithiumLevel, PqcPublicKey, PqcSecretKey};
 use qv_script::templates::{p2pkh_pqc, pubkey_hash};
 use tracing::info;
 
@@ -34,10 +34,7 @@ pub fn build_genesis_block(allocations: &[(PqcPublicKey, u64)]) -> Block {
         let locking_script = p2pkh_pqc(&pk_hash);
 
         // Create the output
-        let output = TxOutput::new(
-            Amount::from(*amount),
-            Script::new(locking_script),
-        );
+        let output = TxOutput::new(Amount::from(*amount), Script::new(locking_script));
 
         outputs.push(output);
     }
@@ -91,17 +88,31 @@ pub fn devnet_genesis() -> (Block, Vec<PqcSecretKey>) {
     let mut allocations = Vec::with_capacity(DEVNET_ACCOUNTS);
     let mut secret_keys = Vec::with_capacity(DEVNET_ACCOUNTS);
 
-    info!("generating {DEVNET_ACCOUNTS} devnet keypairs at Level 3");
+    info!("deriving {DEVNET_ACCOUNTS} devnet keypairs at Level 3 from deterministic seeds");
 
+    // **Deterministic seeded keygen** (FIPS 204 §6.1 KeyGen_internal via ADR-006).
+    //
+    // Each account's seed is `SHA3-256("qv-devnet-account-" || index_byte)`. This
+    // means `qv-node init` and `qv-node run` and `examples/send_tx.rs` all
+    // converge on the same genesis block, so wallets persist across restarts
+    // and the smoke test loop is reproducible.
+    //
+    // For production networks this is replaced by the mainnet genesis ceremony
+    // (envanter N-05); these fixed devnet keys are intentionally **public** —
+    // they exist only in `archive/cpp-v1/`-grade testnet scenarios.
     for i in 0..DEVNET_ACCOUNTS {
-        // Generate a fresh keypair
-        let pair = generate_pqc_keypair(DilithiumLevel::Level3)
-            .expect("key generation failed during devnet genesis");
+        let mut preimage = Vec::with_capacity(32);
+        preimage.extend_from_slice(b"qv-devnet-account-");
+        preimage.push(i as u8);
+        let seed = sha3_256(&preimage);
+
+        let pair = from_seed_pqc(DilithiumLevel::Level3, &seed)
+            .expect("from_seed_pqc must succeed for deterministic devnet keypair");
 
         allocations.push((pair.public.clone(), TOKENS_PER_ACCOUNT));
         secret_keys.push(pair.secret.clone());
 
-        info!(account = i, "generated keypair");
+        info!(account = i, "derived keypair from seed");
     }
 
     let genesis_block = build_genesis_block(&allocations);
@@ -116,14 +127,14 @@ pub fn devnet_genesis() -> (Block, Vec<PqcSecretKey>) {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use qv_core::MerkleRoot;
+    // Tests still use `generate_pqc_keypair` for the small `build_genesis_block`
+    // unit tests where determinism doesn't matter; the production `devnet_genesis`
+    // path uses `from_seed_pqc` for reproducible smoke tests (see ADR-006).
+    use qv_crypto::generate_pqc_keypair;
 
     #[test]
     fn genesis_block_has_no_inputs() {
@@ -172,7 +183,9 @@ mod tests {
         assert_eq!(block.header.producer_key_hash, Hash256::ZERO);
 
         // Validate that the block passes structural validation
-        block.validate_structure().expect("genesis block must pass validate_structure");
+        block
+            .validate_structure()
+            .expect("genesis block must pass validate_structure");
     }
 
     #[test]
@@ -193,13 +206,47 @@ mod tests {
 
     #[test]
     fn devnet_genesis_keys_match_allocations() {
-        let (block, secret_keys) = devnet_genesis();
+        let (_block, secret_keys) = devnet_genesis();
 
         assert_eq!(secret_keys.len(), 10);
         // The keys returned should be in the same order as the outputs
         // (we can't directly verify they match without signing, but we can check count)
-        for (i, key) in secret_keys.iter().enumerate() {
+        for (_i, key) in secret_keys.iter().enumerate() {
             assert_eq!(key.level(), DilithiumLevel::Level3);
+        }
+    }
+
+    /// Determinism invariant — critical for devnet smoke test reproducibility.
+    ///
+    /// `qv-node init` writes `genesis-keys.json` based on `devnet_genesis()`, then
+    /// `qv-node run` re-derives the genesis block via the same call inside
+    /// `Node::new`. Without determinism, the two would produce different chains
+    /// and the wallet's secret keys would not match any on-chain UTXO. With the
+    /// ADR-006 `from_seed_pqc` swap, this test pins the deterministic contract.
+    #[test]
+    fn devnet_genesis_is_deterministic() {
+        let (block_a, sks_a) = devnet_genesis();
+        let (block_b, sks_b) = devnet_genesis();
+
+        // Same block hash, same merkle root, same tx id sequence.
+        assert_eq!(block_a.header.merkle_root, block_b.header.merkle_root);
+        assert_eq!(block_a.transactions.len(), block_b.transactions.len());
+        let tx_a = &block_a.transactions[0];
+        let tx_b = &block_b.transactions[0];
+        assert_eq!(
+            tx_a.id().expect("tx id"),
+            tx_b.id().expect("tx id"),
+            "two devnet_genesis() calls must produce identical txid"
+        );
+
+        // Same secret key bytes (sensitive — but determinism requires it).
+        assert_eq!(sks_a.len(), sks_b.len());
+        for (i, (a, b)) in sks_a.iter().zip(sks_b.iter()).enumerate() {
+            assert_eq!(
+                a.expose_secret(),
+                b.expose_secret(),
+                "account {i} secret key must be deterministic"
+            );
         }
     }
 }

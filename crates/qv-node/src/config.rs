@@ -94,21 +94,18 @@ pub struct StakePoolConfig {
 impl NodeConfig {
     /// Load configuration from a TOML file.
     pub fn from_toml(path: &std::path::Path) -> crate::NodeResult<Self> {
-        let content = std::fs::read_to_string(path).map_err(|e| {
-            crate::NodeError::Config(format!("failed to read config file: {e}"))
-        })?;
-        let config: NodeConfig = toml::from_str(&content).map_err(|e| {
-            crate::NodeError::Config(format!("failed to parse config TOML: {e}"))
-        })?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| crate::NodeError::Config(format!("failed to read config file: {e}")))?;
+        let config: NodeConfig = toml::from_str(&content)
+            .map_err(|e| crate::NodeError::Config(format!("failed to parse config TOML: {e}")))?;
         config.validate()?;
         Ok(config)
     }
 
     /// Write configuration to a TOML file.
     pub fn to_toml(&self, path: &std::path::Path) -> crate::NodeResult<()> {
-        let content = toml::to_string_pretty(self).map_err(|e| {
-            crate::NodeError::Config(format!("failed to serialize config: {e}"))
-        })?;
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| crate::NodeError::Config(format!("failed to serialize config: {e}")))?;
         std::fs::write(path, content)
             .map_err(|e| crate::NodeError::Config(format!("failed to write config file: {e}")))?;
         Ok(())
@@ -162,7 +159,8 @@ impl NodeConfig {
             },
             storage_backend: "memory".to_string(),
             stake_pool: Some(StakePoolConfig {
-                vrf_seed_hex: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899".to_string(),
+                vrf_seed_hex: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+                    .to_string(),
                 initial_stake: 1_000_000_000,
                 active_slot_coeff: 0.05,
             }),
@@ -226,7 +224,10 @@ impl NodeConfig {
     }
 
     /// Get preset based on network name, or load from TOML.
-    pub fn for_network(network: &str, config_path: Option<&std::path::Path>) -> crate::NodeResult<Self> {
+    pub fn for_network(
+        network: &str,
+        config_path: Option<&std::path::Path>,
+    ) -> crate::NodeResult<Self> {
         match network {
             "mainnet" => Ok(Self::mainnet()),
             "testnet" => Ok(Self::testnet()),
@@ -246,6 +247,7 @@ impl NodeConfig {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 

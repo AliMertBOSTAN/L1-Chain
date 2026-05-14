@@ -38,8 +38,8 @@ mod tests {
 
     #[test]
     fn test_coin_select_basic() {
-        use qv_wallet::coin_select::CoinSelector;
         use qv_core::{Amount, OutPoint, TxId};
+        use qv_wallet::coin_select::CoinSelector;
         use std::collections::BTreeMap;
 
         let mut utxos = BTreeMap::new();
@@ -51,14 +51,16 @@ mod tests {
         // CoinSelector reserves a flat 1000-unit fee/dust buffer; pick a target
         // that leaves room above the reserve.
         let selector = CoinSelector::new(utxos, 1);
-        let result = selector.select(Amount::from_smallest_units(500)).expect("select");
+        let result = selector
+            .select(Amount::from_smallest_units(500))
+            .expect("select");
         assert_eq!(result.selected.len(), 1);
     }
 
     #[test]
     fn test_tx_builder_basic() {
+        use qv_core::{Amount, OutPoint, Script, TxId, TxInput, TxOutput, ValidityInterval};
         use qv_wallet::tx_builder::TxBuilder;
-        use qv_core::{Amount, OutPoint, Script, TxInput, TxOutput, ValidityInterval, TxId};
 
         let validity = ValidityInterval::UNBOUNDED;
         let mut builder = TxBuilder::new(validity);
@@ -66,10 +68,7 @@ mod tests {
         let input = TxInput::new(OutPoint::new(TxId::from_bytes([0u8; 32]), 0));
         builder.add_input(input);
 
-        let output = TxOutput::new(
-            Amount::from_smallest_units(100),
-            Script::new(vec![]),
-        );
+        let output = TxOutput::new(Amount::from_smallest_units(100), Script::new(vec![]));
         builder.add_output(output);
 
         let tx = builder.build_unsigned().expect("build");
@@ -87,12 +86,14 @@ mod tests {
 
     #[test]
     fn test_memory_match_store() {
-        use qv_wallet::scanner::{MatchStore, MemoryMatchStore};
         use qv_core::{Amount, OutPoint, TxId};
+        use qv_wallet::scanner::{MatchStore, MemoryMatchStore};
 
         let mut store = MemoryMatchStore::new();
         let op = OutPoint::new(TxId::from_bytes([0u8; 32]), 0);
-        store.add_match(op.clone(), Amount::from_smallest_units(100)).expect("add");
+        store
+            .add_match(op.clone(), Amount::from_smallest_units(100))
+            .expect("add");
         let matches = store.get_matches().expect("get");
         assert_eq!(matches.len(), 1);
     }
@@ -170,8 +171,8 @@ mod tests {
 
     #[test]
     fn test_coin_select_insufficient() {
-        use qv_wallet::coin_select::CoinSelector;
         use qv_core::{Amount, OutPoint, TxId};
+        use qv_wallet::coin_select::CoinSelector;
         use std::collections::BTreeMap;
 
         let mut utxos = BTreeMap::new();

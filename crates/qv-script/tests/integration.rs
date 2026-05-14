@@ -12,16 +12,13 @@
     clippy::integer_division
 )]
 
-use qv_core::{
-    Amount, Datum, OutPoint, Script as CoreScript, Slot, Transaction, TxId, TxInput, TxOutput,
-};
+use qv_core::{Amount, OutPoint, Script as CoreScript, Slot, Transaction, TxId, TxInput, TxOutput};
 use qv_crypto::sha3_256;
 use qv_script::interpreter::{execute, Context};
-use qv_script::templates::{amm_swap, lending_repay, p2pkh_pqc, pubkey_hash};
+use qv_script::templates::lending_repay;
 use qv_script::{
-    compile, decode_script, disassemble, encode_instructions, gas_cost, validate_script,
-    validate_script_with_gas, ExecResult, GasMeter, Instruction, OpCode, ScriptBuilder,
-    ScriptError, Value,
+    compile, decode_script, disassemble, gas_cost, validate_script, validate_script_with_gas,
+    GasMeter, Instruction, OpCode, ScriptBuilder, ScriptError, Value,
 };
 
 // ============================================================================

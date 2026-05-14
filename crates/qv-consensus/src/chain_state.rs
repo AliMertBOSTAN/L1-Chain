@@ -117,7 +117,14 @@ impl ChainState {
     }
 
     /// Current best tip.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal invariant is broken (tip must always exist in
+    /// `entries`). This invariant is enforced at construction and at every
+    /// mutation site; callers can rely on this never panicking.
     #[must_use]
+    #[allow(clippy::expect_used)] // SAFETY: invariant — tip ∈ entries by construction
     pub fn tip(&self) -> &ChainEntry {
         self.entries
             .get(&self.tip)
@@ -203,30 +210,32 @@ impl ChainState {
 
         // Fork-choice: switch tip if new chain is better
         let tip_height = self.tip_height();
-        if new_height > tip_height {
-            // Check the fork point is not too deep
-            if let Some(fork_height) = self.find_fork_height(new_hash, self.tip) {
-                let depth = tip_height.as_u64().saturating_sub(fork_height);
-                if depth > self.k_finality {
-                    return Err(ChainError::ForkTooDeep {
-                        fork_height,
-                        tip_height: tip_height.as_u64(),
-                        k: self.k_finality,
-                    });
+        match new_height.cmp(&tip_height) {
+            core::cmp::Ordering::Greater => {
+                // Check the fork point is not too deep
+                if let Some(fork_height) = self.find_fork_height(new_hash, self.tip) {
+                    let depth = tip_height.as_u64().saturating_sub(fork_height);
+                    if depth > self.k_finality {
+                        return Err(ChainError::ForkTooDeep {
+                            fork_height,
+                            tip_height: tip_height.as_u64(),
+                            k: self.k_finality,
+                        });
+                    }
+                }
+                self.tip = new_hash;
+                Ok(true) // tip changed
+            }
+            core::cmp::Ordering::Equal => {
+                // Tie-break by lower block hash
+                if new_hash.0 .0 < self.tip.0 .0 {
+                    self.tip = new_hash;
+                    Ok(true)
+                } else {
+                    Ok(false)
                 }
             }
-            self.tip = new_hash;
-            Ok(true) // tip changed
-        } else if new_height == tip_height {
-            // Tie-break by lower block hash
-            if new_hash.0 .0 < self.tip.0 .0 {
-                self.tip = new_hash;
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        } else {
-            Ok(false)
+            core::cmp::Ordering::Less => Ok(false),
         }
     }
 

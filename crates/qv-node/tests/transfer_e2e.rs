@@ -66,7 +66,10 @@ async fn test_transfer_e2e() {
     // Verify genesis structure
     assert_eq!(genesis.transactions.len(), 1);
     let genesis_tx = &genesis.transactions[0];
-    assert!(genesis_tx.inputs.is_empty(), "genesis tx must have no inputs");
+    assert!(
+        genesis_tx.inputs.is_empty(),
+        "genesis tx must have no inputs"
+    );
     assert_eq!(
         genesis_tx.outputs.len(),
         1,
@@ -118,10 +121,7 @@ async fn test_transfer_e2e() {
     // Build the transaction
     let mut builder = TxBuilder::new(ValidityInterval::UNBOUNDED);
     builder.add_input(TxInput::new(alice_genesis_outpoint.clone()));
-    builder.add_output(TxOutput::new(
-        Amount::from(500_000_000),
-        bob_locking_script,
-    ));
+    builder.add_output(TxOutput::new(Amount::from(500_000_000), bob_locking_script));
     builder.add_output(TxOutput::new(
         Amount::from(499_999_000),
         alice_change_script,
@@ -136,17 +136,16 @@ async fn test_transfer_e2e() {
     let transfer_tx = builder.build_unsigned().unwrap();
 
     // Verify the transaction structure
-    assert_eq!(
-        transfer_tx.inputs.len(),
-        1,
-        "transfer tx must have 1 input"
-    );
+    assert_eq!(transfer_tx.inputs.len(), 1, "transfer tx must have 1 input");
     assert_eq!(
         transfer_tx.outputs.len(),
         2,
         "transfer tx must have 2 outputs (Bob + Alice change)"
     );
-    assert!(!transfer_tx.inputs[0].witness.is_empty(), "witness must be populated");
+    assert!(
+        !transfer_tx.inputs[0].witness.is_empty(),
+        "witness must be populated"
+    );
 
     // ========================================================================
     // Step 6: Validate the TX through the full validation pipeline
@@ -204,10 +203,7 @@ async fn test_transfer_e2e() {
     // ========================================================================
 
     // 9a. Alice's original UTXO must be spent (removed)
-    let alice_original_gone = utxo_store
-        .get(&alice_genesis_outpoint)
-        .unwrap()
-        .is_none();
+    let alice_original_gone = utxo_store.get(&alice_genesis_outpoint).unwrap().is_none();
     assert!(
         alice_original_gone,
         "Alice's original genesis UTXO must be consumed"

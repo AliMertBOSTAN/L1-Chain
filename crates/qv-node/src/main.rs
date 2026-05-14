@@ -60,7 +60,10 @@ async fn main() -> anyhow::Result<()> {
             let (genesis_block, secret_keys) = qv_node::genesis::devnet_genesis();
 
             // Print keys to stdout for user
-            println!("\n=== Devnet Genesis Keys ({} accounts) ===\n", secret_keys.len());
+            println!(
+                "\n=== Devnet Genesis Keys ({} accounts) ===\n",
+                secret_keys.len()
+            );
             let mut keys_json = Vec::new();
 
             for (i, sk) in secret_keys.iter().enumerate() {
@@ -79,10 +82,7 @@ async fn main() -> anyhow::Result<()> {
             let json = serde_json::to_string_pretty(&keys_json)?;
             std::fs::write(&keys_path, json)
                 .map_err(|e| anyhow::anyhow!("failed to write genesis keys: {}", e))?;
-            println!(
-                "\nGenesis keys written to: {}",
-                keys_path.display()
-            );
+            println!("\nGenesis keys written to: {}", keys_path.display());
 
             // Log block hash
             match genesis_block.hash() {

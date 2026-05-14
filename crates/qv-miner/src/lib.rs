@@ -55,15 +55,15 @@
 
 #![forbid(unsafe_code)]
 
+pub mod block_producer;
 pub mod cli;
 pub mod committee;
 pub mod config;
+pub mod dashboard;
 pub mod keys;
 pub mod keystore;
 pub mod registration;
-pub mod block_producer;
 pub mod slot_loop;
-pub mod dashboard;
 
 use thiserror::Error;
 
@@ -131,12 +131,12 @@ pub enum MinerError {
 pub type MinerResult<T> = Result<T, MinerError>;
 
 // Re-export headline types at crate root for consumer convenience.
+pub use block_producer::produce_block;
 pub use cli::Cli;
+pub use committee::is_committee_member;
 pub use config::OperatorConfig;
 pub use keys::OperatorKeys;
 pub use registration::build_pool_registration_tx;
-pub use block_producer::produce_block;
-pub use committee::is_committee_member;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

@@ -2,7 +2,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use qv_core::{Block, BlockHash, ProtocolParams, Transaction};
 use qv_node::{Node, NodeConfig};
 
 #[tokio::test]
@@ -32,9 +31,7 @@ async fn test_node_event_send() {
     let node = Node::new(config).await.expect("failed to create node");
 
     let event = qv_node::node::NodeEvent::Shutdown;
-    node.send_event(event)
-        .await
-        .expect("failed to send event");
+    node.send_event(event).await.expect("failed to send event");
 }
 
 // `Node` is `!Send` because it owns a libp2p `Swarm` whose internal trait
@@ -126,7 +123,10 @@ async fn test_cli_args_parse_bootstrap() {
         listen: None,
         rpc_addr: "127.0.0.1:8545".parse().unwrap(),
         metrics_addr: "127.0.0.1:9090".parse().unwrap(),
-        bootstrap: Some("/ip4/192.168.1.100/tcp/10333/p2p/QmXxxx,/ip4/192.168.1.101/tcp/10333/p2p/QmYyyy".to_string()),
+        bootstrap: Some(
+            "/ip4/192.168.1.100/tcp/10333/p2p/QmXxxx,/ip4/192.168.1.101/tcp/10333/p2p/QmYyyy"
+                .to_string(),
+        ),
         init: false,
         log_level: "info".to_string(),
     };

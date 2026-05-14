@@ -164,7 +164,11 @@ pub fn render_dashboard_placeholder(metrics: &DashboardMetrics) -> String {
         metrics.mempool_encrypted_size,
         metrics.peer_count,
         metrics.kes_period,
-        metrics.leadership_last_slots.iter().filter(|&&led| led).count(),
+        metrics
+            .leadership_last_slots
+            .iter()
+            .filter(|&&led| led)
+            .count(),
     )
 }
 
@@ -242,7 +246,14 @@ mod tests {
 
         let snapshot = store.snapshot().await;
         assert_eq!(snapshot.leadership_last_slots.len(), 10);
-        assert_eq!(snapshot.leadership_last_slots.iter().filter(|&&x| x).count(), 5);
+        assert_eq!(
+            snapshot
+                .leadership_last_slots
+                .iter()
+                .filter(|&&x| x)
+                .count(),
+            5
+        );
     }
 
     #[tokio::test]
@@ -299,6 +310,9 @@ mod tests {
         // we don't actually output; drop that assertion until ratatui
         // dashboard lands (Faz 9).
         assert!(rendered.contains("100"));
-        assert!(rendered.contains('3'), "should reference blocks_produced_epoch");
+        assert!(
+            rendered.contains('3'),
+            "should reference blocks_produced_epoch"
+        );
     }
 }

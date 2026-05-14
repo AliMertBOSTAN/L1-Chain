@@ -13,8 +13,8 @@ use tracing::{debug, warn};
 
 use qv_core::{OutPoint, Transaction, TxId, TxOutput};
 use qv_script::validate_script;
-use qv_storage::utxo_store::UtxoStore;
 use qv_storage::kv::KvStore;
+use qv_storage::utxo_store::UtxoStore;
 
 // ============================================================================
 // Error types
@@ -111,9 +111,8 @@ pub fn validate_transaction<S: KvStore>(
     min_fee_rate: u64,
 ) -> Result<ValidatedTx, TxValidationError> {
     // Step 1: Structural validation
-    tx.validate_structure().map_err(|e| {
-        TxValidationError::StructureInvalid(e.to_string())
-    })?;
+    tx.validate_structure()
+        .map_err(|e| TxValidationError::StructureInvalid(e.to_string()))?;
 
     debug!(
         tx_inputs = tx.inputs.len(),
@@ -127,21 +126,21 @@ pub fn validate_transaction<S: KvStore>(
         let outpoint = input.prev_output;
         let resolved = utxo_store
             .get(&outpoint)
-            .map_err(|e| TxValidationError::Storage(format!("failed to resolve input {}: {}", idx, e)))?
+            .map_err(|e| {
+                TxValidationError::Storage(format!("failed to resolve input {}: {}", idx, e))
+            })?
             .ok_or(TxValidationError::InputNotFound(outpoint))?;
         resolved_inputs.push(resolved);
     }
 
     // Step 3: Calculate fee
-    let input_sum = qv_core::Amount::checked_sum(resolved_inputs.iter().map(|o| o.value))
-        .ok_or(TxValidationError::Internal(
-            "input value overflow".to_string(),
-        ))?;
+    let input_sum = qv_core::Amount::checked_sum(resolved_inputs.iter().map(|o| o.value)).ok_or(
+        TxValidationError::Internal("input value overflow".to_string()),
+    )?;
 
-    let output_sum = qv_core::Amount::checked_sum(tx.outputs.iter().map(|o| o.value))
-        .ok_or(TxValidationError::Internal(
-            "output value overflow".to_string(),
-        ))?;
+    let output_sum = qv_core::Amount::checked_sum(tx.outputs.iter().map(|o| o.value)).ok_or(
+        TxValidationError::Internal("output value overflow".to_string()),
+    )?;
 
     let fee = input_sum
         .checked_sub(output_sum)
@@ -164,7 +163,9 @@ pub fn validate_transaction<S: KvStore>(
     }
 
     // Step 5: Script validation for each input
-    let tx_id = tx.id().map_err(|e| TxValidationError::HashError(e.to_string()))?;
+    let tx_id = tx
+        .id()
+        .map_err(|e| TxValidationError::HashError(e.to_string()))?;
 
     for (idx, input) in tx.inputs.iter().enumerate() {
         let resolved = &resolved_inputs[idx];
@@ -176,11 +177,10 @@ pub fn validate_transaction<S: KvStore>(
             tx,
             &resolved_inputs,
             current_slot,
-        ).map_err(|e| {
-            TxValidationError::ScriptFailed {
-                input_index: idx,
-                reason: format!("script error: {}", e),
-            }
+        )
+        .map_err(|e| TxValidationError::ScriptFailed {
+            input_index: idx,
+            reason: format!("script error: {}", e),
         })?;
 
         if !result.success {
@@ -239,10 +239,7 @@ pub fn insert_validated_tx(
     let tx_id = validated.tx_id;
 
     // Estimate wire size (naive: serialized bincode length).
-    let size = tx
-        .canonical_bytes()
-        .map(|b| b.len())
-        .unwrap_or(0);
+    let size = tx.canonical_bytes().map(|b| b.len()).unwrap_or(0);
 
     let entry = qv_mempool::clear::MempoolEntry::new(
         tx,
@@ -251,9 +248,8 @@ pub fn insert_validated_tx(
         size,
     );
 
-    pool.add(entry).map_err(|e| {
-        TxValidationError::Internal(format!("mempool insertion failed: {}", e))
-    })?;
+    pool.add(entry)
+        .map_err(|e| TxValidationError::Internal(format!("mempool insertion failed: {}", e)))?;
 
     Ok(tx_id)
 }
@@ -275,7 +271,11 @@ mod tests {
     use qv_core::{Amount, OutPoint, Script, Slot, TxInput, TxOutput};
     use qv_storage::{kv::MemoryKvStore, utxo_store::UtxoStore};
 
-    // Helper: create a test transaction
+    // Helper: create a test transaction. Used by the `#[ignore]`-tagged
+    // `validate_well_formed_tx_with_available_utxo` (D-11); kept under
+    // `#[allow(dead_code)]` so its compile path stays valid while the
+    // companion test is gated.
+    #[allow(dead_code)]
     fn make_test_tx(input_marker: u8, output_value: u64) -> Transaction {
         let prev_outpoint = OutPoint::new(TxId::from_bytes([input_marker; 32]), 0);
         Transaction::new(
@@ -398,7 +398,10 @@ mod tests {
 
         let dummy_op = OutPoint::new(TxId::from_bytes([1u8; 32]), 0);
         store
-            .insert(dummy_op, TxOutput::new(Amount::from_smallest_units(100), Script::default()))
+            .insert(
+                dummy_op,
+                TxOutput::new(Amount::from_smallest_units(100), Script::default()),
+            )
             .unwrap();
 
         let tx = Transaction::new(vec![TxInput::new(dummy_op)], vec![]);
@@ -431,8 +434,7 @@ mod tests {
         let validated = validate_transaction(&tx, &store, Slot::GENESIS, 1).unwrap();
         assert_eq!(validated.resolved_inputs.len(), 1);
         assert_eq!(
-            validated.resolved_inputs[0].value,
-            input_value,
+            validated.resolved_inputs[0].value, input_value,
             "resolved input should have correct value"
         );
     }

@@ -4,7 +4,7 @@
 //!
 //! | Module         | Purpose                                                |
 //! |----------------|--------------------------------------------------------|
-//! | [`hash`]       | SHA3-256, BLAKE3, streaming hasher, double-hash        |
+//! | [`mod@hash`]   | SHA3-256, BLAKE3, streaming hasher, double-hash        |
 //! | [`secure_bytes`] | `zeroize`-on-drop byte buffer for secret material    |
 //! | [`pqc_sign`]   | Dilithium / ML-DSA signatures (Levels 2, 3, 5) + FIPS 204 seeded keygen |
 //! | [`hybrid_kem`] | X25519 + Kyber hybrid KEM with transcript-bound KDF    |
@@ -105,7 +105,7 @@ pub type Result<T> = core::result::Result<T, CryptoError>;
 // Re-exports — a flat convenience surface for downstream crates.
 // ----------------------------------------------------------------------------
 
-/// Hash algorithm implementations (SHA3-256, BLAKE3, double-hash); see [`hash`] module.
+/// Hash algorithm implementations (SHA3-256, BLAKE3, double-hash); see [`mod@hash`] module.
 pub use hash::{
     blake3, double_blake3, double_hash, double_sha3_256, hash, sha3_256, HashAlgorithm, HashDigest,
     Hasher,
@@ -148,8 +148,8 @@ pub use threshold::{
 /// and a hybrid Ristretto + lattice-VRF is planned for v2 (trait swap point
 /// is `qv_consensus::leader_schedule::VrfEvaluator`).
 pub use vrf::{
-    evaluate as vrf_evaluate, verify as vrf_verify, VrfKeyPair, VrfOutput, VrfProof,
-    VrfPublicKey, VrfSecretKey, VRF_DOMAIN_TAG, VRF_OUTPUT_BYTES, VRF_PUBLIC_KEY_BYTES,
+    evaluate as vrf_evaluate, verify as vrf_verify, VrfKeyPair, VrfOutput, VrfProof, VrfPublicKey,
+    VrfSecretKey, VRF_DOMAIN_TAG, VRF_OUTPUT_BYTES, VRF_PUBLIC_KEY_BYTES,
 };
 
 /// Forward-secure key-evolving signatures (Sum-KES on Dilithium); see

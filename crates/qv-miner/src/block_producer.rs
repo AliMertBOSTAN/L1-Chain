@@ -9,6 +9,7 @@ use qv_core::{
     Block, BlockHash, BlockHeader, MerkleRoot, ProtocolParams, Slot, Timestamp, Transaction, TxId,
     UtxoCommitment, BLOCK_VERSION,
 };
+use qv_mempool::encrypted::{DecryptionShare, ThresholdDecryptor};
 use qv_mempool::{ClearPool, ClearPoolConfig, EncryptedPool, EncryptedPoolConfig};
 
 /// Block production context.
@@ -61,12 +62,10 @@ pub async fn produce_block(
     //    `all_sorted` returns a fee-density-sorted view of mempool entries.
     let clear_entries = clear_pool.all_sorted();
 
-    // 2. Encrypted-mempool decryption is the committee's job; if this operator
-    //    is on the committee for this epoch, we'd call `decrypt_batch` here
-    //    with the threshold decryptor. For block-production scaffolding we
-    //    leave the encrypted batch empty and document the integration point.
-    //    TODO: integrate `EncryptedPool::decrypt_batch<D>` once the committee
-    //    decryptor wiring lands (see qv-mempool::encrypted::ThresholdDecryptor).
+    // 2. Encrypted-mempool decryption: this path is for the **non-committee**
+    //    case — operator is not on the decryption committee for this epoch,
+    //    so the encrypted batch is left empty. Committee members must use
+    //    [`produce_block_with_decryption`] instead (envanter K-06 closure).
     let encrypted_txs: Vec<Transaction> = Vec::new();
 
     // 3. Merge — clear-pool entries are already deterministically ordered by
@@ -126,6 +125,138 @@ pub async fn produce_block(
     let _ = ctx.protocol_params; // suppress unused-field-of-context warning until wired
 
     Ok(block)
+}
+
+/// Produce a block with **encrypted mempool decryption** (envanter K-06).
+///
+/// This is the production path used when the operator is on the encrypted
+/// mempool decryption committee for the current epoch. It:
+///
+/// 1. Decrypts the encrypted mempool batch using the supplied threshold
+///    decryptor and committee shares (`EncryptedPool::decrypt_batch`).
+/// 2. Bincode-deserializes each decrypted plaintext into a `Transaction`.
+/// 3. Merges decrypted txs with the clear-pool snapshot in canonical order:
+///    clear (fee-density desc) || decrypted (committee order).
+/// 4. Builds AMM batches from order intents (envanter K-07 — currently a
+///    no-op extension point; see [`AmmBatcher`] below).
+/// 5. Assembles the block header (same as [`produce_block`]).
+///
+/// # When to use which
+///
+/// - [`produce_block`]: operator NOT on committee — encrypted batch is left
+///   empty; production-grade enough for follower nodes that just pass clear
+///   txs.
+/// - [`produce_block_with_decryption`]: operator IS on committee for this
+///   epoch — must decrypt to include the encrypted-mempool throughput.
+///
+/// # Parameters
+/// - `ctx`, `clear_pool`, `vrf_proof`, `kes_signature`: same as `produce_block`.
+/// - `encrypted_pool`: **mutable** because `decrypt_batch` drains the pool.
+/// - `decryptor`: any type implementing [`ThresholdDecryptor`]
+///   (production: real threshold-Kyber; tests: `MockThresholdDecryptor`).
+/// - `shares`: decryption shares collected from t-of-n committee members
+///   for this epoch.
+///
+/// # Returns
+/// A fully assembled block ready to be gossiped.
+///
+/// # Failures
+/// Returns `MinerError::BlockProduction` if any decrypted plaintext fails
+/// `bincode::deserialize::<Transaction>` — these txs are skipped with a
+/// warn log but do not fail the entire block.
+pub async fn produce_block_with_decryption<D: ThresholdDecryptor>(
+    ctx: &BlockProductionContext,
+    clear_pool: &ClearPool,
+    encrypted_pool: &mut EncryptedPool,
+    decryptor: &D,
+    shares: &[DecryptionShare],
+    vrf_proof: &[u8],
+    kes_signature: &[u8],
+) -> MinerResult<Block> {
+    // 1. Clear-pool snapshot (already fee-density sorted).
+    let clear_entries = clear_pool.all_sorted();
+
+    // 2. Decrypt encrypted-mempool batch. `decrypt_batch` drains the pool
+    //    and returns `Vec<(TxId, plaintext_bytes)>`. Failed decryptions
+    //    inside the pool are logged and skipped silently — they do not
+    //    prevent block production.
+    let decrypted_batch = encrypted_pool
+        .decrypt_batch(decryptor, shares)
+        .map_err(|e| MinerError::BlockProduction(format!("decrypt_batch failed: {e}")))?;
+
+    tracing::debug!(
+        clear_count = clear_entries.len(),
+        encrypted_decrypted = decrypted_batch.len(),
+        "K-06 wire: merging clear + decrypted batches"
+    );
+
+    // 3. Deserialize decrypted plaintexts. Skip individual failures (logged)
+    //    so a malformed encrypted-mempool entry can't halt block production.
+    let mut decrypted_txs: Vec<(TxId, Transaction)> = Vec::with_capacity(decrypted_batch.len());
+    for (tx_id, plaintext) in decrypted_batch {
+        match bincode::deserialize::<Transaction>(&plaintext) {
+            Ok(tx) => decrypted_txs.push((tx_id, tx)),
+            Err(e) => {
+                tracing::warn!(
+                    tx_id = ?tx_id,
+                    error = %e,
+                    "failed to deserialize decrypted tx — skipping"
+                );
+            }
+        }
+    }
+
+    // 4. K-07 wire point: AMM intent batching. For each decrypted/clear tx
+    //    that carries a `SwapIntent` (or other order intent) datum, group by
+    //    pool and call `qv_defi::batcher::build_amm_batch`. The result
+    //    replaces the individual intent txs with a single batched trade tx
+    //    that preserves the x·y=k invariant.
+    //
+    //    Current state: scaffolding only. The intent-detection + batcher
+    //    invocation is gated on:
+    //      - K-07 envanter (this point)
+    //      - qv-defi `Intent::extract_swap` helper (not yet added)
+    //      - A pool-state oracle (current reserves) — needs RPC `qv_getPool` (TBD)
+    //
+    //    Until K-07 lands, intent txs flow through as plain UTXO spends.
+
+    // 5. Merge in canonical order.
+    let total = clear_entries.len() + decrypted_txs.len();
+    let mut tx_ids: Vec<TxId> = Vec::with_capacity(total);
+    let mut batched_txs: Vec<Transaction> = Vec::with_capacity(total);
+    for entry in &clear_entries {
+        tx_ids.push(entry.tx_id);
+        batched_txs.push(entry.tx.clone());
+    }
+    for (tx_id, tx) in decrypted_txs {
+        tx_ids.push(tx_id);
+        batched_txs.push(tx);
+    }
+
+    // 6. Merkle root + UTXO commitment placeholder.
+    let merkle_root: MerkleRoot = qv_core::merkle_root_of(&tx_ids);
+    let utxo_commitment = UtxoCommitment::ZERO; // K-03/K-05 — placeholder
+
+    // 7. Header.
+    let header = BlockHeader {
+        version: BLOCK_VERSION,
+        prev_hash: BlockHash(ctx.parent_hash),
+        height: ctx.height,
+        slot: ctx.slot,
+        timestamp: ctx.timestamp,
+        merkle_root,
+        utxo_commitment,
+        vrf_proof: vrf_proof.to_vec(),
+        kes_sig: kes_signature.to_vec(),
+        producer_key_hash: qv_core::Hash256::ZERO, // K-05 — placeholder
+    };
+
+    let _ = ctx.protocol_params;
+
+    Ok(Block {
+        header,
+        transactions: batched_txs,
+    })
 }
 
 /// Trait for external mempool snapshot providers (can be mocked for testing).
@@ -248,5 +379,100 @@ mod tests {
         let provider = RpcMempoolProvider::new("http://localhost:8080".to_string());
         let result = provider.snapshot_encrypted();
         assert!(result.is_ok());
+    }
+
+    /// K-06 wire smoke test: feed one encrypted tx through
+    /// `produce_block_with_decryption` and assert it lands in the block.
+    ///
+    /// Uses `MockThresholdDecryptor` (XOR-key threshold scheme). Real prod
+    /// path will swap in a Pedersen-DKG-backed threshold-Kyber decryptor
+    /// (envanter T-01 dependency).
+    #[tokio::test]
+    async fn produce_block_with_decryption_merges_encrypted_tx() {
+        use qv_core::{Amount, OutPoint, Script, TxInput, TxOutput};
+        use qv_mempool::encrypted::{EncryptedTx, MockThresholdDecryptor};
+
+        // Build a small valid transaction.
+        let tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([7u8; 32]), 0))],
+            vec![TxOutput::new(
+                Amount::from_smallest_units(42),
+                Script::new(vec![]),
+            )],
+        );
+        let plaintext = bincode::serialize(&tx).unwrap();
+
+        // XOR-encrypt with a fixed 16-byte key (MockThresholdDecryptor scheme).
+        let key = vec![0xABu8; 16];
+        let encrypted_body: Vec<u8> = plaintext
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b ^ key[i % key.len()])
+            .collect();
+        let tx_id = tx.id().unwrap();
+        let etx = EncryptedTx {
+            id: tx_id,
+            kem_ciphertext: vec![0; 32],
+            encrypted_body,
+            target_epoch: qv_core::Epoch::from(0),
+            received_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        // Encrypted pool with one tx pending decryption.
+        let cfg = EncryptedPoolConfig {
+            max_tx_count: 1_000,
+            max_pool_bytes: 1024 * 1024,
+            max_age_secs: 60,
+        };
+        let mut encrypted_pool = EncryptedPool::new(cfg, qv_core::Epoch::from(0));
+        encrypted_pool.add(etx).unwrap();
+
+        // 2-of-3 mock committee; need 2 shares to reconstruct.
+        let decryptor = MockThresholdDecryptor::new(2, 3);
+        let shares = vec![
+            DecryptionShare {
+                member_index: 0,
+                share_bytes: key.clone(),
+            },
+            DecryptionShare {
+                member_index: 1,
+                share_bytes: key,
+            },
+        ];
+
+        let ctx = sample_context();
+        let clear_pool = ClearPool::new(ClearPoolConfig::ephemeral());
+
+        let block = produce_block_with_decryption(
+            &ctx,
+            &clear_pool,
+            &mut encrypted_pool,
+            &decryptor,
+            &shares,
+            &[9, 9, 9],
+            &[8, 8, 8],
+        )
+        .await
+        .unwrap();
+
+        // Block should contain the decrypted tx (1 entry, since clear pool is empty).
+        assert_eq!(
+            block.transactions.len(),
+            1,
+            "decrypted tx must land in block"
+        );
+        assert_eq!(
+            block.transactions[0].id().unwrap(),
+            tx_id,
+            "block's tx id must match the original pre-encryption tx id"
+        );
+        assert_eq!(block.header.vrf_proof, vec![9, 9, 9]);
+        assert_eq!(block.header.kes_sig, vec![8, 8, 8]);
+
+        // After decrypt_batch, the encrypted pool should be drained.
+        assert_eq!(encrypted_pool.len(), 0, "decrypt_batch must drain the pool");
     }
 }

@@ -99,11 +99,7 @@ fn derive_key(password: &[u8], salt: &[u8]) -> MinerResult<[u8; ARGON2_KEY_BYTES
 }
 
 /// Encrypt `plaintext` under `password` and write the envelope to `path`.
-pub fn save(
-    path: &Path,
-    plaintext: &OperatorKeystorePlaintext,
-    password: &str,
-) -> MinerResult<()> {
+pub fn save(path: &Path, plaintext: &OperatorKeystorePlaintext, password: &str) -> MinerResult<()> {
     // 1. Random salt + nonce.
     let mut salt = [0u8; SALT_BYTES];
     rand::rngs::OsRng.fill_bytes(&mut salt);
@@ -150,8 +146,7 @@ pub fn save(
 /// Read and decrypt a keystore at `path` using `password`.
 pub fn load(path: &Path, password: &str) -> MinerResult<OperatorKeystorePlaintext> {
     // 1. Read envelope.
-    let json =
-        fs::read_to_string(path).map_err(|e| MinerError::Keystore(format!("read: {e}")))?;
+    let json = fs::read_to_string(path).map_err(|e| MinerError::Keystore(format!("read: {e}")))?;
     let envelope: OperatorKeystoreEnvelope = serde_json::from_str(&json)
         .map_err(|e| MinerError::Keystore(format!("json decode: {e}")))?;
 
@@ -271,8 +266,8 @@ mod tests {
         save(file_a.path(), &pt, "pw").unwrap();
         save(file_b.path(), &pt, "pw").unwrap();
 
-        let a = std::fs::read_to_string(file_a.path()).unwrap();
-        let b = std::fs::read_to_string(file_b.path()).unwrap();
+        let a = fs::read_to_string(file_a.path()).unwrap();
+        let b = fs::read_to_string(file_b.path()).unwrap();
         assert_ne!(a, b);
     }
 
@@ -293,7 +288,7 @@ mod tests {
                 tag: String::new(),
             },
         };
-        std::fs::write(file.path(), serde_json::to_string(&bogus).unwrap()).unwrap();
+        fs::write(file.path(), serde_json::to_string(&bogus).unwrap()).unwrap();
         let err = load(file.path(), "any").unwrap_err();
         match err {
             MinerError::Keystore(msg) => assert!(msg.contains("version")),

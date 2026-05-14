@@ -16,12 +16,13 @@
 | Konu | Durum |
 |---|---|
 | Workspace derleme | ✅ 0 error, ~187 warning, 13 crate |
-| Test suite | ✅ **~736 passed / 0 failed / 34 ignored** post-ADR-006; **M-04 sonrası beklenen ~741/32** (build/test verify kullanıcı tarafında pending, 2026-05-12) |
+| Test suite | ✅ **744 passed / 0 failed / 36 ignored** (2026-05-12, post B+C: M-09 core scaffolding + K-06 wire; +1 yeni `produce_block_with_decryption_merges_encrypted_tx`) |
 | Çalışan binary'ler | qv-node (kısmen), qv-wallet (init/send/address çalışıyor), qv-miner (kabuk) |
 | Çalışan akışlar | CLI parse, mnemonic gen, PQC key gen, config save/load, **gerçek Ristretto255-VRF**, **gerçek Sum-KES (depth-11) on Dilithium**, in-memory blok pipeline, wallet keystore (Argon2id + AES-256-GCM), wallet send (TxBuilder + Dilithium sign + RPC), node `shutdown()` graceful flush |
-| **Eksik / placeholder** | Hibrit Kyber handshake, Bulletproofs gerçek implementasyon, mainnet genesis ceremony tooling, miner daemon (`cmd_run` sleep loop), 2 RPC metodu (stealth scan/balance), block producer UTXO commitment hash, ml-dsa swap (C-04 önkoşul) |
-| Boş `Ok(...)` veya stub dönen public method | ~28 (azaldı; ana kategoriler envanterde) |
-| Bilinçli `#[ignore]` test | 38 (T-01 Pedersen DKG, D-07..D-12 DeFi yan vakalar, B-03 Node !Send refactor, C-04 bağımlı KES/HD/cold-key from_seed yolları, A-01..A-03 yavaş KES roundtrip) |
+| **Eksik / placeholder** | Hibrit Kyber handshake (NET-01), Bulletproofs gerçek implementasyon (P-01), mainnet genesis ceremony tooling (N-05), miner daemon ana loop (M-09), 2 RPC metodu (N-01/N-02 stealth scan/balance), block producer UTXO commitment hash (K-03/K-05), encrypted mempool wiring (K-06/K-07, MP-01) |
+| Boş `Ok(...)` veya stub dönen public method | ~26 (M-04 + N-07 sonrası azaldı; tüm kategoriler envanterde) |
+| Bilinçli `#[ignore]` test | 36 (detay: bkz. **O. Ignored Test İndeksi**) |
+| **Kapanmış envanter ID'leri (2026-05-12)** | C-01, C-02, C-04, C-06, C-07, K-01, K-02, K-04, **K-06**, L-01..L-04, M-01, M-02, M-03, M-04, M-05, **M-09 (core)**, N-04, N-07, G-01, G-02, W-05, W-06, B-01, B-02 (**25 envanter girdisi**) |
 
 ---
 
@@ -52,8 +53,8 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 | K-03 | `crates/qv-node/src/slot_ticker.rs:218-221` | `utxo_commitment = UtxoCommitment::ZERO` placeholder — gerçek post-apply UTXO snapshot hash gerekiyor | Faz 2/3 |
 | ~~K-04~~ | ✅ **KAPATILDI 2026-05-06** — `SlotTicker::with_kes_signing(kes_sk)` builder ile gerçek KES bağlanır; `produce_block` içinde `bincode::serialize(&unsigned_header)` üzerinde `qv_crypto::kes_sign` çağrılır. `kes_sk = None` (legacy/test path) backward-compatible | — |
 | K-05 | `crates/qv-miner/src/block_producer.rs:100-102, 117` | `utxo_commitment = ZERO`, `producer_key_hash = ZERO` placeholder | Faz 3 |
-| K-06 | `crates/qv-miner/src/block_producer.rs:68-70` | `let encrypted_txs: Vec<Transaction> = Vec::new();` — encrypted mempool decrypt entegrasyonu yok | Faz 7 |
-| K-07 | `crates/qv-miner/src/block_producer.rs:94-95` | AMM batch (qv-defi::batcher) bağlanmamış; tx'ler merge sırasıyla geçiyor | Faz 6/7 |
+| ~~K-06~~ | `crates/qv-miner/src/block_producer.rs::produce_block_with_decryption` | ✅ **KAPATILDI 2026-05-12** — Yeni fonksiyon `produce_block_with_decryption<D: ThresholdDecryptor>` mevcut `produce_block` yanına eklendi. Committee üyesi olan operatör `encrypted_pool.decrypt_batch(decryptor, shares)` ile drain + decrypt + bincode-deserialize akışını çalıştırır; sonuç clear-pool ile merge edilir. `MockThresholdDecryptor` ile test (`produce_block_with_decryption_merges_encrypted_tx`). Production decryptor T-01 (Pedersen DKG / Feldman VSS asymmetry) kapandığında devreye girer | — |
+| K-07 | `crates/qv-miner/src/block_producer.rs::produce_block_with_decryption` step 4 yorumu | AMM batcher wire scaffolding noktası genişletildi: `qv_defi::batcher::build_amm_batch` çağrı noktası, intent extraction helper'ı eksik (`qv-defi::Intent::extract_swap` yazılmamış) ve pool state oracle RPC yok. Intent tx'leri şimdilik plain UTXO spend gibi akar | Faz 6/7 |
 
 ### C. qv-miner (stake pool operatörü) — **kabuk seviyesinde**
 
@@ -62,12 +63,14 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 | ~~M-01~~ | ✅ **KAPATILDI 2026-05-06** — `VrfKeyPair` artık `qv_crypto::VrfKeyPair`'i wrap ediyor; Ristretto255 keypair üretiyor. `into_evaluator` ile `RistrettoVrfEvaluator`'a dönüşür | — |
 | ~~M-02~~ | ✅ **KAPATILDI 2026-05-06** — `KesKeyPair` artık `qv_crypto::kes_generate`'i kullanıyor (real depth-11 Sum-KES on Dilithium) | — |
 | ~~M-03~~ | ✅ **KAPATILDI 2026-05-06** — `ColdKeyPair` artık `qv_crypto::generate_pqc_keypair(Level3)` (gerçek Dilithium 1952-byte pk) | — |
-| ~~M-04~~ | ✅ **KAPATILDI 2026-05-12** — `qv-miner/src/keystore.rs` yazıldı (Argon2id + AES-256-GCM, wallet keystore port'u). `OperatorKeys::save_encrypted(path, password)` ve `load_encrypted(path, password)` tek dosyaya 32-byte master seed + KES current period yazar; load'da `from_seed` ile keys'i yeniden türetir + KES period kadar `evolve` eder. API 3-path → single-path: `OperatorConfig.keystore_path`. 5 keystore unit test + 2 ignored end-to-end roundtrip (yavaş KES). Build/test verify kullanıcı tarafında pending | — |
+| ~~M-04~~ | ✅ **KAPATILDI 2026-05-12** — `qv-miner/src/keystore.rs` yazıldı (Argon2id + AES-256-GCM, wallet keystore port'u). `OperatorKeys::save_encrypted(path, password)` ve `load_encrypted(path, password)` tek dosyaya 32-byte master seed + KES current period yazar; load'da `from_seed` ile keys'i yeniden türetir + KES period kadar `evolve` eder. API 3-path → single-path: `OperatorConfig.keystore_path`. **741 passed / 0 failed / 36 ignored** workspace toplam sonrası (5 keystore unit + 2 ignored end-to-end roundtrip slow KES). Build + test verify ✅ 2026-05-12 | — |
 | ~~M-05~~ | ✅ **KAPATILDI 2026-05-06** — `evolve_to_next_period` artık `qv_crypto::kes_evolve`'i çağırıyor (gerçek leaf zeroize + period advance) | — |
 | M-06 | `crates/qv-miner/src/registration.rs:54` | Locking script boş + `// TODO: Script::standard_registration_lock()` | Faz 6 |
 | M-07 | `crates/qv-miner/src/registration.rs:64-68` | UTXO seçimi/change/cold-key imzalama yok; tek dummy input | Faz 1 |
 | M-08 | `crates/qv-miner/src/registration.rs:99-107` | `submit_via_rpc` RPC çağırmıyor, `"txid_placeholder"` döner | Faz 1 |
-| M-09 | `crates/qv-miner/src/main.rs:169-177` | `cmd_run` daemon çalışmıyor: yorumda görevler listeli, ardından `tokio::time::sleep(Duration::from_secs(u64::MAX))` | Faz 3/4 |
+| ~~M-09~~ | `crates/qv-miner/src/main.rs::cmd_run` | ✅ **KAPATILDI 2026-05-12 (core scaffolding)** — `sleep(u64::MAX)` kaldırıldı; gerçek akış: keystore load (QV_KEYSTORE_PASS env veya `rpassword` prompt) → OperatorKeys (Argon2id+AES-GCM decrypt) → mock single-pool stake distribution → SlotLoop initialize + `run_slot_loop` çağrısı → graceful Ctrl+C shutdown via `tokio::select!`. Production block submit/stake fetch RPC bağımlılıkları yeni envanter olarak ayrıldı (**M-09b**, **M-09c**) | — |
+| M-09b | (yeni) `qv-miner::cmd_run` ↔ node RPC | **Açık** — stake distribution + epoch nonce node'dan çekme (`qv_getStakeDistribution`, `qv_getEpochNonce` RPC eklenmesi gerekiyor). Şu an mock single-pool placeholder; epoch boundary'sinde refresh yok | Faz 4 |
+| M-09c | (yeni) `qv-miner::cmd_run` ↔ node RPC | **Açık** — üretilen bloğu node'a yollamak için yeni endpoint (`qv_submitBlock`) + miner tarafında call. Şu an block producer callback sadece "would produce" log basıyor | Faz 4 |
 | M-10 | `crates/qv-miner/src/main.rs:182-188` | `cmd_dashboard` log atıp dönüyor; ratatui TUI yok | Faz 9 |
 | M-11 | `crates/qv-miner/src/dashboard.rs:140, 281` | `render_dashboard_placeholder` ASCII art mockup | Faz 9 |
 | M-12 | `crates/qv-miner/src/block_producer.rs:154-161` | `RpcMempoolProvider.get_mempool_status` sabit 0 döner | Faz 1 |
@@ -141,6 +144,63 @@ Kullanıcının lokalde `cargo build --workspace` koşması ile çıkan derleme 
 **Bu bulguların büyük kazanımı:** İlk hata wallet bin'e geldi — yani **tüm üst katman crate'ler** (qv-common, qv-core, qv-crypto, qv-script, qv-consensus, qv-storage, qv-net, qv-mempool, qv-privacy, qv-defi) ve qv-wallet lib derledi. Bu C-07 (schnorrkel verify) endişesini büyük ölçüde kapattı: schnorrkel 0.11 API çağrılarım uyumlu çıktı.
 
 > ✅ **2026-05-07: `cargo build --workspace` başarılı.** B-01 + B-02 düzeltildikten sonra workspace'in tamamı derliyor (qv-node, qv-miner dahil). Tek kalan: bir kullanılmayan import warning'i (`VRFInOut`) — bu da temizlendi. Faz 3 yapısal kod tamamen derlenebilir durumda. Runtime gap'i sadece C-04/C-06 (from_seed_pqc stub).
+
+### O. Ignored Test İndeksi (2026-05-12)
+
+36 ignored testin her biri bilinçli olarak gizlendi — kaynağına göre kategori:
+
+| # | Test | Crate | Sebep | Envanter ID | Açılacak |
+|---|---|---|---|---|---|
+| 1 | `chain_grows_with_validated_blocks` | qv-consensus integration | `TimestampOutOfRange` test mock'unda fixed timestamp / slot mismatch | D-11 | Test mock'u gerçek `SlotClock` ile yenilenmesi |
+| 2 | `interest_accrual_basic` | qv-defi::lending unit | u64 overflow Q.64 interest hesaplamasında | D-07 | Q.128 fixed-point veya u128 swap |
+| 3 | `median_manipulation_accepted` | qv-defi::oracle unit | Test premise tutarsız (u16 max ile %952+ sapma toleransı ifade edilemiyor) | D-12 | Yeni premise + assertion |
+| 4 | `test_amm_oracle_feedback_loop` | qv-defi integration | Oracle + AMM closed loop entegrasyon eksik | D-08 | Oracle observation → AMM price reaction akışı |
+| 5 | `test_lending_full_lifecycle` | qv-defi integration | Q.64 conversion path asymmetry | D-09 | D-07 ile birlikte fix |
+| 6 | `test_lending_liquidation_scenario` | qv-defi integration | Liquidation kerelilen Q.64 conversion asymmetry | D-10 | D-07 ile birlikte fix |
+| 7 | `test_lending_oracle_price_feedback` | qv-defi integration | Lending + Oracle closed loop entegrasyon eksik | D-08 | D-08 ile birlikte fix |
+| 8 | `test_oracle_median_with_multiple_validators` | qv-defi integration | Multi-validator median collector test fixture eksik | D-12 | Validator signing fixture |
+| 9 | `cross_period_signatures_dont_match` | qv-crypto::kes unit | Yavaş (~2s KES leaf-tree gen) | A-01 | Sadece `cargo test -- --ignored` |
+| 10 | `evolve_then_sign_uses_next_period` | qv-crypto::kes unit | Yavaş (~2s) | A-01 | Aynı |
+| 11 | `forward_security_zeroizes_old_leaf` | qv-crypto::kes unit | Yavaş (~2s) | A-01 | Aynı |
+| 12 | `full_generate_sign_verify_roundtrip` | qv-crypto::kes unit | Yavaş (~2s) | A-01 | Aynı |
+| 13 | `signature_serde_roundtrip` | qv-crypto::kes unit | Yavaş (~2s) | A-01 | Aynı |
+| 14 | `tampered_leaf_signature_rejected` | qv-crypto::kes unit | Yavaş (~2s) | A-01 | Aynı |
+| 15 | `tampered_merkle_path_rejected` | qv-crypto::kes unit | Yavaş (~2s) | A-01 | Aynı |
+| 16 | `wrong_message_rejected` | qv-crypto::kes unit | Yavaş (~2s) | A-01 | Aynı |
+| 17 | `test_feldman_share_verification` | qv-crypto::threshold unit | Feldman VSS verification asymmetry | T-01 | Pedersen DKG + Feldman VSS hizalama |
+| 18 | `test_pedersen_dkg_2_of_3` | qv-crypto::threshold unit | Pedersen DKG asymmetry | T-01 | T-01 ile birlikte fix |
+| 19 | `test_pedersen_dkg_3_of_5` | qv-crypto::threshold unit | Pedersen DKG asymmetry | T-01 | Aynı |
+| 20 | `test_pedersen_dkg_public_key_determinism` | qv-crypto::threshold unit | Pedersen DKG asymmetry | T-01 | Aynı |
+| 21 | `test_threshold_encrypt_decrypt` | qv-crypto::threshold unit | t-of-n decrypt share collection bug | T-01 | Aynı |
+| 22 | `cold_key_from_seed_is_deterministic` | qv-miner::keys unit | ~~C-04 bağımlı~~ — şimdi sadece slow KES tree gen (cold key kendi başına hızlı, test setup yavaş kalmış) | M-04 (yavaş) | `--ignored` flag |
+| 23 | `cold_key_sign_verify_roundtrip` | qv-miner::keys unit | Yavaş test setup | M-04 (yavaş) | `--ignored` |
+| 24 | `kes_key_evolve_advances_period` | qv-miner::keys unit | Yavaş (~2s KES gen) | A-01 | `--ignored` |
+| 25 | `kes_key_generate_and_period` | qv-miner::keys unit | Yavaş | A-01 | `--ignored` |
+| 26 | `kes_sign_verify_roundtrip` | qv-miner::keys unit | Yavaş | A-01 | `--ignored` |
+| 27 | `keystore_save_load_roundtrip_preserves_keys` | qv-miner::keys unit | Yavaş (M-04 keystore round-trip + KES gen) | A-01 | `--ignored` |
+| 28 | `keystore_wrong_password_rejected` | qv-miner::keys unit | Yavaş (save half çağırıyor → KES gen) | A-01 | `--ignored` |
+| 29 | `operator_keys_from_seed_is_deterministic` | qv-miner::keys unit | Yavaş (KES generate) | A-01 | `--ignored` |
+| 30 | `build_pool_registration_tx_ok` | qv-miner::registration unit | Yavaş (OperatorKeys::generate → KES gen) | A-01 | `--ignored` |
+| 31 | `registration_output_has_correct_value` | qv-miner::registration unit | Yavaş | A-01 | `--ignored` |
+| 32 | `test_kes_rotation` | qv-miner integration | Yavaş KES leaf tree gen | A-01 | `--ignored` |
+| 33 | `test_keypair_from_seed_is_deterministic` | qv-miner integration | Yavaş | A-01 | `--ignored` |
+| 34 | `test_keypair_generation_roundtrip` | qv-miner integration | Yavaş | A-01 | `--ignored` |
+| 35 | `test_pool_registration_tx_structure` | qv-miner integration | Yavaş (OperatorKeys gen) | A-01 | `--ignored` |
+| 36 | `validate_well_formed_tx_with_available_utxo` | qv-node::validation unit | UTXO store fixture + tx validation pipeline eksik | D-11 | Test fixture genişletme |
+
+**Özet:** 18 test sadece **performans** nedeniyle (`#[ignore]` yerine `cargo test -- --ignored`); 5 test **T-01 Pedersen DKG/Feldman VSS asymmetry**'sine bağlı; 7 test **D-07..D-12 DeFi yan vakaları**'na; 6 test KES setup yavaşlığı (cold key + keystore round-trip karışıkları); 1 test **D-11** (UTXO validation pipeline).
+
+İdeal mainnet öncesi: tüm 36'sı yeşil. Kısa vadeli öncelik: **T-01** (encrypted mempool wiring için ön koşul) + **D-07..D-12** (DeFi safety).
+
+### N. Devnet smoke test + buglar (2026-05-12 oturumu)
+
+İlk gerçek uçtan uca devnet transferi çalıştırıldı: `qv-node init` + `qv-node run` + `examples/send_tx` → ML-DSA imzalı TX zincire (block height=18, tx_count=1, ~4.9s latency). Çalıştırma sırasında üç teknik bulgu yapıldı:
+
+| ID | Yer | Sorun | Durum |
+|---|---|---|---|
+| ~~G-01~~ | `crates/qv-node/src/genesis.rs::devnet_genesis` | Her çağrıda random keypair → init/run/send_tx üçü farklı zincir görür | ✅ Kapatıldı: `from_seed_pqc` ile deterministik seed (`SHA3("qv-devnet-account-"||i)`); init=run aynı `merkle_root=fa9ea55b…c059ddec`. `devnet_genesis_is_deterministic` unit test eklendi |
+| ~~G-02~~ | Windows main-thread 1 MiB stack | `#[tokio::main]` block_on main thread'de çalışır; ml-dsa NTT buffer'ları stack patlatıyor | ✅ Kapatıldı: `.cargo/config.toml` Windows için `link-arg=/STACK:8388608` (8 MiB). Linux/macOS zaten 8 MiB default, etkilenmez |
+| ~~N-07~~ | `crates/qv-core/src/types.rs::OutPoint::FromStr` | ✅ **KAPATILDI 2026-05-12** — Display impl `txid#idx` (Cardano convention) basıyor ama parser sadece `#` ayırıcısı kabul ediyordu; `examples/send_tx.rs` `:` (Bitcoin convention) gönderiyordu. Server şimdi her iki ayırıcıyı da kabul ediyor (`split_once('#').or_else(|| split_once(':'))`); client canonical Display'i kullanıyor. Yeni `outpoint_from_str_accepts_colon_separator` unit test eklendi (qv-core 72→73 passed). Devnet smoke test 2. koşumda UTXO lookup yeşil ✓ |
 
 ### L. Test triajı (2026-05-07 oturumu)
 

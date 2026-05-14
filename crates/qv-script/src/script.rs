@@ -135,7 +135,7 @@ pub fn compile(instructions: &[Instruction]) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::opcode::OpCode;
-    use crate::templates::{p2pkh_pqc, pubkey_hash, ScriptBuilder};
+    use crate::templates::ScriptBuilder;
     use qv_core::{
         Amount, OutPoint, Script as CoreScript, Slot, Transaction, TxId, TxInput, TxOutput,
     };

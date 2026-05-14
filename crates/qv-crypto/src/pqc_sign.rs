@@ -26,9 +26,9 @@
 
 use ml_dsa::signature::{Signer, Verifier};
 use ml_dsa::{
-    B32, EncodedSignature, EncodedSigningKey, EncodedVerifyingKey, KeyGen, MlDsa44, MlDsa65,
-    MlDsa87, Signature as MlDsaSignature, SigningKey as MlDsaSigningKey,
-    VerifyingKey as MlDsaVerifyingKey,
+    EncodedSignature, EncodedSigningKey, EncodedVerifyingKey, KeyGen, MlDsa44, MlDsa65, MlDsa87,
+    Signature as MlDsaSignature, SigningKey as MlDsaSigningKey, VerifyingKey as MlDsaVerifyingKey,
+    B32,
 };
 use rand_core::OsRng;
 
@@ -361,8 +361,8 @@ where
     P: ml_dsa::MlDsaParams,
     MlDsaSigningKey<P>: Signer<MlDsaSignature<P>>,
 {
-    let enc = EncodedSigningKey::<P>::try_from(sk_bytes)
-        .map_err(|_| CryptoError::MalformedPublicKey)?;
+    let enc =
+        EncodedSigningKey::<P>::try_from(sk_bytes).map_err(|_| CryptoError::MalformedPublicKey)?;
     let sk = MlDsaSigningKey::<P>::decode(&enc);
     let sig: MlDsaSignature<P> = sk.sign(message);
     Ok(sig.encode().as_slice().to_vec())
@@ -380,15 +380,24 @@ pub fn verify(public: &PqcPublicKey, message: &[u8], signature: &PqcSignature) -
         ));
     }
     let verdict = match public.level {
-        DilithiumLevel::Level2 => {
-            verify_level::<MlDsa44>(public.as_bytes(), message, signature.as_bytes(), public.level)?
-        }
-        DilithiumLevel::Level3 => {
-            verify_level::<MlDsa65>(public.as_bytes(), message, signature.as_bytes(), public.level)?
-        }
-        DilithiumLevel::Level5 => {
-            verify_level::<MlDsa87>(public.as_bytes(), message, signature.as_bytes(), public.level)?
-        }
+        DilithiumLevel::Level2 => verify_level::<MlDsa44>(
+            public.as_bytes(),
+            message,
+            signature.as_bytes(),
+            public.level,
+        )?,
+        DilithiumLevel::Level3 => verify_level::<MlDsa65>(
+            public.as_bytes(),
+            message,
+            signature.as_bytes(),
+            public.level,
+        )?,
+        DilithiumLevel::Level5 => verify_level::<MlDsa87>(
+            public.as_bytes(),
+            message,
+            signature.as_bytes(),
+            public.level,
+        )?,
     };
     Ok(verdict)
 }
@@ -407,12 +416,11 @@ where
     let pk_enc = EncodedVerifyingKey::<P>::try_from(pk_bytes)
         .map_err(|_| CryptoError::MalformedPublicKey)?;
     let pk = MlDsaVerifyingKey::<P>::decode(&pk_enc);
-    let sig_enc = EncodedSignature::<P>::try_from(sig_bytes).map_err(|_| {
-        CryptoError::InvalidSize {
+    let sig_enc =
+        EncodedSignature::<P>::try_from(sig_bytes).map_err(|_| CryptoError::InvalidSize {
             expected: level.signature_bytes(),
             actual: sig_bytes.len(),
-        }
-    })?;
+        })?;
     // `Signature::decode` returns Option — `None` means structurally invalid
     // signature encoding (out-of-range coefficients, etc.). Treat as
     // verification failure rather than error.

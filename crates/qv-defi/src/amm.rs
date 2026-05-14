@@ -49,7 +49,10 @@ pub enum AmmError {
 
     /// Invariant violation (x·y < k after swap).
     #[error("invariant violated: {new_product} < {old_product}")]
-    InvariantViolated { old_product: u128, new_product: u128 },
+    InvariantViolated {
+        old_product: u128,
+        new_product: u128,
+    },
 
     /// Invalid fee (must be 0..10000 bps).
     #[error("invalid fee: {fee_bps} bps")]
@@ -155,18 +158,35 @@ impl PoolState {
     }
 
     /// Update reserves after a swap.
-    pub fn apply_swap(&mut self, direction: SwapDirection, amount_in: u64, amount_out: u64) -> Result<()> {
+    pub fn apply_swap(
+        &mut self,
+        direction: SwapDirection,
+        amount_in: u64,
+        amount_out: u64,
+    ) -> Result<()> {
         match direction {
             SwapDirection::AtoB => {
-                self.datum.reserve_a = self.datum.reserve_a.checked_add(amount_in)
+                self.datum.reserve_a = self
+                    .datum
+                    .reserve_a
+                    .checked_add(amount_in)
                     .ok_or(AmmError::Overflow)?;
-                self.datum.reserve_b = self.datum.reserve_b.checked_sub(amount_out)
+                self.datum.reserve_b = self
+                    .datum
+                    .reserve_b
+                    .checked_sub(amount_out)
                     .ok_or(AmmError::Overflow)?;
             }
             SwapDirection::BtoA => {
-                self.datum.reserve_b = self.datum.reserve_b.checked_add(amount_in)
+                self.datum.reserve_b = self
+                    .datum
+                    .reserve_b
+                    .checked_add(amount_in)
                     .ok_or(AmmError::Overflow)?;
-                self.datum.reserve_a = self.datum.reserve_a.checked_sub(amount_out)
+                self.datum.reserve_a = self
+                    .datum
+                    .reserve_a
+                    .checked_sub(amount_out)
                     .ok_or(AmmError::Overflow)?;
             }
         }
@@ -411,7 +431,7 @@ fn sqrt_u128(n: u128) -> u128 {
         return 0;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = (x + n / x) / 2;

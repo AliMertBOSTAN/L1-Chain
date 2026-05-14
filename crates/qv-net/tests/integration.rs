@@ -20,7 +20,7 @@ use qv_core::{
     Amount, Block, BlockHash, BlockHeader, Height, OutPoint, Script, Transaction, TxId, TxInput,
     TxOutput,
 };
-use qv_net::gossip::{self, GossipConfig, SeenCache};
+use qv_net::gossip::{self, SeenCache};
 use qv_net::message::*;
 use qv_net::node::{NetworkNode, NodeConfig, RateLimitConfig, RateLimiter};
 use qv_net::peer::*;
@@ -255,7 +255,7 @@ fn version_mismatch_envelope() {
     let msg = NetworkMessage::Ping(PingMsg { nonce: 1 });
     let payload = bincode::serialize(&msg).unwrap();
 
-    let bad_envelope = qv_net::message::Envelope {
+    let bad_envelope = Envelope {
         version: 255,
         payload,
     };

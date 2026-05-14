@@ -25,8 +25,9 @@ sunar. v1 C++ implementasyonu 2026-04-15'te Rust'a pivot edildi; aktif geliştir
 
 | Metrik | Değer |
 |---|---|
-| Workspace derleme | ✅ 0 error, 13/13 crate, ~187 warning |
-| Test suite | ✅ ~741 passed / 0 failed / 32 ignored |
+| Workspace derleme | ✅ 0 error, **0 warning**, 13/13 crate (D cilalama 2026-05-12) |
+| Test suite | ✅ **744 passed / 0 failed / 36 ignored** (2026-05-12, post B+C: M-09 core + K-06 wire) |
+| Devnet smoke test | ✅ İlk gerçek uçtan uca transfer (block height=18, tx_count=1, ~4.9s latency) |
 | Çalışan binary | qv-node (kısmen), qv-wallet (init/send/address çalışır), qv-miner (kabuk + keystore) |
 | In-memory devnet uçtan uca | ✅ `tests/transfer_e2e.rs` geçer |
 | Mainnet hazırlığı | ❌ değil; testnet'e bile değil |

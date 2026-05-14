@@ -59,9 +59,7 @@ pub enum TypeError {
 ///
 /// Textual encoding is lowercase hex without any `0x` prefix.
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hash256(pub [u8; 32]);
 
 impl Hash256 {
@@ -311,9 +309,7 @@ define_hash_newtype! {
 
 /// Chain height (0 = genesis, monotonically increasing).
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Height(pub u64);
 
 impl Height {
@@ -356,9 +352,7 @@ impl From<u64> for Height {
 /// Slots tick monotonically regardless of whether a block is produced, so
 /// `Slot` and `Height` diverge over time.
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Slot(pub u64);
 
 impl Slot {
@@ -396,14 +390,12 @@ impl From<u64> for Slot {
     }
 }
 
-/// Ouroboros-Praos epoch number (groups of [`ProtocolParams::epoch_slots`]
+/// Ouroboros-Praos epoch number (groups of [`ConsensusParams::epoch_slots`]
 /// slots).
 ///
-/// [`ProtocolParams::epoch_slots`]: crate::params::ProtocolParams::epoch_slots
+/// [`ConsensusParams::epoch_slots`]: crate::params::ConsensusParams::epoch_slots
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Epoch(pub u64);
 
 impl Epoch {
@@ -437,9 +429,7 @@ impl From<u64> for Epoch {
 
 /// Unix timestamp in seconds.
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Timestamp(pub u64);
 
 impl Timestamp {
@@ -479,9 +469,7 @@ impl From<u64> for Timestamp {
 /// `u64` gives a ceiling of ~1.8·10^19 units. With 8 decimals of precision
 /// against a 21M nominal supply, this leaves ample headroom.
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Amount(pub u64);
 
 impl Amount {
@@ -552,9 +540,7 @@ impl From<u64> for Amount {
 /// `OutPoint` is `Ord` so that it can be used as a `BTreeMap` key for the
 /// UTXO set. The sort order is stable and canonical: first by `tx_id` byte
 /// order, then by `index`.
-#[derive(
-    Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct OutPoint {
     /// Transaction that produced the output.
     pub tx_id: TxId,
@@ -595,8 +581,11 @@ impl fmt::Display for OutPoint {
 
 impl FromStr for OutPoint {
     type Err = TypeError;
+    /// Parse `txid#idx` (canonical, matches `Display`) or `txid:idx`
+    /// (Bitcoin-style). Both forms are accepted because external tools and
+    /// CLIs vary; canonical writing should use `Display` which emits `#`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Some((tx_part, idx_part)) = s.split_once('#') else {
+        let Some((tx_part, idx_part)) = s.split_once('#').or_else(|| s.split_once(':')) else {
             return Err(TypeError::HexFormat);
         };
         let tx_id = TxId::from_hex(tx_part)?;
@@ -733,6 +722,22 @@ mod tests {
     fn outpoint_display_rejects_malformed() {
         assert!("nothash#1".parse::<OutPoint>().is_err());
         assert!("abc".parse::<OutPoint>().is_err());
+    }
+
+    /// `OutPoint::from_str` accepts both `txid#idx` (canonical, matches Display)
+    /// and `txid:idx` (Bitcoin-style). Regression test for envanter N-07 —
+    /// `examples/send_tx.rs` and external CLIs were emitting `:` and the parser
+    /// rejected them with "invalid hex encoding".
+    #[test]
+    fn outpoint_from_str_accepts_colon_separator() {
+        let op = OutPoint::new(TxId::from_bytes([0xCD; 32]), 42);
+        let hash_form = op.to_string(); // "<hex>#42"
+        let colon_form = hash_form.replace('#', ":");
+        let parsed_hash: OutPoint = hash_form.parse().unwrap();
+        let parsed_colon: OutPoint = colon_form.parse().unwrap();
+        assert_eq!(op, parsed_hash);
+        assert_eq!(op, parsed_colon);
+        assert_eq!(parsed_hash, parsed_colon);
     }
 
     #[test]

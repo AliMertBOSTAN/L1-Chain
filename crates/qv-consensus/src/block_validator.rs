@@ -198,15 +198,16 @@ pub fn validate_block_header<V: VrfEvaluator, K: KesVerifier>(
     }
 
     // 6. Identify the producer pool from the key hash.
-    let producer_pool_id = find_pool_by_key_hash(ctx.pools, &header.producer_key_hash)
-        .ok_or_else(|| BlockValidationError::UnknownProducer(PoolId(header.producer_key_hash)))?;
+    let producer_pool_id = find_pool_by_key_hash(ctx.pools, &header.producer_key_hash).ok_or(
+        BlockValidationError::UnknownProducer(PoolId(header.producer_key_hash)),
+    )?;
 
     // 7. VRF leadership proof verification.
     let pool = ctx
         .pools
         .iter()
         .find(|p| p.id == producer_pool_id)
-        .ok_or_else(|| BlockValidationError::UnknownProducer(producer_pool_id))?;
+        .ok_or(BlockValidationError::UnknownProducer(producer_pool_id))?;
 
     let vrf_proof = VrfProof(header.vrf_proof.clone());
     let is_leader = verify_leadership(
@@ -340,8 +341,8 @@ impl KesVerifier for DilithiumSumKesVerifier {
 mod tests {
     use super::*;
     use qv_core::{
-        Amount, BlockHash, BlockHeader, Epoch, Hash256, Height, MerkleRoot, Slot, Timestamp,
-        UtxoCommitment, BLOCK_VERSION,
+        Amount, BlockHash, BlockHeader, Epoch, Hash256, Height, MerkleRoot, Slot, UtxoCommitment,
+        BLOCK_VERSION,
     };
 
     use crate::epoch::EpochNonce;
@@ -403,6 +404,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_ctx<'a>(
         pool: &'a StakePool,
         dist: &'a StakeDistribution,
