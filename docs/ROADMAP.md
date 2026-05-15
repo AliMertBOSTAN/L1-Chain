@@ -11,18 +11,19 @@
 
 ---
 
-## Mevcut Durum (2026-05-07 — green test milestone)
+## Mevcut Durum (2026-05-14 — CI pipeline tamamen yeşil)
 
 | Konu | Durum |
 |---|---|
-| Workspace derleme | ✅ 0 error, ~187 warning, 13 crate |
-| Test suite | ✅ **744 passed / 0 failed / 36 ignored** (2026-05-12, post B+C: M-09 core scaffolding + K-06 wire; +1 yeni `produce_block_with_decryption_merges_encrypted_tx`) |
-| Çalışan binary'ler | qv-node (kısmen), qv-wallet (init/send/address çalışıyor), qv-miner (kabuk) |
-| Çalışan akışlar | CLI parse, mnemonic gen, PQC key gen, config save/load, **gerçek Ristretto255-VRF**, **gerçek Sum-KES (depth-11) on Dilithium**, in-memory blok pipeline, wallet keystore (Argon2id + AES-256-GCM), wallet send (TxBuilder + Dilithium sign + RPC), node `shutdown()` graceful flush |
-| **Eksik / placeholder** | Hibrit Kyber handshake (NET-01), Bulletproofs gerçek implementasyon (P-01), mainnet genesis ceremony tooling (N-05), miner daemon ana loop (M-09), 2 RPC metodu (N-01/N-02 stealth scan/balance), block producer UTXO commitment hash (K-03/K-05), encrypted mempool wiring (K-06/K-07, MP-01) |
-| Boş `Ok(...)` veya stub dönen public method | ~26 (M-04 + N-07 sonrası azaldı; tüm kategoriler envanterde) |
+| Workspace derleme | ✅ 0 error, **0 warning**, 13 crate |
+| Test suite | ✅ **735 passed / 0 failed / 36 ignored** (`cargo test --lib --tests`; doc-test'ler ayrı CI job'unda) |
+| GitHub Actions CI | ✅ **5 job yeşil**: clippy, rustfmt, rustdoc, cargo-audit, cargo-deny (2026-05-14) |
+| Çalışan binary'ler | qv-node (kısmen), qv-wallet (init/send/address çalışıyor), qv-miner (M-09 core: VRF+stake distribution+slot loop+SIGINT) |
+| Çalışan akışlar | CLI parse, mnemonic gen, PQC key gen, config save/load, **gerçek Ristretto255-VRF**, **gerçek Sum-KES (depth-11) on Dilithium**, in-memory blok pipeline, wallet keystore (Argon2id + AES-256-GCM), wallet send (TxBuilder + Dilithium sign + RPC), node `shutdown()` graceful flush, miner slot loop |
+| **Eksik / placeholder** | Hibrit Kyber handshake (NET-01), Bulletproofs gerçek implementasyon (P-01), mainnet genesis ceremony tooling (N-05), miner daemon RPC fetch (M-09b), 2 RPC metodu (N-01/N-02 stealth scan/balance), block producer UTXO commitment hash (K-03/K-05), AMM batcher (K-07), Pedersen DKG (T-01) |
+| Boş `Ok(...)` veya stub dönen public method | ~26 (envanterde takipli) |
 | Bilinçli `#[ignore]` test | 36 (detay: bkz. **O. Ignored Test İndeksi**) |
-| **Kapanmış envanter ID'leri (2026-05-12)** | C-01, C-02, C-04, C-06, C-07, K-01, K-02, K-04, **K-06**, L-01..L-04, M-01, M-02, M-03, M-04, M-05, **M-09 (core)**, N-04, N-07, G-01, G-02, W-05, W-06, B-01, B-02 (**25 envanter girdisi**) |
+| **Kapanmış envanter ID'leri (2026-05-14)** | C-01, C-02, C-04, C-06, C-07, K-01, K-02, K-04, **K-06**, L-01..L-04, M-01, M-02, M-03, M-04, M-05, **M-09 (core)**, N-04, N-07, G-01, G-02, W-05, W-06, B-01, B-02, **+ CI sprint (clippy/fmt/rustdoc/audit/deny)** (**26+ envanter girdisi**) |
 
 ---
 
@@ -433,8 +434,10 @@ Görevler:
 **Hedef:** Mainnet'e aday hale getirme.
 
 Görevler:
-1. Tüm warning'ler 0
-2. `cargo clippy -- -D warnings -D clippy::pedantic` temiz
+1. Tüm warning'ler 0 — **2026-05-14: CI 5 job yeşil** (clippy, rustfmt, rustdoc,
+   cargo-audit, cargo-deny). Workspace lint'leri kripto/UTXO pattern'lerine göre
+   ayarlandı; sertleştirme L-09 / L-10 / L-11 altında. ✅ baseline
+2. `cargo clippy -- -D warnings -D clippy::pedantic` temiz — L-09'a bağlı
 3. Fuzz testler (cargo-fuzz, mevcut `fuzz/` klasörünü kullan)
 4. Property-based testler (proptest) — kritik invariant'lar için (UTXO conservation, AMM invariant, vs.)
 5. Genesis ceremony tooling (gerçek + reproducible)
@@ -443,6 +446,30 @@ Görevler:
 8. Block explorer (`devnet/scripts/explorer.py` aktif)
 9. Faucet (`devnet/scripts/faucet.py` aktif)
 10. Performans benchmark'ları (criterion) — TPS, finality latency, block validation süresi
+
+**Faz 9 takip envanteri (2026-05-14 CI sprintinden eklenenler):**
+- **C-09**: `ml-dsa` 0.0.4 → 0.1.0-rc.3 swap (RUSTSEC-2025-0144: timing
+  side-channel in decomposition). Seeded keygen API'si değişti
+  (`key_gen_internal(&B32)` → `key_gen_with_seed`); FIPS 204 wire format
+  (sk 4032 B, sig 3309 B) re-verify, deterministik test fixture'lar yeniden
+  üretilmeli. `.cargo/audit.toml`'dan `RUSTSEC-2025-0144` ignore kalkar.
+- **N-12**: `libp2p` 0.54 → 0.55+ major bump. Bağımlı vulnerability ignore'ları:
+  `RUSTSEC-2026-0119` (hickory-proto), `RUSTSEC-2025-0009`/`RUSTSEC-2025-0010`
+  (ring 0.16), `RUSTSEC-2026-0098`/`0099`/`0104` (rustls-webpki 0.101.7). API
+  yüzeyi değişikliği: gossipsub, kad, swarm. `.cargo/audit.toml`'dan 6 ID kalkar.
+- **N-13**: `metrics-exporter-prometheus` → rustls migration. `openssl-sys`
+  zincirini söker; deny.toml'dan `native-tls` wrapper çıkar (openssl wrapper
+  hâlâ kalabilir veya tamamen silinir). Yan etki: hyper-tls bağımlılığı düşer.
+- **L-09**: Workspace lint'leri sertleştir — `indexing_slicing` ve
+  `integer_division` workspace `allow` → kripto crate'lerinde per-file
+  `#![allow(...)]`, geri kalanda `deny`. Cerrahi geçiş.
+- **L-10**: Test modüllerindeki `#[allow(unwrap_used, expect_used, panic)]`
+  blanket'larını fonksiyon-bazlı allow'a indir (test isabeti artar).
+- **L-11**: `cargo clippy -- -D clippy::pedantic` ayrı CI job olarak; en az
+  half-allow-list'le başla, oradan daralt.
+- **N-14**: `bincode` 1.3 → 2.x migration (RUSTSEC-2025-0141 unmaintained).
+  Storage + wallet + script encoding tüm wire format'ları etkiler — major
+  scope, sürüm bump'a saklanacak.
 
 **Başarı kriteri:** Devnet 24 saat aralıksız çalışsın, fuzz test 1 saat boyunca crash bulmasın, dashboard canlı.
 

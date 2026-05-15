@@ -1,6 +1,6 @@
 ﻿# QuantumVault — Proje Durumu
 
-_Son güncelleme: 2026-05-12 (M-04 keystore implementasyonu + ADR-006 sonrası)_
+_Son güncelleme: 2026-05-14 (CI pipeline tamamen yeşillendi: 5 job)_
 
 > **⚠️ Önemli Düzeltme (2026-05-06):**
 > Bu dosyanın önceki başlığında geçen "AŞAMA 15 tamamlandı — code-complete"
@@ -11,10 +11,15 @@ _Son güncelleme: 2026-05-12 (M-04 keystore implementasyonu + ADR-006 sonrası)_
 
 ---
 
-## Dürüst Özet (2026-05-12 — M-04 + ADR-006 sonrası)
+## Dürüst Özet (2026-05-14 — CI pipeline yeşil milestone)
 
-**Olgunluk:** Workspace derleniyor (0 error, **0 warning** — D cilalama 2026-05-12), **tüm test suite yeşil
-— 744 passed / 0 failed / 36 ignored** (2026-05-12, post-M-04 + N-07 + D cilalama + **M-09 core + K-06 wire**).
+**Olgunluk:** Workspace derleniyor (0 error, **0 warning**), **tüm test suite yeşil
+— 735 passed / 0 failed / 36 ignored** (`cargo test --lib --tests`; doc-test'ler
+ayrı CI job'unda). **GitHub Actions CI tarafında 5 job tamamen yeşil**: `clippy`
+(workspace lints kripto/UTXO pattern'lerine göre ayarlandı), `rustfmt`,
+`rustdoc` (`-D warnings`, broken intra-doc link'ler onarıldı), `cargo-audit`
+(`.cargo/audit.toml` — 7 transitive RUSTSEC ignore, hepsi Faz 9'da takipli),
+`cargo-deny` (bans + licenses + sources; advisories → cargo-audit).
 36 ignored testin her biri ROADMAP envanterinde ID'li (T-01 Pedersen DKG, A-01..A-03
 yavaş KES, B-03 Node !Send, D-07..D-12 DeFi yan vakalar, M-04 slow keystore roundtrip).
 In-memory devnet uçtan uca akış **gerçek primitif kullanan** seviyede çalışıyor:
