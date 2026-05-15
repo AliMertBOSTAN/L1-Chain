@@ -138,7 +138,7 @@ pub async fn produce_block(
 /// 3. Merges decrypted txs with the clear-pool snapshot in canonical order:
 ///    clear (fee-density desc) || decrypted (committee order).
 /// 4. Builds AMM batches from order intents (envanter K-07 — currently a
-///    no-op extension point; see [`AmmBatcher`] below).
+///    no-op extension point; see `AmmBatcher` below).
 /// 5. Assembles the block header (same as [`produce_block`]).
 ///
 /// # When to use which

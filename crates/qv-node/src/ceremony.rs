@@ -441,12 +441,13 @@ impl CeremonyCoordinator {
 
         // Check total stake won't overflow.
         let current_total: u64 = self.registrations.values().map(|r| r.stake_pledge).sum();
-        let new_total = current_total.checked_add(reg.stake_pledge).ok_or_else(|| {
-            CeremonyError::StakeOverflow {
-                total: u64::MAX,
-                cap: self.params.max_total_stake,
-            }
-        })?;
+        let new_total =
+            current_total
+                .checked_add(reg.stake_pledge)
+                .ok_or(CeremonyError::StakeOverflow {
+                    total: u64::MAX,
+                    cap: self.params.max_total_stake,
+                })?;
         if new_total > self.params.max_total_stake {
             return Err(CeremonyError::StakeOverflow {
                 total: new_total,
@@ -681,11 +682,12 @@ impl CeremonyCoordinator {
     }
 
     /// Build the genesis block from verified registrations.
+    #[allow(clippy::expect_used)] // SAFETY: genesis tx id is infallible by construction
     fn build_genesis_block(&self) -> Block {
         // Build outputs: one per participant, ordered by key hash (deterministic).
         let mut outputs = Vec::with_capacity(self.registrations.len());
 
-        for (_, reg) in &self.registrations {
+        for reg in self.registrations.values() {
             let pk_hash = pubkey_hash(reg.identity_key.as_bytes());
             let locking_script = p2pkh_pqc(&pk_hash);
             let output = TxOutput::new(Amount::from(reg.stake_pledge), Script::new(locking_script));

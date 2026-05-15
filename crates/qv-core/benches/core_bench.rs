@@ -7,7 +7,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use bincode;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use qv_core::{
     merkle_root_of, Amount, Block, BlockHash, BlockHeader, Height, MerkleRoot, OutPoint,
@@ -102,7 +101,7 @@ fn bench_block_validate_structure(c: &mut Criterion) {
         block.header.merkle_root = merkle;
 
         b.iter(|| {
-            black_box(block.validate_structure().expect("validate"));
+            black_box(&block).validate_structure().expect("validate");
         });
     });
 }

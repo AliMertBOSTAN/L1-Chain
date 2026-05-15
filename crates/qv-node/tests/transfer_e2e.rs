@@ -11,7 +11,13 @@
 //! 8. Apply the block to the UTXO store
 //! 9. Verify final state: Alice's original UTXO consumed, Bob and Alice change UTXOs created
 
-#![allow(clippy::unwrap_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::clone_on_copy,
+    clippy::useless_vec
+)]
 
 use qv_core::{
     Amount, Block, BlockHash, BlockHeader, Hash256, Height, MerkleRoot, OutPoint, Script, Slot,

@@ -25,6 +25,15 @@
 //! checks the `x·y ≥ k` invariant on-chain — the swap math itself is
 //! computed off-chain by the batcher.
 
+// Example/demo code — panicking on parse errors and using float arithmetic
+// for human-readable display are acceptable here.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::float_arithmetic
+)]
+
 use qv_core::Hash256;
 use qv_defi::amm::{
     compute_add_liquidity, compute_remove_liquidity, compute_swap_output, PoolDatum, PoolState,

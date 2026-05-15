@@ -25,6 +25,9 @@
 //!    cargo run -p qv-node --example send_tx
 //!    ```
 
+// Example/demo binary — panicking on parse/build failures is acceptable.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use std::path::PathBuf;
 
 use qv_core::{Amount, OutPoint, Script, Transaction, TxInput, TxOutput, ValidityInterval};

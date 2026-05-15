@@ -1,4 +1,11 @@
 //! Integration tests
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::clone_on_copy
+)]
+
 #[cfg(test)]
 mod tests {
     use qv_wallet::Mnemonic;

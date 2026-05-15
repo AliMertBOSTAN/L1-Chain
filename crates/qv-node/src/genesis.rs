@@ -22,6 +22,13 @@ use tracing::info;
 /// # Returns
 ///
 /// A genesis `Block` with the specified allocations and a template header.
+///
+/// # Panics
+///
+/// Panics if the genesis transaction id cannot be computed (impossible in
+/// practice; the id derives from a fully-constructed transaction with no
+/// failure mode in the current implementation).
+#[allow(clippy::expect_used)] // SAFETY: genesis tx id is infallible by construction
 pub fn build_genesis_block(allocations: &[(PqcPublicKey, u64)]) -> Block {
     // Build outputs from allocations
     let mut outputs = Vec::with_capacity(allocations.len());
@@ -81,6 +88,7 @@ pub fn build_genesis_block(allocations: &[(PqcPublicKey, u64)]) -> Block {
 /// # Panics
 ///
 /// Panics if key generation fails (should be extremely rare with proper entropy).
+#[allow(clippy::expect_used)] // SAFETY: deterministic devnet keygen — failure is unreachable
 pub fn devnet_genesis() -> (Block, Vec<PqcSecretKey>) {
     const DEVNET_ACCOUNTS: usize = 10;
     const TOKENS_PER_ACCOUNT: u64 = 1_000_000_000;
@@ -211,7 +219,7 @@ mod tests {
         assert_eq!(secret_keys.len(), 10);
         // The keys returned should be in the same order as the outputs
         // (we can't directly verify they match without signing, but we can check count)
-        for (_i, key) in secret_keys.iter().enumerate() {
+        for key in secret_keys.iter() {
             assert_eq!(key.level(), DilithiumLevel::Level3);
         }
     }

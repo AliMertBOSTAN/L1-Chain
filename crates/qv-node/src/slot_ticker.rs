@@ -77,6 +77,7 @@ impl<V: VrfEvaluator> SlotTicker<V> {
     /// * `chain_state` — in-memory consensus state (tip)
     /// * `clear_pool` — transaction mempool
     /// * `active_slot_coeff` — Praos f parameter
+    #[allow(clippy::too_many_arguments)] // 10 wiring deps; a struct-arg refactor is tracked in Faz 9
     pub fn new(
         slot_clock: SlotClock,
         pool_id: PoolId,

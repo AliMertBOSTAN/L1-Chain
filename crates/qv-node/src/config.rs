@@ -135,6 +135,7 @@ impl NodeConfig {
     }
 
     /// Default configuration for devnet.
+    #[allow(clippy::unwrap_used)] // SAFETY: hardcoded socket addresses are infallible
     pub fn devnet() -> Self {
         Self {
             network: "devnet".to_string(),
@@ -168,6 +169,7 @@ impl NodeConfig {
     }
 
     /// Default configuration for testnet.
+    #[allow(clippy::unwrap_used)] // SAFETY: hardcoded socket addresses are infallible
     pub fn testnet() -> Self {
         Self {
             network: "testnet".to_string(),
@@ -196,6 +198,7 @@ impl NodeConfig {
     }
 
     /// Default configuration for mainnet.
+    #[allow(clippy::unwrap_used)] // SAFETY: hardcoded socket addresses are infallible
     pub fn mainnet() -> Self {
         Self {
             network: "mainnet".to_string(),

@@ -7,7 +7,7 @@
 //! Send / Scan / Balance commands are still placeholders — see envanter
 //! W-03/W-04/W-05/W-07 in `docs/ROADMAP.md`.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use clap::Parser;
 use qv_core::{Amount, OutPoint, Script, TxId, TxInput, TxOutput, ValidityInterval};
@@ -82,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
 
 /// Generate a fresh wallet: 24-word BIP-39 mnemonic, save encrypted, and
 /// print the first account's stealth address.
-async fn cmd_init(path: &PathBuf) -> anyhow::Result<()> {
+async fn cmd_init(path: &Path) -> anyhow::Result<()> {
     if path.exists() {
         anyhow::bail!(
             "keystore already exists at {} — refusing to overwrite",
@@ -131,7 +131,7 @@ async fn cmd_init(path: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_import(path: &PathBuf, phrase: &str) -> anyhow::Result<()> {
+async fn cmd_import(path: &Path, phrase: &str) -> anyhow::Result<()> {
     if path.exists() {
         anyhow::bail!(
             "keystore already exists at {} — refusing to overwrite",
@@ -161,7 +161,7 @@ async fn cmd_import(path: &PathBuf, phrase: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_address(keystore_path: &PathBuf, account: u32) -> anyhow::Result<()> {
+async fn cmd_address(keystore_path: &Path, account: u32) -> anyhow::Result<()> {
     let password = prompt_password("Wallet password")?;
     let secret = WalletKeystore::load(keystore_path, &password)?;
     let seed = secret.mnemonic.to_seed("")?;
@@ -178,7 +178,7 @@ async fn cmd_address(keystore_path: &PathBuf, account: u32) -> anyhow::Result<()
 /// script bytecode pushing `(message, signature, pubkey)`.
 #[allow(clippy::too_many_arguments)]
 async fn cmd_send(
-    keystore_path: &PathBuf,
+    keystore_path: &Path,
     rpc_url: &str,
     to_pubkey_hex: &str,
     amount: u64,

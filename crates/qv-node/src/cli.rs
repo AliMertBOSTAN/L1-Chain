@@ -79,7 +79,7 @@ mod tests {
             log_level: "info".to_string(),
         };
         assert_eq!(args.network, "devnet");
-        assert!(args.init == false);
+        assert!(!args.init);
     }
 
     #[test]

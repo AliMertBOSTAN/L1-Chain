@@ -17,8 +17,8 @@ use qv_crypto::sha3_256;
 use qv_script::interpreter::{execute, Context};
 use qv_script::templates::lending_repay;
 use qv_script::{
-    compile, decode_script, disassemble, gas_cost, validate_script, validate_script_with_gas,
-    GasMeter, Instruction, OpCode, ScriptBuilder, ScriptError, Value,
+    compile, decode_script, disassemble, validate_script, validate_script_with_gas, GasMeter,
+    Instruction, OpCode, ScriptBuilder, ScriptError, Value,
 };
 
 // ============================================================================

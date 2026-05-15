@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Dashboard metrics snapshot.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DashboardMetrics {
     /// Current slot.
     pub current_slot: u64,
@@ -40,23 +40,6 @@ pub struct DashboardMetrics {
 
     /// Leadership events in the last 200 slots (as a bitmask or event list).
     pub leadership_last_slots: Vec<bool>,
-}
-
-impl Default for DashboardMetrics {
-    fn default() -> Self {
-        Self {
-            current_slot: 0,
-            current_epoch: 0,
-            blocks_produced_epoch: 0,
-            blocks_produced_total: 0,
-            rewards_earned: 0,
-            mempool_clear_size: 0,
-            mempool_encrypted_size: 0,
-            peer_count: 0,
-            kes_period: 0,
-            leadership_last_slots: vec![],
-        }
-    }
 }
 
 /// Shared metrics store for the dashboard.

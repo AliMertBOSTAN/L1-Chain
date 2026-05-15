@@ -1,10 +1,10 @@
 //! Encrypted operator keystore (envanter M-04).
 //!
 //! Stake pool operator keys (VRF, KES, cold) are derived deterministically
-//! from a single 32-byte master seed via [`OperatorKeys::from_seed`]. This
-//! module persists that master seed plus minimal rotation state to disk
+//! from a single 32-byte master seed via [`crate::keys::OperatorKeys::from_seed`].
+//! This module persists that master seed plus minimal rotation state to disk
 //! under Argon2id + AES-256-GCM encryption — the same construction as
-//! [`qv_wallet::keystore`].
+//! `qv_wallet::keystore`.
 //!
 //! On-disk envelope (JSON):
 //! ```json

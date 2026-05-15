@@ -561,7 +561,7 @@ fn multi_pool_epoch_simulation() {
     let mut prev_hash = BlockHash::ZERO;
     let mut prev_height = Height::GENESIS;
     let mut total_blocks = 0u32;
-    let mut per_pool_blocks = vec![0u32; 10];
+    let mut per_pool_blocks = [0u32; 10];
     let mut boundary = EpochBoundary::new(clock);
     let mut epoch_transitions = 0u32;
 

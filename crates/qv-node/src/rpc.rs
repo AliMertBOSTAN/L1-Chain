@@ -338,8 +338,7 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
             -32603,
             "stealth key scanning not yet implemented in RPC",
             None::<()>,
-        )
-        .into())
+        ))
     }
 
     async fn scan_stealth(
@@ -369,8 +368,7 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
             -32603,
             "stealth scanning not yet implemented in RPC",
             None::<()>,
-        )
-        .into())
+        ))
     }
 
     async fn get_mempool_status(&self) -> RpcResult<MempoolStatus> {

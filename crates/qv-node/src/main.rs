@@ -4,6 +4,10 @@
 //! PoS-based L1 blockchain.
 
 #![forbid(unsafe_code)]
+// SAFETY: hardcoded socket-address parses below are infallible. The binary
+// main() may also `?`-propagate setup errors; we treat the few `unwrap()`
+// calls on compile-time constant addresses as acceptable in main.
+#![allow(clippy::unwrap_used)]
 
 use clap::Parser;
 use qv_node::{CliArgs, Node, NodeConfig};

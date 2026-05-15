@@ -8,8 +8,8 @@
 //!
 //! All three are now backed by real `qv_crypto` primitives (envanter
 //! M-01..M-05 closed 2026-05-06). At-rest encryption (Argon2id + AES-GCM) is
-//! tracked under envanter **M-04** and lives in [`save_encrypted`] /
-//! [`load_encrypted`] — the file-on-disk format is currently a plain
+//! tracked under envanter **M-04** and lives in [`OperatorKeys::save_encrypted`] /
+//! [`OperatorKeys::load_encrypted`] — the file-on-disk format is currently a plain
 //! bincode envelope and **must not** be used for production keys until
 //! M-04 lands.
 

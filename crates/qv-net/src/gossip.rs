@@ -1,7 +1,7 @@
 //! GossipSub configuration and topic management.
 //!
 //! QuantumVault uses four gossip topics for block-level protocol messages.
-//! Each topic carries [`Envelope`]-encoded payloads. Message deduplication
+//! Each topic carries `Envelope`-encoded payloads. Message deduplication
 //! is handled by a SHA3-256 content hash stored in a time-bounded cache.
 
 use std::collections::HashMap;

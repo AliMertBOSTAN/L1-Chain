@@ -6,17 +6,23 @@
 /// On Windows: listens for Ctrl-C only.
 pub async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl-C handler");
+        // Installing the Ctrl-C handler only fails when the runtime is
+        // misconfigured — log and exit cleanly instead of panicking.
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            tracing::error!(?err, "failed to install Ctrl-C handler");
+        }
     };
 
     #[cfg(unix)]
     let sigterm = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(err) => {
+                tracing::error!(?err, "failed to install SIGTERM handler");
+            }
+        }
     };
 
     #[cfg(not(unix))]
@@ -39,8 +45,8 @@ mod tests {
     #[tokio::test]
     async fn test_shutdown_signal_compiles() {
         // Just ensure the function compiles and the types are correct.
-        let signal_fut = shutdown_signal();
-        // Don't await it in the test; we just want to verify it's a valid future.
-        let _ = signal_fut;
+        // We don't await the future — explicitly drop it so clippy doesn't
+        // complain about `let _ = <future>`.
+        drop(shutdown_signal());
     }
 }

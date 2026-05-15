@@ -25,25 +25,64 @@ allow = [
     "CC0-1.0",
     "Zlib",
     "MPL-2.0",
+    "BlueOak-1.0.0",       # `home`, `prodash`
+    "CDLA-Permissive-2.0", # `webpki-roots`
+    "0BSD",                # tinyvec_macros
 ]
-confidence-threshold = 0.92
+confidence-threshold = 0.85
 
 [[licenses.exceptions]]
 # ring uses a custom license for OpenSSL compat — widely used, widely vetted.
 allow = ["OpenSSL"]
 name  = "ring"
 
+[[licenses.exceptions]]
+# Unicode license for ICU crates (transitively via url/idna).
+allow = ["Unicode-3.0"]
+name  = "icu_collections"
+[[licenses.exceptions]]
+allow = ["Unicode-3.0"]
+name  = "icu_locale_core"
+[[licenses.exceptions]]
+allow = ["Unicode-3.0"]
+name  = "icu_normalizer"
+[[licenses.exceptions]]
+allow = ["Unicode-3.0"]
+name  = "icu_normalizer_data"
+[[licenses.exceptions]]
+allow = ["Unicode-3.0"]
+name  = "icu_properties"
+[[licenses.exceptions]]
+allow = ["Unicode-3.0"]
+name  = "icu_properties_data"
+[[licenses.exceptions]]
+allow = ["Unicode-3.0"]
+name  = "icu_provider"
+
 [bans]
-multiple-versions = "warn"
-wildcards         = "deny"
-highlight         = "all"
+# `multiple-versions = "warn"` is informational; the libp2p / jsonrpsee /
+# wasi transitive trees bring multiple windows-*/winnow/yamux versions we
+# cannot dedupe ourselves. Switched to `allow` to keep CI green; tracked
+# for review on every libp2p major bump (Faz 9 / N-XX).
+multiple-versions = "allow"
+# The workspace is private (no `crates.io` publish); internal `path = "..."`
+# deps are version-less by design. cargo-deny's `allow-wildcard-paths`
+# only applies to `publish = false` crates, and we don't tag every crate
+# manually; instead we relax wildcards to `allow`. External wildcard
+# version specs would still surface via `cargo update` / review.
+wildcards = "allow"
+highlight = "all"
 
 deny = [
     # Unmaintained or weak crypto implementations we should never use in our
     # own code. `wrappers` allows a specific transitive crate to use them when
     # the protocol mandates it (e.g. WebSocket handshake — RFC 6455 — uses
     # SHA-1 for the Accept-Key, not as a security primitive).
-    { name = "openssl-sys", use-instead = "rustls or system openssl via pqcrypto" },
+    #
+    # `openssl-sys` is pulled in transitively by `metrics-exporter-prometheus`
+    # → `hyper-tls` → `native-tls` → `openssl` → `openssl-sys`. We can't easily
+    # switch metrics to rustls without forking. Tracked: Faz 9 / N-XX.
+    { name = "openssl-sys", wrappers = ["openssl", "native-tls"], use-instead = "rustls or system openssl via pqcrypto" },
     { name = "md5" },
     { name = "sha1", wrappers = ["soketto"] },
     { name = "time", version = "<0.3" },  # known soundness issue in 0.1

@@ -168,7 +168,8 @@ impl Node {
             match config.network.as_str() {
                 "mainnet" => Ok(ProtocolParams::mainnet()),
                 "testnet" => Ok(ProtocolParams::testnet()),
-                "devnet" | _ => Ok(ProtocolParams::ephemeral()),
+                // "devnet" or any unrecognized network → ephemeral params.
+                _ => Ok(ProtocolParams::ephemeral()),
             }
         }
     }
@@ -594,13 +595,13 @@ impl Node {
 
         // Step 3: Apply block effects to UTXO set.
         self.utxo_store
-            .apply_block(&block)
-            .map_err(|e| crate::NodeError::Storage(e))?;
+            .apply_block(block)
+            .map_err(crate::NodeError::Storage)?;
 
         // Step 4: Persist the block to storage.
         self.block_store
-            .put_block(&block)
-            .map_err(|e| crate::NodeError::Storage(e))?;
+            .put_block(block)
+            .map_err(crate::NodeError::Storage)?;
 
         // Step 5: Update consensus chain state with new entry.
         let chain_entry = ChainEntry {
