@@ -20,12 +20,14 @@ use qv_storage::kv::MemoryKvStore;
 use qv_storage::utxo_store::UtxoStore;
 use std::sync::Arc;
 use std::time::SystemTime;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Duration};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use qv_consensus::ChainState;
 use qv_mempool::clear::ClearPool;
+
+use crate::node::NodeEvent;
 
 /// Slot ticker — runs the slot-by-slot block production loop.
 ///
@@ -42,8 +44,9 @@ pub struct SlotTicker<V: VrfEvaluator> {
     epoch_nonce: EpochNonce,
     /// VRF evaluator (test mock or production implementation).
     vrf: V,
-    /// Block storage.
-    block_store: Arc<BlockStore<MemoryKvStore>>,
+    /// Block storage (retained for constructor symmetry; block
+    /// persistence now happens in the node event loop's `handle_block`).
+    _block_store: Arc<BlockStore<MemoryKvStore>>,
     /// UTXO storage for inclusion in headers (used during block production).
     _utxo_store: Arc<UtxoStore<MemoryKvStore>>,
     /// Consensus chain state (tip height, hash, slot).
@@ -60,6 +63,20 @@ pub struct SlotTicker<V: VrfEvaluator> {
     ///   Each call uses the current period; callers should evolve the key
     ///   externally on epoch boundaries.
     kes_sk: Option<Arc<Mutex<qv_crypto::KesSecretKey>>>,
+    /// Channel into the node's main event loop. Produced blocks are sent
+    /// as [`NodeEvent::BlockReceived`] so they flow through the very same
+    /// pipeline (validate → UTXO apply → store → chain-state → gossip)
+    /// as blocks received from peers. Routing production through this one
+    /// channel is what lets a real multi-node devnet actually converge.
+    event_tx: mpsc::Sender<NodeEvent>,
+    /// Round-robin leader schedule `Some((my_index, total_pools))`. When
+    /// set, the leader of slot `S` is genesis pool `S % total_pools`, and
+    /// this node leads when that equals `my_index`. Exactly one leader
+    /// per slot → no slot battles, no forks. `None` → VRF Praos election.
+    round_robin: Option<(u64, u64)>,
+    /// Seconds to sleep before the production loop begins, so every peer
+    /// can connect and the gossip mesh can form first.
+    warmup_secs: u64,
 }
 
 impl<V: VrfEvaluator> SlotTicker<V> {
@@ -89,6 +106,7 @@ impl<V: VrfEvaluator> SlotTicker<V> {
         chain_state: Arc<Mutex<ChainState>>,
         clear_pool: Arc<Mutex<ClearPool>>,
         active_slot_coeff: f64,
+        event_tx: mpsc::Sender<NodeEvent>,
     ) -> Self {
         Self {
             slot_clock,
@@ -96,13 +114,35 @@ impl<V: VrfEvaluator> SlotTicker<V> {
             stake_distribution,
             epoch_nonce,
             vrf,
-            block_store,
+            _block_store: block_store,
             _utxo_store: utxo_store,
             chain_state,
             clear_pool,
             _active_slot_coeff: active_slot_coeff,
             kes_sk: None,
+            event_tx,
+            round_robin: None,
+            warmup_secs: 0,
         }
+    }
+
+    /// Attach a deterministic round-robin leader schedule (devnet).
+    ///
+    /// `my_index` is this node's position in the shared genesis pool list
+    /// and `total` is the number of genesis pools. The leader of slot `S`
+    /// becomes pool `S % total`, guaranteeing exactly one leader per slot.
+    #[must_use]
+    pub fn with_round_robin(mut self, my_index: u64, total: u64) -> Self {
+        self.round_robin = Some((my_index, total));
+        self
+    }
+
+    /// Set a startup warmup delay (seconds) before block production
+    /// begins, giving peers time to connect and form the gossip mesh.
+    #[must_use]
+    pub fn with_warmup(mut self, secs: u64) -> Self {
+        self.warmup_secs = secs;
+        self
     }
 
     /// Attach a KES secret key for real header signing (per ADR-005).
@@ -122,6 +162,13 @@ impl<V: VrfEvaluator> SlotTicker<V> {
     /// It runs indefinitely until dropped (or a shutdown signal is received
     /// outside this method).
     pub async fn run(self) -> Result<(), SlotTickerError> {
+        if self.warmup_secs > 0 {
+            info!(
+                warmup_secs = self.warmup_secs,
+                "slot ticker warming up — letting peers connect before block production"
+            );
+            tokio::time::sleep(Duration::from_secs(self.warmup_secs)).await;
+        }
         let slot_duration_ms = self.slot_clock.slot_duration_ms();
         let mut interval_handle = interval(Duration::from_millis(slot_duration_ms));
 
@@ -146,45 +193,61 @@ impl<V: VrfEvaluator> SlotTicker<V> {
                 "processing slot"
             );
 
-            // Check if we're elected as the slot leader.
-            match check_leadership(
-                &self.vrf,
-                &self.pool_id,
-                &self.epoch_nonce,
-                current_slot_info.slot,
-                &self.stake_distribution,
-            ) {
-                Ok(Some((vrf_output, vrf_proof))) => {
-                    debug!(
-                        slot = current_slot_info.slot.as_u64(),
-                        "elected as slot leader"
-                    );
-
-                    // We're elected — produce a block.
-                    if let Err(e) = self
-                        .produce_block(current_slot_info.slot, vrf_output, vrf_proof)
-                        .await
-                    {
+            // Decide leadership for this slot.
+            let elected: Option<(VrfOutput, VrfProof)> = match self.round_robin {
+                Some((my_index, total)) => {
+                    // Deterministic round-robin: the leader of slot S is
+                    // genesis pool `S % total`. Exactly one leader per
+                    // slot, so the multi-node devnet never forks.
+                    if total > 0 && current_slot_info.slot.as_u64() % total == my_index {
+                        // Still evaluate the VRF so the produced block
+                        // header carries a real proof (observability);
+                        // the leadership *decision* itself is round-robin.
+                        let input = qv_consensus::leader_schedule::vrf_input(
+                            &self.epoch_nonce,
+                            current_slot_info.slot,
+                        );
+                        Some(
+                            self.vrf
+                                .evaluate(&input)
+                                .unwrap_or((VrfOutput([0u8; 32]), VrfProof(Vec::new()))),
+                        )
+                    } else {
+                        None
+                    }
+                }
+                None => match check_leadership(
+                    &self.vrf,
+                    &self.pool_id,
+                    &self.epoch_nonce,
+                    current_slot_info.slot,
+                    &self.stake_distribution,
+                ) {
+                    Ok(opt) => opt,
+                    Err(e) => {
                         warn!(
                             slot = current_slot_info.slot.as_u64(),
                             error = %e,
-                            "failed to produce block"
+                            "leadership check failed"
                         );
+                        None
                     }
-                }
-                Ok(None) => {
-                    // Not elected for this slot — just continue.
-                    debug!(
-                        slot = current_slot_info.slot.as_u64(),
-                        "not elected for slot"
-                    );
-                }
-                Err(e) => {
-                    // Leadership check failed (e.g., VRF evaluation error, no stake).
+                },
+            };
+
+            if let Some((vrf_output, vrf_proof)) = elected {
+                debug!(
+                    slot = current_slot_info.slot.as_u64(),
+                    "elected as slot leader"
+                );
+                if let Err(e) = self
+                    .produce_block(current_slot_info.slot, vrf_output, vrf_proof)
+                    .await
+                {
                     warn!(
                         slot = current_slot_info.slot.as_u64(),
                         error = %e,
-                        "leadership check failed"
+                        "failed to produce block"
                     );
                 }
             }
@@ -285,34 +348,25 @@ impl<V: VrfEvaluator> SlotTicker<V> {
             .validate_structure()
             .map_err(|_| SlotTickerError::BlockValidation)?;
 
-        // Step 8: Store the block.
-        self.block_store
-            .put_block(&block)
-            .map_err(|_| SlotTickerError::Storage)?;
-
-        // Step 9: Update chain state.
+        // Step 8: Hand the block to the node's main event loop. It runs
+        // linkage validation, applies UTXO effects, persists the block,
+        // updates chain state, evicts confirmed mempool txs, AND gossips
+        // the block to peers — exactly the path a peer-sourced block
+        // takes. This keeps locally-produced and network-received blocks
+        // on one code path, which is what makes the devnet converge.
         let block_hash = block.hash().map_err(|_| SlotTickerError::BlockValidation)?;
+        self.event_tx
+            .send(NodeEvent::BlockReceived(block))
+            .await
+            .map_err(|_| SlotTickerError::Dispatch)?;
 
-        let mut chain_state_lock = self.chain_state.lock().await;
-        let chain_entry = qv_consensus::ChainEntry {
-            hash: block_hash,
-            parent_hash: prev_hash,
-            height: new_height,
-            slot,
-            producer_key_hash,
-        };
-        chain_state_lock
-            .add_block(chain_entry)
-            .map_err(|_| SlotTickerError::Consensus)?;
-        drop(chain_state_lock);
-
-        // Step 10: Log the successful block production.
+        // Step 9: Log the successful block production.
         debug!(
             slot = slot.as_u64(),
             height = new_height.as_u64(),
             hash = %block_hash.to_hex(),
             tx_count = transactions.len(),
-            "produced block"
+            "produced block — dispatched to node pipeline"
         );
 
         Ok(())
@@ -337,6 +391,9 @@ pub enum SlotTickerError {
     /// KES sign / serialize failed (envanter K-04).
     #[error("kes sign failed")]
     KesSignFailed,
+    /// Failed to dispatch the produced block into the node event loop.
+    #[error("block dispatch to node event loop failed")]
+    Dispatch,
 }
 
 /// Compute the Merkle root from a list of transaction IDs.
@@ -505,6 +562,7 @@ mod tests {
             qv_mempool::clear::ClearPoolConfig::ephemeral(),
         )));
 
+        let (event_tx, _event_rx) = mpsc::channel::<NodeEvent>(16);
         let _ticker = SlotTicker::new(
             clock,
             pool_id,
@@ -516,6 +574,7 @@ mod tests {
             chain_state,
             clear_pool,
             0.05,
+            event_tx,
         );
 
         // Just verify it was constructed without panicking.

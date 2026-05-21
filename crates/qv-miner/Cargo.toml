@@ -16,6 +16,14 @@ path = "src/lib.rs"
 [[bin]]
 name = "qv-miner"
 path = "src/main.rs"
+# Same reasoning as qv-node bin: the binary is a thin CLI wrapper over the
+# `qv_miner` library and depends transitively on librocksdb_sys (via
+# qv-storage). Compiling it as a test target under `--all-features` fails
+# because Cargo cannot expose the *-sys crate as rlib for the bin's test
+# profile. All real coverage lives in the library and `tests/`.
+test = false
+doctest = false
+bench = false
 
 [dependencies]
 qv-common    = { workspace = true }
@@ -50,6 +58,10 @@ aes-gcm            = { workspace = true }
 
 # Interactive password prompt for `qv-miner run` (M-09).
 rpassword          = { workspace = true }
+
+# HTTP JSON-RPC client for `qv_getStakeDistribution` / `qv_getEpochNonce` /
+# `qv_submitBlock` calls against a running qv-node (M-09b / M-09c).
+reqwest            = { workspace = true }
 
 ratatui            = { version = "0.27", optional = true }
 crossterm          = { version = "0.27", optional = true }

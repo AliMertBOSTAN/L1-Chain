@@ -153,9 +153,14 @@ async fn cmd_run(
     _node_gossip: Option<String>,
     _metrics_addr: Option<String>,
 ) -> anyhow::Result<()> {
-    use qv_consensus::{PoolId, StakeDistribution, StakePool};
-    use qv_core::{Amount, ProtocolParams};
+    use qv_consensus::{PoolId, VrfProof};
+    use qv_core::{
+        merkle_root_of, Block, BlockHash, BlockHeader, Hash256, Height, ProtocolParams, Slot,
+        Timestamp, Transaction, UtxoCommitment, BLOCK_VERSION,
+    };
+    use qv_miner::node_rpc::NodeRpcClient;
     use qv_miner::slot_loop::{run_slot_loop, SlotLoop};
+    use std::sync::Arc;
 
     tracing::info!("Starting operator daemon");
 
@@ -190,11 +195,13 @@ async fn cmd_run(
         "operator keys loaded"
     );
 
-    // ── 3. Consensus state (M-09b: real RPC fetch is a follow-up) ─────────
+    // ── 3. Consensus state (M-09b: real RPC fetch from qv-node) ───────────
     //
-    // For now we mock the stake distribution: this pool holds 100% of stake.
-    // In production, M-09b will fetch via RPC `qv_getStakeDistribution` and
-    // refresh at every epoch boundary.
+    // The operator no longer guesses its own stake distribution. We fetch
+    // the authoritative snapshot from the running node via RPC. The pool
+    // must already be present in the distribution (registered via the
+    // genesis stake-pool config or a registration TX); otherwise we
+    // refuse to start instead of pretending to have stake we don't.
     let params = match config.network {
         qv_miner::config::Network::Mainnet => ProtocolParams::mainnet(),
         qv_miner::config::Network::Testnet => ProtocolParams::testnet(),
@@ -202,29 +209,53 @@ async fn cmd_run(
     };
 
     let pool_id = PoolId::from_vrf_key(keys.vrf.public_bytes());
-    let _self_pool = StakePool {
-        id: pool_id,
-        vrf_key: keys.vrf.public_bytes().to_vec(),
-        kes_key: keys.kes.public_bytes().to_vec(),
-        pledge: Amount::from_smallest_units(config.pledge),
-        margin_num: config.margin_bps,
-        margin_den: 10_000,
-        fixed_cost: Amount::from_smallest_units(config.fixed_cost),
-        active: true,
-    };
-    // Bootstrap stake distribution: this pool holds 100% of stake in the mock.
-    // M-09b will replace this with an RPC fetch (`qv_getStakeDistribution`)
-    // refreshed on every epoch boundary.
-    let stake_distribution = StakeDistribution::new(
-        qv_core::Epoch::GENESIS,
-        [(pool_id, Amount::from_smallest_units(config.pledge))],
-    )
-    .map_err(|e| anyhow::anyhow!("stake distribution: {e}"))?;
 
-    // Epoch nonce: M-09b will fetch via RPC; for scaffolding use a fixed seed
-    // tied to the pool id (so the same operator deterministically maps to the
-    // same nonce across restarts on the same devnet).
-    let initial_nonce = qv_crypto::sha3_256(b"qv-miner-devnet-genesis-nonce").to_vec();
+    let rpc_client = NodeRpcClient::new(&node_rpc);
+
+    tracing::info!(rpc = %node_rpc, "fetching stake distribution from node");
+    let stake_distribution = rpc_client
+        .get_stake_distribution()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to fetch stake distribution: {e}"))?;
+
+    if stake_distribution.is_empty() {
+        anyhow::bail!(
+            "node returned empty stake distribution — register the pool first \
+             (qv-miner register-pool) or check the node's genesis config"
+        );
+    }
+
+    let (self_stake, total_stake) = (
+        stake_distribution.pool_stake(&pool_id),
+        stake_distribution.total_stake(),
+    );
+    if self_stake == 0 {
+        anyhow::bail!(
+            "this operator's pool is not present in the node's stake distribution \
+             (pool_id={}, total_stake={total_stake}); the pool must be registered \
+             on-chain or pre-seeded in the node's stake-pool config",
+            hex::encode(pool_id.as_bytes())
+        );
+    }
+    tracing::info!(
+        pool_id = %hex::encode(pool_id.as_bytes()),
+        pool_stake = self_stake,
+        total_stake,
+        pool_count = stake_distribution.pool_count(),
+        "stake distribution fetched"
+    );
+
+    tracing::info!("fetching epoch nonce from node");
+    let (epoch_nonce, epoch) = rpc_client
+        .get_epoch_nonce()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to fetch epoch nonce: {e}"))?;
+    tracing::info!(
+        epoch = %epoch,
+        nonce = %hex::encode(epoch_nonce.as_bytes()),
+        "epoch nonce fetched"
+    );
+    let initial_nonce = epoch_nonce.as_bytes().to_vec();
 
     // Slot clock: figure out the current slot from wall-clock time.
     let now_ms = std::time::SystemTime::now()
@@ -247,18 +278,131 @@ async fn cmd_run(
         "slot loop initialized; entering main loop"
     );
 
-    // ── 4. Block producer callback (scaffolding) ───────────────────────────
+    // ── 4. Block producer callback (M-09c real path) ──────────────────────
     //
-    // M-09c will turn this into a real `produce_block(...)` + RPC submit. For
-    // now we just log the leadership event and exit cleanly; the qv-node
-    // running on the same machine still does real block production in devnet.
-    let block_producer_fn = move |slot: qv_core::Slot| -> std::pin::Pin<
+    // When elected as slot leader, we:
+    //   1. Fetch the current chain tip from the node (`qv_getTip`).
+    //   2. Fetch the pending clear-mempool transactions (`qv_getPendingTransactions`).
+    //   3. Compute the Merkle root over the txid leaves.
+    //   4. Build the block header WITHOUT `kes_sig`, bincode-serialize it,
+    //      sign those bytes with KES, then attach the signature. This
+    //      matches the symmetric verifier path in `qv-consensus` and the
+    //      reference producer in `qv-node::slot_ticker::produce_block`.
+    //   5. Submit the bincode-serialized block via `qv_submitBlock`.
+    //
+    // The closure captures cheap-to-clone state by move so the returned
+    // futures own everything they touch (no borrows from the closure).
+    let kes_arc: Arc<qv_miner::keys::KesKeyPair> = Arc::new(keys.kes);
+    let rpc_for_producer = rpc_client.clone();
+    let pool_id_for_producer = pool_id;
+    let producer_key_hash = Hash256::from_bytes(qv_crypto::sha3_256(pool_id.as_bytes()));
+
+    let block_producer_fn = move |slot: Slot,
+                                  vrf_proof: VrfProof|
+          -> std::pin::Pin<
         Box<dyn std::future::Future<Output = qv_miner::MinerResult<()>> + Send>,
     > {
+        let kes = Arc::clone(&kes_arc);
+        let rpc = rpc_for_producer.clone();
+        let pool = pool_id_for_producer;
+        let producer_hash = producer_key_hash;
         Box::pin(async move {
+            // 4.1 Fetch tip.
+            let tip = rpc.get_tip().await.map_err(|e| {
+                qv_miner::MinerError::BlockProduction(format!("get_tip failed: {e}"))
+            })?;
+            let prev_hash = BlockHash::from_hex(&tip.block_hash).map_err(|e| {
+                qv_miner::MinerError::BlockProduction(format!(
+                    "invalid tip hash `{}`: {e}",
+                    tip.block_hash
+                ))
+            })?;
+            let new_height = Height::from(tip.height.saturating_add(1));
+
+            // 4.2 Fetch pending transactions.
+            let pending_hex = rpc.get_pending_transactions().await.map_err(|e| {
+                qv_miner::MinerError::BlockProduction(format!(
+                    "get_pending_transactions failed: {e}"
+                ))
+            })?;
+
+            let mut transactions: Vec<Transaction> = Vec::with_capacity(pending_hex.len());
+            let mut tx_ids = Vec::with_capacity(pending_hex.len());
+            for hex_tx in pending_hex {
+                let raw = hex::decode(&hex_tx).map_err(|e| {
+                    qv_miner::MinerError::Serialization(format!(
+                        "pending tx hex decode failed: {e}"
+                    ))
+                })?;
+                let tx: Transaction = bincode::deserialize(&raw).map_err(|e| {
+                    qv_miner::MinerError::Serialization(format!(
+                        "pending tx bincode decode failed: {e}"
+                    ))
+                })?;
+                let id = tx.id().map_err(|e| {
+                    qv_miner::MinerError::BlockProduction(format!("tx id failed: {e}"))
+                })?;
+                transactions.push(tx);
+                tx_ids.push(id);
+            }
+
+            // 4.3 Merkle root over txids.
+            let merkle_root = merkle_root_of(&tx_ids);
+
+            // 4.4 Build unsigned header → KES sign → attach signature.
+            //
+            // `utxo_commitment` stays `ZERO` (envanter K-03/K-05); the
+            // post-apply UTXO snapshot hash is a separate workstream and
+            // the verifier currently treats the field as opaque.
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let mut header = BlockHeader {
+                version: BLOCK_VERSION,
+                prev_hash,
+                height: new_height,
+                slot,
+                timestamp: Timestamp::from(now_secs),
+                merkle_root,
+                utxo_commitment: UtxoCommitment::ZERO,
+                vrf_proof: vrf_proof.0.clone(),
+                kes_sig: Vec::new(),
+                producer_key_hash: producer_hash,
+            };
+            let bytes_to_sign = bincode::serialize(&header).map_err(|e| {
+                qv_miner::MinerError::Serialization(format!(
+                    "header bincode failed: {e}"
+                ))
+            })?;
+            let sig = kes.sign(&bytes_to_sign)?;
+            header.kes_sig = bincode::serialize(&sig).map_err(|e| {
+                qv_miner::MinerError::Serialization(format!("kes sig bincode failed: {e}"))
+            })?;
+
+            // 4.5 Assemble + validate.
+            let block = Block::new(header, transactions);
+            block.validate_structure().map_err(|e| {
+                qv_miner::MinerError::BlockProduction(format!(
+                    "structural validation failed: {e}"
+                ))
+            })?;
+
+            // 4.6 Submit to node.
+            let block_bytes = bincode::serialize(&block).map_err(|e| {
+                qv_miner::MinerError::Serialization(format!("block bincode failed: {e}"))
+            })?;
+            let accepted_hash = rpc.submit_block(&block_bytes).await.map_err(|e| {
+                qv_miner::MinerError::BlockProduction(format!("submit_block failed: {e}"))
+            })?;
+
             tracing::info!(
                 slot = %slot,
-                "M-09c follow-up: would call block_producer::produce_block + RPC submit here"
+                height = ?new_height,
+                tx_count = block.transactions.len(),
+                hash = %accepted_hash,
+                pool_id = %hex::encode(pool.as_bytes()),
+                "block produced and submitted via RPC"
             );
             Ok(())
         })

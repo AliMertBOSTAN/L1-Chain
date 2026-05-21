@@ -53,11 +53,11 @@ impl NetworkHandler {
                 }
                 NetEvent::PeerConnected(peer_id) => {
                     debug!(peer = %peer_id, "peer connected");
-                    // Could emit metrics here; for now just log
+                    crate::metrics::record_peer_connected();
                 }
                 NetEvent::PeerDisconnected(peer_id) => {
                     debug!(peer = %peer_id, "peer disconnected");
-                    // Could emit metrics here; for now just log
+                    crate::metrics::record_peer_disconnected();
                 }
             }
         }
@@ -71,6 +71,7 @@ impl NetworkHandler {
         let result = match message {
             NetworkMessage::Block(block) => {
                 debug!("received block from network");
+                crate::metrics::record_gossip_message_in("blocks");
                 self.event_tx
                     .send(NodeEvent::BlockReceived(*block))
                     .await
@@ -78,6 +79,7 @@ impl NetworkHandler {
             }
             NetworkMessage::Transaction(tx) => {
                 debug!("received transaction from network");
+                crate::metrics::record_gossip_message_in("transactions");
                 self.event_tx
                     .send(NodeEvent::TxReceived(*tx))
                     .await

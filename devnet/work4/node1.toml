@@ -1,0 +1,45 @@
+network = "devnet"
+data_dir = "C:/Users/mbostan/Desktop/L1/L1 Blockchain/devnet/work4/node1-data"
+listen_addr = "/ip4/127.0.0.1/tcp/17002"
+rpc_addr = "127.0.0.1:8546"
+metrics_addr = "127.0.0.1:9602"
+bootstrap_peers = []
+seed_nodes = ["/ip4/127.0.0.1/tcp/17001", "/ip4/127.0.0.1/tcp/17003", "/ip4/127.0.0.1/tcp/17004"]
+storage_backend = "memory"
+node_key_seed_hex = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+round_robin_leader = true
+startup_warmup_secs = 12
+
+[gossip]
+max_peers = 64
+max_inbound_peers = 32
+target_outbound_peers = 16
+message_ttl = 16
+heartbeat_interval_ms = 1000
+
+[mempool]
+max_clear_pool_size = 10000
+max_encrypted_pool_size = 1000
+min_fee_rate = 0
+tx_ttl_slots = 200
+
+[stake_pool]
+vrf_seed_hex = "2222222222222222222222222222222222222222222222222222222222222222"
+initial_stake = 2500000000000
+active_slot_coeff = 0.05
+
+[[genesis_pools]]
+vrf_seed_hex = "1111111111111111111111111111111111111111111111111111111111111111"
+stake = 2500000000000
+
+[[genesis_pools]]
+vrf_seed_hex = "2222222222222222222222222222222222222222222222222222222222222222"
+stake = 2500000000000
+
+[[genesis_pools]]
+vrf_seed_hex = "3333333333333333333333333333333333333333333333333333333333333333"
+stake = 2500000000000
+
+[[genesis_pools]]
+vrf_seed_hex = "4444444444444444444444444444444444444444444444444444444444444444"
+stake = 2500000000000

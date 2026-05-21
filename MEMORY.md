@@ -1,10 +1,57 @@
 ﻿# QuantumVault - Proje Hafizasi
 
-_Son guncelleme: 2026-05-14 (CI pipeline green milestone)_
+_Son guncelleme: 2026-05-21 (4-node yerel devnet + monitoring)_
 
 > **Doküman uyumu:** Bu dosya `PROJECT_STATUS.md` ve `docs/ROADMAP.md` ile birlikte
 > okunmalıdır. ROADMAP'teki **Placeholder ve Mock Envanteri** (A-J grupları) açık
 > işlerin tek doğru kaynağıdır.
+
+---
+
+## Oturum: 4-Node Yerel Devnet + Monitoring (2026-05-21)
+
+Gerçek çok-process 4-node libp2p devnet çalışır hale getirildi (node'lar
+bağlanıp blok gossip'liyor ve aynı zincirde yakınsıyor) + log/RPC tabanlı CLI
+monitor + cüzdan transfer demoları. Sandbox'ta derlenip 4-node çalıştırılarak
+doğrulandı.
+
+### Kararlar
+
+- **Blok üretimi tek kod yolundan geçer.** `slot_ticker.rs` üretilen bloğu artık
+  doğrudan `block_store`/`chain_state`'e yazmıyor; `NodeEvent::BlockReceived` ile
+  node event loop'una gönderiyor. Böylece yerel üretilen ve peer'dan gelen
+  bloklar aynı `handle_block` yolundan geçer (doğrula → UTXO uygula → depola →
+  gossip). Çok-node yakınsamasını mümkün kılan değişiklik budur.
+- **Devnet lider seçimi = deterministik round-robin** (config: `round_robin_leader`).
+  Slot S lideri = pool `S % n`. Gerekçe: `handle_block` UTXO reorg yapmıyor;
+  olasılıksal VRF'in çift-lider slotları kalıcı çatal üretirdi. VRF Praos yolu
+  `round_robin_leader = false` ile korunur — mainnet için tercih edilen yol.
+- **Deterministik node kimliği.** `node_key_seed_hex` (32-byte hex) verilirse
+  libp2p Ed25519 kimliği ondan türetilir → PeerId sabit. `NodeIdentity::from_seed`
+  qv-net'e eklendi.
+- **rocksdb opsiyonel feature oldu** (qv-storage, varsayılan kapalı). Node zaten
+  `MemoryKvStore` kullanıyor; `redb` saf-Rust kalıcılık sağlıyor. Amaç: derlemeyi
+  C++ toolchain / libclang (bindgen) bağımlılığından kurtarmak. RocksDB backend'i
+  `--features rocksdb` ile hâlâ erişilebilir.
+- **metrics-exporter-prometheus** `default-features = false, features = ["http-listener"]`
+  ile alınıyor; varsayılan `push-gateway` özelliği `hyper-tls → openssl-sys`
+  çekiyordu, pull-tabanlı endpoint'e gerek yok.
+- **Yeni NodeConfig alanları:** `node_key_seed_hex`, `genesis_pools` (paylaşılan
+  4-pool stake seti), `round_robin_leader`, `startup_warmup_secs`. Hepsi
+  `#[serde(default)]` — eski config'lerle geriye uyumlu.
+
+### Yeni dosyalar
+
+- `devnet/run-devnet.sh`, `devnet/run-devnet.ps1` — 4-node launcher.
+- `devnet/monitor.py` — canlı CLI monitor.
+- `crates/qv-node/examples/transfer_demo.rs`, `wallet_transfer.rs` — transfer demoları.
+
+### Açık kalan (gelecek iş)
+
+- `handle_block` içinde VRF/KES doğrulaması yok; lider seçimi yalnızca üretim
+  anında. Adversarial güvenlik için `block_validator` (DilithiumSumKesVerifier)
+  `handle_block`'a bağlanmalı.
+- UTXO-set reorg yok → gerçek olasılıksal VRF Praos çok-node için reorg gerekir.
 
 ---
 
@@ -631,6 +678,38 @@ Bunun cebriindeki zincir:
 **C-06 (ml-dsa swap) kapatilinca tam canlanan zincir:**
 1. `from_seed_pqc(level, seed) -> PqcKeyPair` → ml-dsa 0.0.4 ile gercek
 2. `kes_generate(master_seed)` → 2048 leaf seed/pk turetir, pk_root hesaplar
+
+## Session Update — 2026-05-15 (Faz 4 sprint: nextest fix + M-09b + M-09c + NET-01)
+
+**Tetikleyici:** `nextest.log` Windows MSVC `--all-features` altında `librocksdb_sys` rlib format hatası verdi; ardından kullanıcı Faz 4'e geçişi onayladı. Tek seansta dört iş bir sırayla kapatildi.
+
+### B-03 (Nextest --all-features rlib fix) ✅
+- `qv-node` ve `qv-miner` Cargo.toml'larında `[[bin]]` bloklarına `test = false, doctest = false, bench = false` eklendi. Bin'lerde `#[test]` yok, kayıp coverage sıfır.
+
+### M-09b (Stake distribution + epoch nonce RPC) ✅
+- qv-node: `RpcServer` → `stake_distribution: Arc<RwLock<StakeDistribution>>`, `epoch_nonce: Arc<RwLock<EpochNonce>>`, `slot_clock`. Yeni method'lar: `qv_getStakeDistribution`, `qv_getEpochNonce`. `Node::new` paylasilan state'i genesis epoch'ta initialize eder; `spawn_slot_ticker` lokal pool'u shared state'e de yazar.
+- qv-miner: yeni `node_rpc.rs` (~250 satir + 4 unit test) — reqwest tabanli JSON-RPC client. `cmd_run` artik mock single-pool kullanmiyor; RPC fetch + pool dogrulama, kayitli degilse net hata.
+
+### M-09c (qv_submitBlock + gercek block production) ✅
+- qv-node: yeni `qv_getPendingTransactions` ve `qv_submitBlock`. `RpcServer.event_tx` kanali, submit_block structural validation + dispatch → ana akis `handle_block` (linkage + UTXO apply + gossip). Bonus: `qv_getTip` artik `Debug` yerine canonical hex (`to_hex()`).
+- qv-miner: `slot_loop::run_slot_loop` signature degisti, callback artik `(Slot, VrfProof)` aliyor. `cmd_run` block producer real wire: tip fetch → pending tx fetch → merkle root → unsigned header → KES sign (Arc<KesKeyPair>::sign) → bincode → submit_block RPC.
+
+### NET-01 (Hibrit X25519+Kyber libp2p handshake) ✅
+- Yeni `qv-net/src/handshake.rs` (~470 satir + 7 unit test). Protocol: `/quantumvault/handshake/1.0.0`, tek RTT, ML-KEM-768 (Level 3), `request_response::Behaviour<HandshakeCodec>`.
+- Wire: `HandshakeHello { version, initiator_peer_id, hybrid_pk }` → `HandshakeAck { version, responder_peer_id, ciphertext, session_binding }`. `session_binding = SHA3-256(tag || ss || init_pid || resp_pid)` constant-time karsilasmaya tabi.
+- `NetworkNode`'a `local_hybrid_kp: Arc<HybridKeyPair>` + `session_store: SessionStore`. Her ConnectionEstablished (dialer) Hello dispatch; ConnectionClosed'da session silinir (replay sigortasi).
+- Noise-XX kimlik katmani yerinde — PQC GIZLILIK ust katmani.
+- ADR-007 yazildi: `docs/ADR/007-hybrid-handshake.md`.
+
+### Yeni envanter girdileri
+- **M-09d**: qv-miner cmd_run epoch boundary'de stake/nonce refresh (su an startup-only).
+- **M-09e**: qv-miner KES evolve at epoch boundary (`Arc<Mutex<KesKeyPair>>` refactor gerekli).
+- **NET-03**: handshake session_secret → encrypted gossip envelope wrapping.
+
+### Beklenen workspace etkisi
+- Yeni dosyalar: `qv-miner/src/node_rpc.rs`, `qv-net/src/handshake.rs`, `docs/ADR/007-hybrid-handshake.md`.
+- Test sayisi: +11 yeni unit (handshake 7 + node_rpc 4). Beklenti: 735 → ~746 passed.
+- Lokal dogrulama bekleniyor: `cargo build --workspace && cargo nextest run --workspace --all-features && cargo clippy --workspace --all-targets --all-features -- -D warnings`.
 3. `kes_sign(sk, msg)` → leaf'i re-derive edip sign yapar
 4. Wallet `init` → mnemonic → seed → HD spend kp → stealth address (gercek)
 5. Wallet `send` → keystore load → spend kp derive → tx build + sign + RPC submit

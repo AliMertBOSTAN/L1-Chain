@@ -17,6 +17,13 @@ path = "src/lib.rs"
 [[bin]]
 name = "qv-node"
 path = "src/main.rs"
+# The bin is a thin wrapper around `qv_node` library; it has no tests of its
+# own and re-linking it under the test profile pulls librocksdb_sys (a *-sys
+# crate with `links = "rocksdb"`) which Cargo refuses to expose as rlib for
+# the test target. All real coverage lives in `tests/` and the library.
+test = false
+doctest = false
+bench = false
 
 [dependencies]
 # Internal crates
@@ -55,6 +62,8 @@ bincode = { workspace = true }
 # Utilities
 hex = "0.4"
 
-# Metrics
+# Metrics — `http-listener` only. The default `push-gateway` feature pulls
+# hyper-tls -> native-tls -> openssl-sys, which needs system OpenSSL dev
+# headers; the pull-based Prometheus endpoint we use needs only http-listener.
 metrics = "0.22"
-metrics-exporter-prometheus = "0.14"
+metrics-exporter-prometheus = { version = "0.14", default-features = false, features = ["http-listener"] }

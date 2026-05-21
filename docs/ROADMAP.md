@@ -24,6 +24,7 @@
 | Boş `Ok(...)` veya stub dönen public method | ~26 (envanterde takipli) |
 | Bilinçli `#[ignore]` test | 36 (detay: bkz. **O. Ignored Test İndeksi**) |
 | **Kapanmış envanter ID'leri (2026-05-14)** | C-01, C-02, C-04, C-06, C-07, K-01, K-02, K-04, **K-06**, L-01..L-04, M-01, M-02, M-03, M-04, M-05, **M-09 (core)**, N-04, N-07, G-01, G-02, W-05, W-06, B-01, B-02, **+ CI sprint (clippy/fmt/rustdoc/audit/deny)** (**26+ envanter girdisi**) |
+| **4-node yerel devnet (2026-05-21)** | ✅ Gerçek libp2p çok-process devnet: ayrı `qv-node`'lar bağlanıp blok gossip'liyor ve aynı zincirde yakınsıyor (round-robin lider); Dilithium-imzalı transfer 4 node'a yayılıyor. Launcher + CLI monitor + transfer demoları eklendi. Detay: PROJECT_STATUS.md / MEMORY.md (2026-05-21 oturumu) |
 
 ---
 
@@ -70,8 +71,8 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 | M-07 | `crates/qv-miner/src/registration.rs:64-68` | UTXO seçimi/change/cold-key imzalama yok; tek dummy input | Faz 1 |
 | M-08 | `crates/qv-miner/src/registration.rs:99-107` | `submit_via_rpc` RPC çağırmıyor, `"txid_placeholder"` döner | Faz 1 |
 | ~~M-09~~ | `crates/qv-miner/src/main.rs::cmd_run` | ✅ **KAPATILDI 2026-05-12 (core scaffolding)** — `sleep(u64::MAX)` kaldırıldı; gerçek akış: keystore load (QV_KEYSTORE_PASS env veya `rpassword` prompt) → OperatorKeys (Argon2id+AES-GCM decrypt) → mock single-pool stake distribution → SlotLoop initialize + `run_slot_loop` çağrısı → graceful Ctrl+C shutdown via `tokio::select!`. Production block submit/stake fetch RPC bağımlılıkları yeni envanter olarak ayrıldı (**M-09b**, **M-09c**) | — |
-| M-09b | (yeni) `qv-miner::cmd_run` ↔ node RPC | **Açık** — stake distribution + epoch nonce node'dan çekme (`qv_getStakeDistribution`, `qv_getEpochNonce` RPC eklenmesi gerekiyor). Şu an mock single-pool placeholder; epoch boundary'sinde refresh yok | Faz 4 |
-| M-09c | (yeni) `qv-miner::cmd_run` ↔ node RPC | **Açık** — üretilen bloğu node'a yollamak için yeni endpoint (`qv_submitBlock`) + miner tarafında call. Şu an block producer callback sadece "would produce" log basıyor | Faz 4 |
+| ~~M-09b~~ | ✅ **KAPATILDI 2026-05-15** — `qv-node` artık `qv_getStakeDistribution` ve `qv_getEpochNonce` RPC endpoint'leri sunuyor. `Node`'a `Arc<RwLock<StakeDistribution>>` ve `Arc<RwLock<EpochNonce>>` paylaşılan state'i eklendi; `spawn_slot_ticker` lokal pool config'i bu paylaşılan state'e de yazıyor. `qv-miner::node_rpc::NodeRpcClient` yeni modülü RPC çağrılarını yapar; `cmd_run` artık mock single-pool kullanmıyor — node'dan gerçek distribution + nonce çekiyor, pool kayıtlı değilse net hata ile çıkıyor | — |
+| ~~M-09c~~ | ✅ **KAPATILDI 2026-05-15** — `qv-node` artık `qv_submitBlock(hex) -> block_hash_hex` + `qv_getPendingTransactions() -> Vec<hex>` endpoint'leri sunuyor. `RpcServer` event_tx kanalını alır ve gelen blokları `NodeEvent::BlockReceived` üzerinden ana akışa dispatch eder (handle_block: linkage + UTXO apply + gossip). `qv-miner::cmd_run` block_producer_fn artık gerçek: tip fetch → pending tx fetch → merkle root → unsigned header → KES sign → bincode serialize → `submit_block` RPC. `slot_loop::run_slot_loop` artık VrfProof'u callback'e geçiriyor. Bonus: `qv_getTip` artık `Debug` yerine canonical hex `to_hex()` döndürüyor (önceki bug düzeltildi) | — |
 | M-10 | `crates/qv-miner/src/main.rs:182-188` | `cmd_dashboard` log atıp dönüyor; ratatui TUI yok | Faz 9 |
 | M-11 | `crates/qv-miner/src/dashboard.rs:140, 281` | `render_dashboard_placeholder` ASCII art mockup | Faz 9 |
 | M-12 | `crates/qv-miner/src/block_producer.rs:154-161` | `RpcMempoolProvider.get_mempool_status` sabit 0 döner | Faz 1 |
@@ -112,7 +113,7 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 
 | ID | Yer | Sorun | Kapatan faz |
 |---|---|---|---|
-| NET-01 | `crates/qv-net/src/transport.rs` | Sadece klasik Noise XX (X25519). Hibrit KEM (X25519 + Kyber) handshake yok | Faz 4 |
+| ~~NET-01~~ | ✅ **KAPATILDI 2026-05-15** (ADR-007). `qv-net/src/handshake.rs` yazıldı (~470 satır + 7 unit test). Wire: `request_response::Behaviour<HandshakeCodec>` üzerinde `/quantumvault/handshake/1.0.0` tek-RTT protokolü. `HandshakeHello` + `HandshakeAck` bincode'lu, frame ≤ 8 KiB. `qv-crypto::encapsulate_hybrid`/`decapsulate_hybrid` (ML-KEM-768) + transcript-bound KDF kullanılıyor. `session_binding = SHA3-256(tag || ss || init_pid || resp_pid)` constant-time karşılaştırılıyor. `NetworkNode` her ConnectionEstablished'da dialer ise Hello gönderir; per-peer `SessionStore` shared secret tutuyor (disconnect'te siliniyor — replay sigortası). Noise-XX kimlik katmanı yerinde duruyor (PQC gizlilik üst katmanı) | — |
 | NET-02 | `crates/qv-net/src/message.rs:60` | `Vote` variant'ı "placeholder — concrete fields depend on finality design" | Faz 3 (finality) sonrası |
 
 ### H. qv-mempool
@@ -141,6 +142,7 @@ Kullanıcının lokalde `cargo build --workspace` koşması ile çıkan derleme 
 |---|---|---|---|
 | ~~B-01~~ | `crates/qv-wallet/src/main.rs:314` | `stealth.view_kp.public.as_bytes()` çağrıldı ama `HybridPublicKey`'de `as_bytes` metodu yok — alanlar `.x25519: [u8;32]` ve `.kyber: Vec<u8>` ayrı | ✅ Düzeltildi: stealth address derive iki alanı ayrı hash'e ekliyor |
 | ~~B-02~~ | `crates/qv-node/src/node.rs:482` | `chain_state.tip()` `&ChainEntry` referansı dönüyor; lock guard düştüğünde dangling oluyordu | ✅ Düzeltildi: `tip_height()` + `tip_hash()` (owned değer dönüyor) kullanıldı |
+| ~~B-03~~ | `crates/qv-node/Cargo.toml` ve `crates/qv-miner/Cargo.toml` | `cargo nextest run --workspace --all-features` Windows MSVC ortamında "crate `librocksdb_sys` required to be available in rlib format" hatası verir. `[lib]` + `[[bin]]` ve transitive `*-sys` (rocksdb) etkileşiminden kaynaklanan Cargo limit. Bin'lerin kendi testi olmadığı için `test = false, doctest = false, bench = false` ekleyerek bin'in test profilinde derlenmesini engelledik. Lib + `tests/` dizini hala tam coverage'a sahip; bin'ler `cargo build --workspace` ile normal derliyor | ✅ Düzeltildi 2026-05-15 |
 
 **Bu bulguların büyük kazanımı:** İlk hata wallet bin'e geldi — yani **tüm üst katman crate'ler** (qv-common, qv-core, qv-crypto, qv-script, qv-consensus, qv-storage, qv-net, qv-mempool, qv-privacy, qv-defi) ve qv-wallet lib derledi. Bu C-07 (schnorrkel verify) endişesini büyük ölçüde kapattı: schnorrkel 0.11 API çağrılarım uyumlu çıktı.
 

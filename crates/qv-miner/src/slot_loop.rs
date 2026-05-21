@@ -7,7 +7,9 @@
 //! 4. Advances to the next slot.
 
 use crate::MinerResult;
-use qv_consensus::{check_leadership, EpochNonce, SlotClock, StakeDistribution, VrfEvaluator};
+use qv_consensus::{
+    check_leadership, EpochNonce, SlotClock, StakeDistribution, VrfEvaluator, VrfProof,
+};
 use qv_core::{Epoch, Hash256, ProtocolParams, Slot, Timestamp};
 use std::time::Duration;
 use tokio::time::interval;
@@ -91,7 +93,10 @@ pub async fn run_slot_loop<V, F>(
 ) -> MinerResult<()>
 where
     V: VrfEvaluator,
-    F: FnMut(Slot) -> std::pin::Pin<Box<dyn std::future::Future<Output = MinerResult<()>> + Send>>,
+    F: FnMut(
+        Slot,
+        VrfProof,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = MinerResult<()>> + Send>>,
 {
     slot_loop.is_running = true;
     let slot_duration = Duration::from_millis(slot_loop.slot_clock.slot_duration_ms());
@@ -130,22 +135,24 @@ where
             continue;
         };
 
-        // Check if elected as leader.
-        let is_leader =
+        // Check if elected as leader. On election we forward the VRF
+        // proof to the block-producer callback so it can be embedded in
+        // the block header (where consensus validators verify it).
+        let leadership =
             match check_leadership(vrf, pool_id, &nonce, slot_loop.current_slot, distribution) {
-                Ok(Some(_)) => true,
-                Ok(None) => false,
+                Ok(Some(pair)) => Some(pair),
+                Ok(None) => None,
                 Err(e) => {
                     tracing::error!(?e, "failed to check leadership");
                     continue;
                 }
             };
 
-        if is_leader {
+        if let Some((_output, proof)) = leadership {
             tracing::info!(slot = %slot_loop.current_slot, "elected as slot leader");
 
             // Attempt to produce and gossip a block.
-            if let Err(e) = block_producer_fn(slot_loop.current_slot).await {
+            if let Err(e) = block_producer_fn(slot_loop.current_slot, proof).await {
                 tracing::error!(?e, "block production failed");
                 // Continue to the next slot even if production fails.
             }
@@ -222,7 +229,7 @@ mod tests {
         // Run for a short time and then return.
         let handle = tokio::spawn(async move {
             let sl = slot_loop;
-            let producer = |_slot: Slot| -> std::pin::Pin<
+            let producer = |_slot: Slot, _proof: VrfProof| -> std::pin::Pin<
                 Box<dyn std::future::Future<Output = MinerResult<()>> + Send>,
             > { Box::pin(async move { Ok::<(), MinerError>(()) }) };
 

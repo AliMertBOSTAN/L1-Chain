@@ -37,6 +37,16 @@ pub enum NodeEvent {
     Shutdown,
 }
 
+/// Parse a 32-byte seed from a hex string, with a descriptive error.
+fn parse_seed32(hex_str: &str, field: &str) -> crate::NodeResult<[u8; 32]> {
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| crate::NodeError::Config(format!("invalid {field}: {e}")))?;
+    bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| crate::NodeError::Config(format!("{field} must be exactly 32 bytes")))
+}
+
 /// The full node.
 pub struct Node {
     config: NodeConfig,
@@ -46,6 +56,15 @@ pub struct Node {
     utxo_store: Arc<UtxoStore<MemoryKvStore>>,
     // Consensus
     chain_state: Arc<tokio::sync::Mutex<ChainState>>,
+    /// Currently-active stake distribution (the per-epoch snapshot used
+    /// for VRF leader election). Shared with the slot ticker and exposed
+    /// over RPC via `qv_getStakeDistribution`. Read-heavy; mutated only
+    /// at startup and at epoch boundaries (future work).
+    stake_distribution: Arc<tokio::sync::RwLock<StakeDistribution>>,
+    /// Currently-active epoch nonce. Shared with the slot ticker and
+    /// exposed over RPC via `qv_getEpochNonce`. Evolves at every epoch
+    /// boundary as described in `qv_consensus::epoch`.
+    epoch_nonce: Arc<tokio::sync::RwLock<EpochNonce>>,
     // Networking — the NetworkNode is consumed by a background task in `run()`.
     network_node: Option<NetworkNode>,
     // Gossip command channel (send messages to be published by the network task).
@@ -100,6 +119,23 @@ impl Node {
             &proto_params.consensus,
         )));
 
+        // Initialize shared epoch-frozen state. The distribution starts
+        // empty for the genesis epoch; `spawn_slot_ticker` will populate
+        // it from the local stake-pool config when present, and pool
+        // registration TXs (M-07/M-08) will extend it once on-chain
+        // registrations are processed at epoch boundaries.
+        let stake_distribution = Arc::new(tokio::sync::RwLock::new(
+            StakeDistribution::new(
+                Epoch::GENESIS,
+                Vec::<(qv_consensus::stake::PoolId, Amount)>::new(),
+            )
+            .map_err(|e| {
+                let ce: qv_consensus::ConsensusError = e.into();
+                crate::NodeError::Consensus(ce)
+            })?,
+        ));
+        let epoch_nonce = Arc::new(tokio::sync::RwLock::new(EpochNonce::GENESIS));
+
         // Initialize mempool. `ClearPoolConfig` exposes plain fields
         // (`max_tx_count`, `max_pool_bytes`, `min_fee`, `max_age_secs`);
         // use the testnet preset for now, override below if config provides.
@@ -136,6 +172,8 @@ impl Node {
             block_store,
             utxo_store,
             chain_state,
+            stake_distribution,
+            epoch_nonce,
             network_node,
             gossip_tx,
             clear_pool,
@@ -228,7 +266,16 @@ impl Node {
 
     /// Initialize the network node from configuration.
     async fn init_network_node(config: &NodeConfig) -> Result<NetworkNode, crate::NodeError> {
-        let identity = NodeIdentity::generate();
+        // Use a deterministic identity when the config supplies a seed, so
+        // the node's PeerId is stable across restarts and the devnet
+        // launcher / monitor can label each node by a known PeerId.
+        let identity = match &config.node_key_seed_hex {
+            Some(hex_str) => {
+                let seed = parse_seed32(hex_str, "node_key_seed_hex")?;
+                NodeIdentity::from_seed(seed)?
+            }
+            None => NodeIdentity::generate(),
+        };
         let listen_addr: Multiaddr = config
             .listen_addr
             .parse()
@@ -243,7 +290,11 @@ impl Node {
         network_node.listen(listen_addr)?;
         network_node.subscribe_all()?;
 
-        info!("network node initialized");
+        info!(
+            peer_id = %network_node.local_peer_id(),
+            listen = %config.listen_addr,
+            "network node initialized"
+        );
         Ok(network_node)
     }
 
@@ -336,12 +387,20 @@ impl Node {
                 Epoch::GENESIS,
             ),
         ));
+        let slot_clock_for_rpc = SlotClock::new(
+            &self.protocol_params.consensus,
+            self.protocol_params.genesis_time,
+        );
         let rpc_server_impl = RpcServer::new(
             Arc::clone(&self.block_store),
             Arc::clone(&self.utxo_store),
             Arc::clone(&self.chain_state),
             Arc::clone(&self.clear_pool),
             Arc::clone(&encrypted_pool),
+            Arc::clone(&self.stake_distribution),
+            Arc::clone(&self.epoch_nonce),
+            slot_clock_for_rpc,
+            self.event_tx.clone(),
         );
         let rpc_module = rpc_server_impl.into_rpc();
 
@@ -529,35 +588,76 @@ impl Node {
         &self,
         pool_cfg: &crate::config::StakePoolConfig,
     ) -> crate::NodeResult<()> {
-        // Parse VRF seed from hex.
-        let vrf_seed_bytes = hex::decode(&pool_cfg.vrf_seed_hex)
-            .map_err(|e| crate::NodeError::Config(format!("invalid vrf_seed_hex: {e}")))?;
-        let vrf_seed: [u8; 32] = vrf_seed_bytes.as_slice().try_into().map_err(|_| {
-            crate::NodeError::Config("vrf_seed must be exactly 32 bytes".to_string())
-        })?;
-
-        // Create VRF evaluator (test deterministic for now).
+        // This node's own VRF seed and the pool id derived from it.
+        let vrf_seed = parse_seed32(&pool_cfg.vrf_seed_hex, "vrf_seed_hex")?;
         let vrf = TestVrf::new(vrf_seed);
+        let my_pool_id = qv_consensus::stake::PoolId::from_vrf_key(&vrf_seed);
 
-        // Create slot clock from protocol params.
         let slot_clock = SlotClock::new(
             &self.protocol_params.consensus,
             self.protocol_params.genesis_time,
         );
 
-        // Create stake distribution with a single pool.
-        let pool_id = qv_consensus::stake::PoolId::from_vrf_key(&vrf_seed);
-        let initial_stake = Amount::from_smallest_units(pool_cfg.initial_stake);
-        let stake_dist = StakeDistribution::new(Epoch::GENESIS, vec![(pool_id, initial_stake)])
-            .map_err(|e| {
+        // Build the stake distribution. When the config carries a shared
+        // genesis-pool set (multi-node devnet) every pool is included, so
+        // all nodes agree on the stake split and — with round-robin — on
+        // the leader schedule. Otherwise fall back to the single,
+        // locally-configured pool (single-node behaviour).
+        let (stake_dist, round_robin) = if self.config.genesis_pools.is_empty() {
+            let initial_stake = Amount::from_smallest_units(pool_cfg.initial_stake);
+            let dist = StakeDistribution::new(Epoch::GENESIS, vec![(my_pool_id, initial_stake)])
+                .map_err(|e| {
+                    let ce: qv_consensus::ConsensusError = e.into();
+                    crate::NodeError::Consensus(ce)
+                })?;
+            (dist, None)
+        } else {
+            let mut pools = Vec::with_capacity(self.config.genesis_pools.len());
+            let mut my_index: Option<u64> = None;
+            for (i, gp) in self.config.genesis_pools.iter().enumerate() {
+                let seed = parse_seed32(&gp.vrf_seed_hex, "genesis_pools.vrf_seed_hex")?;
+                let pid = qv_consensus::stake::PoolId::from_vrf_key(&seed);
+                pools.push((pid, Amount::from_smallest_units(gp.stake)));
+                if seed == vrf_seed {
+                    my_index = Some(i as u64);
+                }
+            }
+            let dist = StakeDistribution::new(Epoch::GENESIS, pools).map_err(|e| {
                 let ce: qv_consensus::ConsensusError = e.into();
                 crate::NodeError::Consensus(ce)
             })?;
+            let rr = if self.config.round_robin_leader {
+                let idx = my_index.ok_or_else(|| {
+                    crate::NodeError::Config(
+                        "this node's vrf_seed_hex is not present in genesis_pools".to_string(),
+                    )
+                })?;
+                Some((idx, self.config.genesis_pools.len() as u64))
+            } else {
+                None
+            };
+            (dist, rr)
+        };
 
-        // Create slot ticker.
-        let ticker = SlotTicker::new(
+        // Publish the distribution + nonce to the shared RwLocks so RPC
+        // callers (`qv_getStakeDistribution`, `qv_getEpochNonce`) and the
+        // slot ticker all observe identical data.
+        {
+            let mut guard = self.stake_distribution.write().await;
+            *guard = stake_dist.clone();
+        }
+        {
+            let mut guard = self.epoch_nonce.write().await;
+            *guard = EpochNonce::GENESIS;
+        }
+
+        // Build the slot ticker. Block production is routed through the
+        // node's event channel (`event_tx`) so produced blocks are
+        // validated, stored, applied, and gossiped on exactly the same
+        // path as peer-received blocks.
+        let mut ticker = SlotTicker::new(
             slot_clock,
-            pool_id,
+            my_pool_id,
             Arc::new(stake_dist),
             EpochNonce::GENESIS,
             vrf,
@@ -566,7 +666,19 @@ impl Node {
             Arc::clone(&self.chain_state),
             Arc::clone(&self.clear_pool),
             pool_cfg.active_slot_coeff,
+            self.event_tx.clone(),
         );
+        if let Some((idx, total)) = round_robin {
+            info!(
+                pool_index = idx,
+                total_pools = total,
+                "slot leader schedule: deterministic round-robin (devnet)"
+            );
+            ticker = ticker.with_round_robin(idx, total);
+        }
+        if self.config.startup_warmup_secs > 0 {
+            ticker = ticker.with_warmup(self.config.startup_warmup_secs);
+        }
 
         // Spawn the ticker on a background task.
         tokio::spawn(async move {

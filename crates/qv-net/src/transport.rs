@@ -106,6 +106,17 @@ impl NodeIdentity {
         Self { keypair }
     }
 
+    /// Build a deterministic Ed25519 identity from a 32-byte seed.
+    ///
+    /// Devnet launchers use this so a node's `PeerId` is stable across
+    /// restarts and can be derived ahead of time — handy for writing a
+    /// fixed bootstrap topology and for labelling nodes in monitoring.
+    pub fn from_seed(seed: [u8; 32]) -> Result<Self, NetError> {
+        let keypair = Keypair::ed25519_from_bytes(seed)
+            .map_err(|e| NetError::Config(format!("invalid node key seed: {e}")))?;
+        Ok(Self { keypair })
+    }
+
     /// The local `PeerId` derived from the public key.
     #[must_use]
     pub fn peer_id(&self) -> PeerId {

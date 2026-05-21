@@ -6,24 +6,42 @@
 //! [`NetworkNode::run`] method drives the event loop.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures::StreamExt;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::identify;
 use libp2p::kad::{self, store::MemoryStore};
 use libp2p::ping;
+use libp2p::request_response::{self, Message as RrMessage};
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::{Multiaddr, PeerId, Swarm, SwarmBuilder};
+use qv_crypto::{generate_hybrid_keypair, HybridKeyPair};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use crate::gossip::{self, GossipConfig, SeenCache};
+use crate::handshake::{
+    build_handshake_behaviour, make_hello, process_ack, respond_to_hello, HandshakeBehaviour,
+    SessionRecord, SessionStore, DEFAULT_KEM_LEVEL,
+};
 use crate::message::{Envelope, NetworkMessage};
 use crate::peer::{ConnectionState, PeerInfo, PeerStore};
 use crate::transport::{NodeIdentity, TransportConfig, QV_AGENT_VERSION, QV_PROTOCOL_VERSION};
 use crate::NetError;
+
+// ---------------------------------------------------------------------------
+// Time helpers
+// ---------------------------------------------------------------------------
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 // ---------------------------------------------------------------------------
 // Rate limiter
@@ -185,6 +203,10 @@ pub struct QvBehaviour {
     pub identify: identify::Behaviour,
     /// Ping for liveness checks.
     pub ping: ping::Behaviour,
+    /// Hybrid X25519+Kyber post-quantum handshake (NET-01 / ADR-007).
+    /// Runs on top of libp2p's classical Noise authentication; provides a
+    /// per-peer post-quantum shared secret deposited into `SessionStore`.
+    pub handshake: HandshakeBehaviour,
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +248,16 @@ pub struct NetworkNode {
     cmd_tx: mpsc::UnboundedSender<NetworkMessage>,
     /// Command channel receiver (consumed inside `run()`).
     cmd_rx: Option<mpsc::UnboundedReceiver<NetworkMessage>>,
+    /// Local hybrid X25519+Kyber keypair used for the post-quantum handshake.
+    /// Sealed inside `Arc` because the keypair is referenced both by the
+    /// behaviour (to embed in outgoing `Hello`s) and by the local response
+    /// path (to `decapsulate_hybrid` inbound ciphertexts).
+    local_hybrid_kp: Arc<HybridKeyPair>,
+    /// Per-peer session secrets derived from completed handshakes. Cloned
+    /// out and exposed via [`NetworkNode::session_store`] so callers can
+    /// look up the session key for a given peer without going through the
+    /// swarm event loop.
+    session_store: SessionStore,
 }
 
 impl NetworkNode {
@@ -250,11 +282,15 @@ impl NetworkNode {
         // Build Ping
         let ping = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(30)));
 
+        // Build the hybrid handshake behaviour (NET-01).
+        let handshake_behaviour = build_handshake_behaviour();
+
         let behaviour = QvBehaviour {
             gossipsub: gossipsub_behaviour,
             kademlia,
             identify,
             ping,
+            handshake: handshake_behaviour,
         };
 
         let swarm = SwarmBuilder::with_existing_identity(keypair)
@@ -275,6 +311,16 @@ impl NetworkNode {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
+        // Generate the local hybrid keypair used as the initiator pubkey in
+        // every Hello we send out. One keypair per node lifetime: the
+        // primitive uses an internal ephemeral X25519 keypair on every
+        // `encapsulate_hybrid` call, so reusing the long-lived keypair as
+        // the *responder pubkey* is safe.
+        let local_hybrid_kp = Arc::new(generate_hybrid_keypair(DEFAULT_KEM_LEVEL).map_err(
+            |e| NetError::Transport(format!("hybrid keypair generation failed: {e}")),
+        )?);
+        let session_store = SessionStore::new();
+
         Ok(Self {
             swarm,
             peer_store: PeerStore::new(),
@@ -284,7 +330,17 @@ impl NetworkNode {
             event_rx: Some(event_rx),
             cmd_tx,
             cmd_rx: Some(cmd_rx),
+            local_hybrid_kp,
+            session_store,
         })
+    }
+
+    /// Cloneable handle to the per-peer session store. Downstream
+    /// components consult this to find the post-handshake shared secret
+    /// for a given peer.
+    #[must_use]
+    pub fn session_store(&self) -> SessionStore {
+        self.session_store.clone()
     }
 
     /// Take the event receiver channel (can only be called once).
@@ -457,13 +513,14 @@ impl NetworkNode {
                 } => {
                     info!(peer = %peer_id, endpoint = ?endpoint, "connected");
 
+                    let is_dialer = endpoint.is_dialer();
                     let mut peer_info = self
                         .peer_store
                         .get(&peer_id)
                         .cloned()
                         .unwrap_or_else(|| PeerInfo::new(peer_id));
                     peer_info.state = ConnectionState::Connected;
-                    peer_info.direction = Some(if endpoint.is_dialer() {
+                    peer_info.direction = Some(if is_dialer {
                         crate::peer::Direction::Outbound
                     } else {
                         crate::peer::Direction::Inbound
@@ -471,6 +528,113 @@ impl NetworkNode {
                     self.peer_store.upsert(peer_info);
 
                     let _ = self.event_tx.send(NetEvent::PeerConnected(peer_id));
+
+                    // Dialer initiates the hybrid handshake. The
+                    // responder side replies inside its `Request` event
+                    // arm below; either side that already has a session
+                    // for this peer skips re-handshaking.
+                    if is_dialer && self.session_store.get(&peer_id).is_none() {
+                        let hello = make_hello(
+                            self.swarm.local_peer_id(),
+                            self.local_hybrid_kp.as_ref(),
+                        );
+                        let _ = self
+                            .swarm
+                            .behaviour_mut()
+                            .handshake
+                            .send_request(&peer_id, hello);
+                        debug!(peer = %peer_id, "hybrid handshake: Hello dispatched");
+                    }
+                }
+
+                SwarmEvent::Behaviour(QvBehaviourEvent::Handshake(
+                    request_response::Event::Message { peer, message },
+                )) => match message {
+                    RrMessage::Request {
+                        request, channel, ..
+                    } => {
+                        match respond_to_hello(&request, self.swarm.local_peer_id()) {
+                            Ok((ack, ss, initiator_pid)) => {
+                                // Store the responder-side session secret
+                                // BEFORE we hand the ack back, so a later
+                                // burst of traffic from the same peer can
+                                // already look up the session key.
+                                self.session_store.insert(
+                                    initiator_pid,
+                                    SessionRecord {
+                                        shared_secret: ss,
+                                        completed_at: now_unix_secs(),
+                                    },
+                                );
+                                if self
+                                    .swarm
+                                    .behaviour_mut()
+                                    .handshake
+                                    .send_response(channel, ack)
+                                    .is_err()
+                                {
+                                    warn!(
+                                        peer = %peer,
+                                        "hybrid handshake: response channel already closed"
+                                    );
+                                }
+                                debug!(peer = %peer, "hybrid handshake: Ack sent");
+                            }
+                            Err(e) => {
+                                warn!(peer = %peer, error = %e, "hybrid handshake: rejected Hello");
+                                if let Some(info) = self.peer_store.get_mut(&peer) {
+                                    info.record_failure();
+                                }
+                            }
+                        }
+                    }
+                    RrMessage::Response { response, .. } => {
+                        match process_ack(
+                            &response,
+                            self.local_hybrid_kp.as_ref(),
+                            self.swarm.local_peer_id(),
+                        ) {
+                            Ok((ss, responder_pid)) => {
+                                self.session_store.insert(
+                                    responder_pid,
+                                    SessionRecord {
+                                        shared_secret: ss,
+                                        completed_at: now_unix_secs(),
+                                    },
+                                );
+                                info!(
+                                    peer = %peer,
+                                    sessions = self.session_store.len(),
+                                    "hybrid handshake completed (initiator)"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(peer = %peer, error = %e, "hybrid handshake: Ack rejected");
+                                if let Some(info) = self.peer_store.get_mut(&peer) {
+                                    info.record_failure();
+                                }
+                            }
+                        }
+                    }
+                },
+
+                SwarmEvent::Behaviour(QvBehaviourEvent::Handshake(
+                    request_response::Event::OutboundFailure { peer, error, .. },
+                )) => {
+                    warn!(peer = %peer, error = ?error, "hybrid handshake: outbound failure");
+                    if let Some(info) = self.peer_store.get_mut(&peer) {
+                        info.record_failure();
+                    }
+                }
+
+                SwarmEvent::Behaviour(QvBehaviourEvent::Handshake(
+                    request_response::Event::InboundFailure { peer, error, .. },
+                )) => {
+                    warn!(peer = %peer, error = ?error, "hybrid handshake: inbound failure");
+                }
+
+                SwarmEvent::Behaviour(QvBehaviourEvent::Handshake(_)) => {
+                    // ResponseSent and any other variants — no-op.
                 }
 
                 SwarmEvent::ConnectionClosed { peer_id, .. } => {
@@ -479,6 +643,10 @@ impl NetworkNode {
                     if let Some(info) = self.peer_store.get_mut(&peer_id) {
                         info.state = ConnectionState::Disconnected;
                     }
+                    // Drop the post-handshake session: a future connection
+                    // to the same peer will re-handshake from scratch,
+                    // preventing replay of stale shared secrets.
+                    self.session_store.remove(&peer_id);
 
                     let _ = self.event_tx.send(NetEvent::PeerDisconnected(peer_id));
                 }

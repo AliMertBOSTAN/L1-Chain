@@ -2,6 +2,78 @@
 
 Comprehensive documentation for operating the QuantumVault devnet: setup, monitoring, troubleshooting, and recovery procedures.
 
+> **Not (2026-05-21):** Aşağıdaki bölümlerin çoğu Docker Compose tabanlı 3-node
+> devnet'i anlatır. Docker gerektirmeyen hızlı bir yerel test için yeni eklenen
+> **4-node `run-devnet` devnet'ini** kullan — bir sonraki bölüme bak.
+
+---
+
+## Hızlı 4-Node Yerel Devnet (run-devnet) — 2026-05-21
+
+Docker gerektirmeyen, gerçek libp2p üzerinden konuşan 4 ayrı `qv-node`
+process'i. Node'lar birbirine bağlanır, blok gossip'ler, round-robin slot
+lider planıyla blok üretir ve aynı zincirde yakınsar.
+
+### Başlat / izle / transfer / durdur
+
+Windows PowerShell:
+
+```
+.\devnet\run-devnet.ps1 start                   # derle + 4 node baslat
+python devnet\monitor.py --work devnet\work4    # 2. terminalde canli monitor
+cargo run -p qv-node --example wallet_transfer  # 3. terminalde transfer
+.\devnet\run-devnet.ps1 stop                    # durdur
+```
+
+Linux / WSL:
+
+```
+bash devnet/run-devnet.sh start
+python3 devnet/monitor.py --work devnet/work4
+cargo run -p qv-node --example wallet_transfer
+bash devnet/run-devnet.sh stop
+```
+
+`run-devnet.{sh,ps1} status` her node'un zincir ucunu (height) gösterir.
+
+### Portlar
+
+| Node  | RPC  | P2P   | Metrics |
+|-------|------|-------|---------|
+| node0 | 8545 | 17001 | 9601    |
+| node1 | 8546 | 17002 | 9602    |
+| node2 | 8547 | 17003 | 9603    |
+| node3 | 8548 | 17004 | 9604    |
+
+### Bileşenler
+
+- `devnet/run-devnet.sh` / `run-devnet.ps1` — 4 node config'i üretir, node'ları
+  başlatır (start/stop/status). Config + loglar `devnet/work4/` altına yazılır.
+- `devnet/monitor.py` — canlı CLI explorer: node tablosu, konsensüs (slot lider,
+  epoch, k-finalite), p2p/gossip, yakınsama, son bloklar, kalıcı
+  "TRANSACTIONS ON CHAIN" listesi, cüzdan bakiyeleri. `--once` tek görüntü,
+  `--iter N` N kez yeniler.
+- `crates/qv-node/examples/transfer_demo.rs` — tek seferlik A→B transfer.
+- `crates/qv-node/examples/wallet_transfer.rs` — tekrar çalıştırılabilir,
+  baştan sona açıklamalı A→B transfer (devnet'i sıfırlamadan).
+
+### Ortam değişkenleri
+
+- `QV_WARMUP` — node'ların blok üretmeden önce beklediği saniye (varsayılan 12).
+- `QV_STAGGER` — node başlatma aralığı, saniye (varsayılan 1).
+- `QV_DEVNET_WORK` — config/log çalışma dizini (varsayılan `devnet/work4`).
+- `QV_NODE_BIN` — hazır bir qv-node binary yolu (verilirse `cargo build` atlanır).
+
+### Notlar
+
+- Depolama bellek-içidir: her `stop`/`start` zinciri sıfırdan genesis'le başlatır.
+- Lider seçimi deterministik round-robin'dir (slot S → pool `S % 4`); her slotta
+  tek lider → çatallanma yok. VRF Praos yolu `round_robin_leader = false` ile
+  korunur. Gerekçe: bkz. MEMORY.md / PROJECT_STATUS.md (2026-05-21 oturumu).
+- Slot süresi ve k-finalite `config/devnet.toml`'dan gelir (500 ms slot, k=5).
+
+---
+
 ## Table of Contents
 
 1. [System Requirements](#system-requirements)
@@ -593,4 +665,4 @@ For issues not covered above:
 
 ---
 
-**Last Updated:** 2026-04-27 | AŞAMA 13
+**Last Updated:** 2026-05-21 | 4-node `run-devnet` yerel devnet + CLI monitor eklendi

@@ -62,6 +62,7 @@ pub mod config;
 pub mod dashboard;
 pub mod keys;
 pub mod keystore;
+pub mod node_rpc;
 pub mod registration;
 pub mod slot_loop;
 

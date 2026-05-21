@@ -1,0 +1,13 @@
+{
+  "genesis_txid": "fa9ea55bcb8362c950487362f7f95417d9a30dce1c379574b22b9c25c059ddec",
+  "wallet_a": {
+    "account": 0,
+    "genesis_outpoint": "fa9ea55bcb8362c950487362f7f95417d9a30dce1c379574b22b9c25c059ddec#0",
+    "pubkey_hash": "ac929b89ce3753796934e2b7f7d31c7e9ebe98fea8a1c8b4fb4dbee23496f7b5"
+  },
+  "wallet_b": {
+    "account": 1,
+    "genesis_outpoint": "fa9ea55bcb8362c950487362f7f95417d9a30dce1c379574b22b9c25c059ddec#1",
+    "pubkey_hash": "8547cac21988e3284849d771855ab7cc9bc44f3c569ae42e2312de8f74003d61"
+  }
+}

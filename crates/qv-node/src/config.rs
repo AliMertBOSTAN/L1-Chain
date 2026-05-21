@@ -41,6 +41,39 @@ pub struct NodeConfig {
     /// Stake pool operator configuration (optional)
     #[serde(default)]
     pub stake_pool: Option<StakePoolConfig>,
+
+    /// Optional 32-byte hex seed for a deterministic libp2p node identity.
+    /// When set, the node's `PeerId` is stable across restarts.
+    #[serde(default)]
+    pub node_key_seed_hex: Option<String>,
+
+    /// Shared genesis stake-pool set. When non-empty the node builds the
+    /// full multi-pool stake distribution from this list (used by the
+    /// multi-node devnet so every node agrees on the stake split).
+    #[serde(default)]
+    pub genesis_pools: Vec<GenesisPoolConfig>,
+
+    /// Use a deterministic round-robin slot-leader schedule instead of
+    /// VRF election (devnet only). The leader of slot `S` is genesis
+    /// pool `S % n`. Guarantees exactly one leader per slot — no forks.
+    #[serde(default)]
+    pub round_robin_leader: bool,
+
+    /// Seconds to wait after startup before the slot ticker starts
+    /// producing blocks. Lets every peer connect and the gossip mesh
+    /// form first, so no node produces a block before the network is up.
+    #[serde(default)]
+    pub startup_warmup_secs: u64,
+}
+
+/// One stake pool in the shared devnet genesis set. Every node carries
+/// the identical list so they all build the same `StakeDistribution`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenesisPoolConfig {
+    /// VRF seed (32-byte hex). Pool id is `PoolId::from_vrf_key(seed)`.
+    pub vrf_seed_hex: String,
+    /// Pool stake in smallest units.
+    pub stake: u64,
 }
 
 /// Gossip / networking configuration.
@@ -165,6 +198,10 @@ impl NodeConfig {
                 initial_stake: 1_000_000_000,
                 active_slot_coeff: 0.05,
             }),
+            node_key_seed_hex: None,
+            genesis_pools: Vec::new(),
+            round_robin_leader: false,
+            startup_warmup_secs: 0,
         }
     }
 
@@ -194,6 +231,10 @@ impl NodeConfig {
             },
             storage_backend: "redb".to_string(),
             stake_pool: None,
+            node_key_seed_hex: None,
+            genesis_pools: Vec::new(),
+            round_robin_leader: false,
+            startup_warmup_secs: 0,
         }
     }
 
@@ -223,6 +264,10 @@ impl NodeConfig {
             },
             storage_backend: "rocksdb".to_string(),
             stake_pool: None,
+            node_key_seed_hex: None,
+            genesis_pools: Vec::new(),
+            round_robin_leader: false,
+            startup_warmup_secs: 0,
         }
     }
 

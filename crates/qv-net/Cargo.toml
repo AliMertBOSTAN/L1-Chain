@@ -11,16 +11,19 @@ description  = "P2P transport (libp2p) with hybrid-KEM handshake and gossip."
 workspace = true
 
 [dependencies]
-qv-common  = { workspace = true }
-thiserror  = { workspace = true }
-tracing    = { workspace = true }
-serde      = { workspace = true }
-bincode    = { workspace = true }
-qv-core    = { path = "../qv-core" }
-qv-crypto  = { path = "../qv-crypto" }
-libp2p     = { workspace = true }
-tokio      = { workspace = true }
-futures    = { workspace = true }
+qv-common   = { workspace = true }
+thiserror   = { workspace = true }
+tracing     = { workspace = true }
+serde       = { workspace = true }
+bincode     = { workspace = true }
+qv-core     = { path = "../qv-core" }
+qv-crypto   = { path = "../qv-crypto" }
+libp2p      = { workspace = true }
+tokio       = { workspace = true }
+futures     = { workspace = true }
+# Hybrid X25519+Kyber handshake codec (NET-01 / ADR-007).
+async-trait = { workspace = true }
+subtle      = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

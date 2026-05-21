@@ -1,6 +1,70 @@
 ﻿# QuantumVault — Proje Durumu
 
-_Son güncelleme: 2026-05-14 (CI pipeline tamamen yeşillendi: 5 job)_
+_Son güncelleme: 2026-05-21 (4-node yerel devnet gerçekten yakınsıyor + monitoring)_
+
+---
+
+## 4-Node Yerel Devnet + Monitoring (2026-05-21)
+
+Gerçek çok-process bir 4-node libp2p devnet ayağa kaldırıldı: ayrı `qv-node`
+process'leri birbirine bağlanıyor, blok gossip'liyor, round-robin slot lider
+planıyla blok üretiyor ve **dördü de aynı zincirde yakınsıyor**. Üstüne
+log/RPC tabanlı bir CLI monitor ve cüzdan transfer demoları eklendi. Sandbox'ta
+`cargo build -p qv-node` ile derlenip 4-node çalıştırılarak doğrulandı: node'lar
+libp2p üzerinden bağlandı, blokları gossip etti, aynı tip'te yakınsadı;
+Dilithium-imzalı bir A→B transfer 4 node'a da yayıldı.
+
+### Kapatılan konsensüs/ağ boşlukları
+
+- **Blok üretimi node event loop'una bağlandı** (`qv-node/slot_ticker.rs`):
+  üretilen blok artık doğrudan depoya yazılmıyor; `NodeEvent::BlockReceived`
+  ile node ana döngüsüne gidiyor → peer'dan gelen blokla aynı yoldan
+  doğrulanıyor, UTXO'ya uygulanıyor, depolanıyor ve **gossip'leniyor**. Eskiden
+  üretilen blok gossip'lenmediği için çok-node asla yakınsayamazdı.
+- **Deterministik node kimliği** (`qv-net/transport.rs` `NodeIdentity::from_seed`,
+  `qv-node/node.rs`): `node_key_seed_hex` config alanı → PeerId başlatmalar
+  arası sabit.
+- **Çok-pool stake dağıtımı + node başına VRF seed** (`qv-node/node.rs`
+  `spawn_slot_ticker`, `config.rs`): yeni `genesis_pools` config alanı → tüm
+  node'lar aynı 4-pool `StakeDistribution`'ı kuruyor.
+- **Round-robin devnet lideri** (`config.rs` `round_robin_leader`,
+  `slot_ticker.rs`): slot S'nin lideri = pool `S % n` → her slotta tam bir
+  lider → çatallanma yok. `round_robin_leader = false` ile VRF Praos yolu
+  korunuyor.
+- **Başlangıç warmup'ı** (`startup_warmup_secs`): blok üretimi, peer'lar
+  bağlanana kadar bekliyor.
+- Peer/gossip metrikleri `network_handler.rs`'de bağlandı (monitor için).
+
+### Derleme değişiklikleri
+
+- `qv-storage`: `rocksdb` artık opsiyonel, varsayılan-kapalı bir feature. Node
+  `MemoryKvStore` kullanıyor, `redb` saf-Rust kalıcılığı sağlıyor; derleme artık
+  C++ toolchain / libclang gerektirmiyor. RocksDB backend'i `--features rocksdb`
+  ile hâlâ kullanılabilir.
+- `qv-node/Cargo.toml`: `metrics-exporter-prometheus` →
+  `default-features = false, features = ["http-listener"]` (varsayılan
+  `push-gateway` özelliği `hyper-tls → openssl-sys` çekiyordu).
+
+### Yeni teslimler
+
+- `devnet/run-devnet.sh` + `devnet/run-devnet.ps1` — 4-node devnet launcher
+  (start/stop/status).
+- `devnet/monitor.py` — canlı CLI explorer (konsensüs, p2p/gossip, yakınsama,
+  tx yaşam döngüsü, cüzdanlar).
+- `crates/qv-node/examples/transfer_demo.rs` — tek seferlik A→B transfer.
+- `crates/qv-node/examples/wallet_transfer.rs` — tekrar çalıştırılabilir,
+  baştan sona açıklamalı A→B transfer.
+
+### Bilinen sınır (dürüst not)
+
+Devnet, olasılıksal VRF yerine round-robin lider kullanıyor. Sebep:
+`Node::handle_block` UTXO-set reorg yapmıyor (yalnızca yapı + zincir-bağı
+doğrulaması) — olasılıksal çift-lider slotları kalıcı çatallanmaya yol açardı.
+Round-robin her slotta tek lider garantiler. `handle_block` ayrıca VRF/KES'i
+yeniden doğrulamaz (lider seçimi üretim anında olur). Gerçek VRF Praos +
+reorg + `handle_block` içinde VRF/KES doğrulama gelecek iş olarak duruyor.
+
+---
 
 > **⚠️ Önemli Düzeltme (2026-05-06):**
 > Bu dosyanın önceki başlığında geçen "AŞAMA 15 tamamlandı — code-complete"

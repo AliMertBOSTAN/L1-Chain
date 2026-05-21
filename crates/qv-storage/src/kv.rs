@@ -13,7 +13,6 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use redb::{Database, TableDefinition};
-use rocksdb::{Direction, IteratorMode, Options, WriteBatch, DB};
 
 use crate::{StorageError, StorageResult};
 
@@ -168,6 +167,21 @@ impl KvStore for MemoryKvStore {
     }
 }
 
+// RocksDB backend — gated behind the `rocksdb` feature so the workspace
+// builds without a C++ toolchain / libclang (bindgen). The node runs on the
+// in-memory backend; `redb` covers pure-Rust persistence. Enable the
+// `rocksdb` feature for a production RocksDB-backed deployment.
+#[cfg(feature = "rocksdb")]
+pub use rocks_backend::{RocksBatch, RocksKvStore};
+
+#[cfg(feature = "rocksdb")]
+mod rocks_backend {
+    use super::{BatchOp, KvBatch, KvStore};
+    use crate::{StorageError, StorageResult};
+    use rocksdb::{Direction, IteratorMode, Options, WriteBatch, DB};
+    use std::path::Path;
+    use std::sync::Arc;
+
 /// RocksDB-backed KV store for persistent node state.
 #[derive(Clone)]
 pub struct RocksKvStore {
@@ -285,6 +299,7 @@ impl KvStore for RocksKvStore {
         Ok(out)
     }
 }
+} // mod rocks_backend (feature = "rocksdb")
 
 // ---------------------------------------------------------------------------
 // redb (pure-Rust fallback)
@@ -489,7 +504,9 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{KvBatch, KvStore, MemoryKvStore, RedbKvStore, RocksKvStore};
+    use super::{KvBatch, KvStore, MemoryKvStore, RedbKvStore};
+    #[cfg(feature = "rocksdb")]
+    use super::RocksKvStore;
 
     fn temp_db_path(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -537,6 +554,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rocksdb")]
     fn rocks_kv_basic_roundtrip() {
         let path = temp_db_path("qv_storage_kv_test");
         let kv = RocksKvStore::open(&path).unwrap();

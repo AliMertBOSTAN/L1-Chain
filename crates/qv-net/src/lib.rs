@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod gossip;
+pub mod handshake;
 pub mod message;
 pub mod node;
 pub mod peer;
@@ -53,6 +54,10 @@ pub type NetResult<T> = Result<T, NetError>;
 
 // Re-export headline types at crate root for ergonomic imports.
 pub use gossip::{GossipConfig, SeenCache};
+pub use handshake::{
+    HandshakeAck, HandshakeHello, HANDSHAKE_PROTOCOL_NAME, HANDSHAKE_VERSION, SessionRecord,
+    SessionStore,
+};
 pub use message::{Envelope, MessageKind, NetworkMessage};
 pub use node::{NetEvent, NetworkNode, NodeConfig, RateLimitConfig, RateLimiter};
 pub use peer::{ConnectionState, Direction, PeerInfo, PeerStore};

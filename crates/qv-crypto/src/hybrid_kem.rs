@@ -45,7 +45,7 @@ const KDF_CONTEXT: &[u8] = b"QuantumVault-Hybrid-KEM-v1";
 // ============================================================================
 
 /// Kyber / ML-KEM security level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum KyberLevel {
     /// ML-KEM-512 — NIST category 1 (128-bit PQ).
     Level1,
@@ -104,7 +104,7 @@ impl KyberLevel {
 // ============================================================================
 
 /// Publishable half of a hybrid keypair (what a peer advertises).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HybridPublicKey {
     /// X25519 public key (always 32 bytes).
     pub x25519: [u8; X25519_PK_BYTES],
@@ -151,7 +151,7 @@ impl core::fmt::Debug for HybridKeyPair {
 }
 
 /// Wire-format hybrid ciphertext: `eph_x25519_pk || kyber_ct`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HybridCiphertext {
     /// Raw concatenated bytes.
     pub bytes: Vec<u8>,

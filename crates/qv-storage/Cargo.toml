@@ -17,9 +17,17 @@ tracing      = { workspace = true }
 serde        = { workspace = true }
 qv-core      = { path = "../qv-core" }
 qv-consensus = { path = "../qv-consensus" }
-rocksdb      = { workspace = true }
+rocksdb      = { workspace = true, optional = true }
 redb         = { workspace = true }
 bincode      = { workspace = true }
+
+[features]
+# The RocksDB backend is opt-in: `librocksdb-sys` needs a C++ toolchain and
+# libclang (bindgen) to build. The node runs on the in-memory backend and
+# `redb` provides pure-Rust persistence, so RocksDB is not required to build
+# or run a node. Enable `rocksdb` for a production RocksDB-backed deployment.
+default = []
+rocksdb = ["dep:rocksdb"]
 
 [dev-dependencies]
 proptest = { workspace = true }
