@@ -1,0 +1,11 @@
+{
+  "name": "qv-node-monitor",
+  "version": "1.0.0",
+  "description": "QuantumVault L1 devnet için görsel node izleme paneli (saf Node.js, bağımlılıksız)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Ali-Mert-BOTAN",
+  "license": "ISC"
+}

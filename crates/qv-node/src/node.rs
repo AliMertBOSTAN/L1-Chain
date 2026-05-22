@@ -693,6 +693,9 @@ impl Node {
     /// Handle a received block: validate structure, verify chain linkage, apply to storage,
     /// update consensus state, and remove confirmed transactions from mempool.
     async fn handle_block(&self, block: &Block) -> crate::NodeResult<()> {
+        // Bloğu doğrulayıp uygulama süresini ölç (block_validate_seconds metriği).
+        let validation_started = std::time::Instant::now();
+
         // Step 1: Structural validation (merkle root, duplicate txids, tx validation).
         block
             .validate_structure()
@@ -755,6 +758,8 @@ impl Node {
             "block accepted and stored"
         );
         metrics::record_block_validated();
+        metrics::record_block_validation_time(validation_started.elapsed().as_secs_f64());
+        metrics::record_tip_height(block.header.height.as_u64());
 
         Ok(())
     }
