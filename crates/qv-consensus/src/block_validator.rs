@@ -33,13 +33,19 @@ use crate::stake::{PoolId, StakeDistribution, StakePool};
 /// Implementations may be the real Dilithium-sum KES or a test stub.
 pub trait KesVerifier {
     /// Verify a KES signature over `message` using the operator's KES
-    /// public key for the given slot's KES period.
+    /// public key.
+    ///
+    /// `expected_kes_period` is the KES period the block's slot maps to
+    /// (see [`slot_to_kes_period`]). Implementations that understand the
+    /// signature's wire format MUST reject a signature whose embedded
+    /// period differs from this value — a leader signing with a stale or
+    /// future evolving-key period is invalid.
     ///
     /// Returns `Ok(())` if the signature is valid.
     fn verify_kes(
         &self,
         kes_pk: &[u8],
-        slot: Slot,
+        expected_kes_period: u32,
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), BlockValidationError>;
@@ -50,10 +56,13 @@ pub trait KesVerifier {
 pub struct TestKesVerifier;
 
 impl KesVerifier for TestKesVerifier {
+    /// Test stub: accepts any non-empty signature. The KES period is not
+    /// modelled here — production period checks live in
+    /// [`DilithiumSumKesVerifier`].
     fn verify_kes(
         &self,
         _kes_pk: &[u8],
-        _slot: Slot,
+        _expected_kes_period: u32,
         _message: &[u8],
         signature: &[u8],
     ) -> Result<(), BlockValidationError> {
@@ -226,12 +235,18 @@ pub fn validate_block_header<V: VrfEvaluator, K: KesVerifier>(
         ));
     }
 
-    // 8. KES signature verification.
+    // 8. KES signature verification, including the period cross-check.
     let header_bytes = header
         .canonical_bytes()
         .map_err(|e| BlockValidationError::InvalidKesSignature(e.to_string()))?;
 
-    kes.verify_kes(&pool.kes_key, header.slot, &header_bytes, &header.kes_sig)?;
+    let expected_kes_period = slot_to_kes_period(ctx.clock, header.slot);
+    kes.verify_kes(
+        &pool.kes_key,
+        expected_kes_period,
+        &header_bytes,
+        &header.kes_sig,
+    )?;
 
     Ok(())
 }
@@ -258,6 +273,20 @@ pub fn validate_block<V: VrfEvaluator, K: KesVerifier>(
 // Helpers
 // ============================================================================
 
+/// Map a slot to its KES period.
+///
+/// Per ADR-005, one KES period equals one epoch, so a slot's KES period is
+/// the epoch number it falls in. Used to cross-check that a block's KES
+/// signature was issued at the correct evolving-key period.
+///
+/// If the epoch number somehow exceeds `u32` (far beyond the KES key
+/// lifetime of `2^11` periods) this returns `u32::MAX`, which matches no
+/// valid period — failing closed.
+#[must_use]
+pub fn slot_to_kes_period(clock: &SlotClock, slot: Slot) -> u32 {
+    u32::try_from(clock.slot_to_epoch(slot).as_u64()).unwrap_or(u32::MAX)
+}
+
 /// Look up a pool by its VRF key hash (the `producer_key_hash` field in the
 /// block header is `SHA3-256(vrf_pk)`).
 fn find_pool_by_key_hash(pools: &[StakePool], key_hash: &qv_core::Hash256) -> Option<PoolId> {
@@ -280,11 +309,11 @@ fn find_pool_by_key_hash(pools: &[StakePool], key_hash: &qv_core::Hash256) -> Op
 /// `kes_pk` (the 32-byte Merkle root) and a bincode-encoded `KesSignature`,
 /// and checks the leaf Dilithium signature + Merkle path.
 ///
-/// `slot` is informational; the actual period is embedded in the signature
-/// as `KesSignature.period`. A consensus-level cross-check between `slot`
-/// and `period` (via `slot_to_kes_period`) is the caller's responsibility
-/// when binding to a specific epoch — for now this verifier accepts any
-/// well-formed signature.
+/// It also enforces the period cross-check: the `KesSignature.period`
+/// embedded in the signature must equal the `expected_kes_period` passed by
+/// the caller (computed via [`slot_to_kes_period`]). A signature issued at
+/// the wrong evolving-key period is rejected before the (costly) crypto
+/// verification runs.
 #[derive(Clone, Debug, Default)]
 pub struct DilithiumSumKesVerifier;
 
@@ -300,7 +329,7 @@ impl KesVerifier for DilithiumSumKesVerifier {
     fn verify_kes(
         &self,
         kes_pk: &[u8],
-        _slot: Slot,
+        expected_kes_period: u32,
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), BlockValidationError> {
@@ -312,6 +341,16 @@ impl KesVerifier for DilithiumSumKesVerifier {
         let sig: qv_crypto::KesSignature = bincode::deserialize(signature).map_err(|e| {
             BlockValidationError::InvalidKesSignature(format!("bincode decode: {e}"))
         })?;
+
+        // Period cross-check (ADR-005: one KES period per epoch). Reject a
+        // signature issued at the wrong evolving-key period before running
+        // the costly crypto verification.
+        if sig.period != expected_kes_period {
+            return Err(BlockValidationError::InvalidKesSignature(format!(
+                "kes period {} does not match expected period {} for this slot",
+                sig.period, expected_kes_period
+            )));
+        }
 
         let valid = qv_crypto::kes_verify(&pk, &sig, message)
             .map_err(|e| BlockValidationError::InvalidKesSignature(e.to_string()))?;
@@ -442,9 +481,7 @@ mod tests {
             let slot = Slot::from(s);
             let input = crate::leader_schedule::vrf_input(&nonce, slot);
             let (output, _) = vrf.evaluate(&input).unwrap();
-            let sigma = 1.0; // sole pool = 100% stake
-            let threshold = crate::leader_schedule::leader_threshold(sigma);
-            if output.to_unit_interval() < threshold {
+            if crate::leader_schedule::is_slot_leader(1, 1, &output) {
                 let header = make_header(&pool, slot, parent_hash, parent_height, &clock);
                 let ctx = make_ctx(
                     &pool,
@@ -593,7 +630,7 @@ mod tests {
             let slot = Slot::from(s);
             let input = crate::leader_schedule::vrf_input(&nonce, slot);
             let (output, _) = vrf.evaluate(&input).unwrap();
-            if output.to_unit_interval() < crate::leader_schedule::leader_threshold(1.0) {
+            if crate::leader_schedule::is_slot_leader(1, 1, &output) {
                 let mut header = make_header(&pool, slot, BlockHash::ZERO, Height::GENESIS, &clock);
                 header.kes_sig = Vec::new(); // empty → rejected
                 let ctx = make_ctx(
@@ -615,5 +652,39 @@ mod tests {
             }
         }
         panic!("no elected slot found");
+    }
+
+    // ------------------------------------------------------------------
+    // KES period cross-check (ORTA-2 — fork-finality audit 2026-05-22).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn slot_to_kes_period_maps_to_epoch() {
+        // ADR-005: one KES period == one epoch. mainnet epoch = 21_600 slots.
+        let params = ConsensusParams::mainnet();
+        let clock = SlotClock::new(&params, 0);
+        assert_eq!(slot_to_kes_period(&clock, Slot::from(0)), 0);
+        assert_eq!(slot_to_kes_period(&clock, Slot::from(21_599)), 0);
+        assert_eq!(slot_to_kes_period(&clock, Slot::from(21_600)), 1);
+        assert_eq!(slot_to_kes_period(&clock, Slot::from(43_200)), 2);
+    }
+
+    #[test]
+    fn dilithium_kes_rejects_wrong_period() {
+        // A signature whose embedded period differs from the expected one
+        // is rejected before the (costly) crypto verification runs.
+        let sig = qv_crypto::KesSignature {
+            period: 5,
+            leaf_pk: vec![1u8],
+            leaf_signature: vec![1u8],
+            merkle_path: Vec::new(),
+        };
+        let bytes = bincode::serialize(&sig).unwrap();
+        let verifier = DilithiumSumKesVerifier::new();
+        let result = verifier.verify_kes(&[0u8; 32], 3, b"msg", &bytes);
+        assert!(matches!(
+            result,
+            Err(BlockValidationError::InvalidKesSignature(_))
+        ));
     }
 }

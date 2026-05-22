@@ -77,7 +77,7 @@ pub use stake::{Delegation, PoolId, StakeDistribution, StakeError, StakePool};
 /// for MVP/v1. [`TestVrf`] is preserved for unit tests and consensus
 /// simulations.
 pub use leader_schedule::{
-    check_leadership, leader_threshold, verify_leadership, vrf_input, LeaderError,
+    check_leadership, is_slot_leader, leader_threshold, verify_leadership, vrf_input, LeaderError,
     RistrettoVrfEvaluator, TestVrf, VrfEvaluator, VrfOutput, VrfProof, ACTIVE_SLOT_COEFF,
 };
 
@@ -87,12 +87,16 @@ pub use leader_schedule::{
 /// for MVP/v1 (Sum-KES on Dilithium L3, depth 11). [`TestKesVerifier`] is
 /// preserved for unit tests.
 pub use block_validator::{
-    validate_block, validate_block_header, BlockValidationContext, BlockValidationError,
-    DilithiumSumKesVerifier, KesVerifier, TestKesVerifier,
+    slot_to_kes_period, validate_block, validate_block_header, BlockValidationContext,
+    BlockValidationError, DilithiumSumKesVerifier, KesVerifier, TestKesVerifier,
 };
 
-/// Fork choice rule, chain state, and k-deep finality; see [`chain_state`] module.
-pub use chain_state::{ChainEntry, ChainError, ChainState};
+/// Fork choice rule, chain state, k-deep finality, and Genesis maxvalid-bg
+/// chain selection; see [`chain_state`] module.
+pub use chain_state::{
+    build_locator, maxvalid_bg, select_headers_for_locator, ChainEntry, ChainError,
+    ChainPreference, ChainState, EquivocationProof, DEFAULT_MAXVALID_WINDOW_SLOTS,
+};
 
 /// Block rewards, emission schedule, and fee distribution; see [`rewards`] module.
 pub use rewards::{

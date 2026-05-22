@@ -20,7 +20,7 @@
 use qv_consensus::{
     block_subsidy, check_leadership, cumulative_emission, distribute_reward, is_emission_exhausted,
     total_block_reward, validate_block_header, verify_leadership, vrf_input,
-    BlockValidationContext, ChainEntry, ChainState, Delegation, EpochBoundary, EpochInfo,
+    BlockValidationContext, ChainEntry, ChainError, ChainState, Delegation, EpochBoundary, EpochInfo,
     EpochNonce, PoolId, SlotClock, StakeDistribution, StakePool, TestKesVerifier, TestVrf,
     VrfEvaluator,
 };
@@ -317,14 +317,34 @@ fn finality_prevents_deep_reorg() {
         chain.add_block(entry).unwrap();
     }
 
-    // k=3, tip at height 5 → heights 0, 1, 2 are final
-    assert!(chain.is_final(Height::GENESIS));
-    assert!(chain.is_final(Height::from(1)));
-    assert!(chain.is_final(Height::from(2)));
-    assert!(!chain.is_final(Height::from(3)));
-    assert!(!chain.is_final(Height::from(4)));
-    assert!(!chain.is_final(Height::from(5)));
+    // k=3, tip at height 5 → the block at height 2 is finalized.
+    let at = |i: u8| {
+        BlockHash::from_bytes({
+            let mut b = [0u8; 32];
+            b[0] = i;
+            b
+        })
+    };
+    assert!(chain.is_final(&BlockHash::ZERO)); // genesis
+    assert!(chain.is_final(&at(1)));
+    assert!(chain.is_final(&at(2)));
+    assert!(!chain.is_final(&at(3)));
+    assert!(!chain.is_final(&at(4)));
+    assert!(!chain.is_final(&at(5)));
     assert_eq!(chain.finality_height(), Height::from(2));
+
+    // A block forking below the finalized height must be rejected.
+    let deep_fork = ChainEntry {
+        hash: BlockHash::from_bytes([0xDD; 32]),
+        parent_hash: at(1),
+        height: Height::from(2),
+        slot: Slot::from(99),
+        producer_key_hash: Hash256::ZERO,
+    };
+    assert!(matches!(
+        chain.add_block(deep_fork),
+        Err(ChainError::ConflictsWithFinalized { .. })
+    ));
 }
 
 // ============================================================================
@@ -626,7 +646,7 @@ fn multi_pool_epoch_simulation() {
     // Some blocks should be final
     if total_blocks > params.consensus.k_finality as u32 {
         assert!(
-            chain.is_final(Height::GENESIS),
+            chain.is_final(&BlockHash::ZERO),
             "genesis should be final after many blocks"
         );
     }
