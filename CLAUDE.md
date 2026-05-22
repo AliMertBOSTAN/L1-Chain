@@ -29,9 +29,11 @@ altında referans olarak duruyor. Aktif geliştirme `crates/` altında.
 - VRF ile stake-orantılı slot lider seçimi
 - Slot süresi: 2 saniye
 - Epoch: 12 saat (21600 slot)
-- k-deep finality: k=50 blok (~100 saniye)
+- k-deep finality: k=50 blok (~100 saniye); blok-bazlı, yapışkan/monoton (geri alınamaz)
 - KES imzalar: uzun menzilli saldırılara karşı forward secrecy
-- Fork choice: density-weighted longest chain
+- Fork choice: longest-chain (yükseklik) + deterministik tie-break (en düşük hash),
+  yapışkan k-deep finalite ile birleşik. Genesis maxvalid-bg (bootstrap density
+  tabanlı seçim) çekirdeği uygulandı; sync entegrasyonu açık — ADR-008
 - Hibrit PoW+PoS bırakıldı — DeFi için gereken finalite ve latency PoS ile daha iyi
 
 ### Tokenomics
@@ -135,4 +137,8 @@ config/            # genesis.toml, ağ parametreleri (gelecek)
 - [ADR-001](docs/ADR/001-testing-framework.md) — test framework kararı (v1)
 - [ADR-002](docs/ADR/002-defi-architecture.md) — DeFi mimarisi (Cardano eUTXO tercihi)
 - [ADR-003](docs/ADR/003-mev-encrypted-mempool.md) — MEV stratejisi
+- [ADR-008](docs/ADR/008-genesis-maxvalid-bg.md) — Genesis maxvalid-bg çatal seçimi (çekirdek uygulandı)
+- [ADR-009](docs/ADR/009-deterministic-leader-check.md) — deterministik (sabit-nokta) lider kontrolü
+- [ADR-010](docs/ADR/010-bootstrap-sync.md) — bootstrap senkronizasyon altyapısı (çekirdek uygulandı)
+- [Çatallanma & Finalite Denetimi](docs/security/qv-consensus-fork-finality-audit.md) — fork/finalite güvenlik denetimi
 - [ABSTRACT.md](docs/ABSTRACT.md) — proje felsefesi ve kime hitap ediyor
