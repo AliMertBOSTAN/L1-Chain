@@ -80,9 +80,9 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n[ADIM 1] Cuzdanlar turetildi (Dilithium/ML-DSA L3 anahtar cifti)");
     println!("  Cuzdan A  adres(pubkey-hash): {}", hex::encode(a_hash));
-    println!("  Cuzdan A gizli anahtar     : {} ", hex::encode(a_sk.as_bytes()));
+    println!("  Cuzdan A gizli anahtar     : {} ", hex::encode(a_sk.expose_secret()));
     println!("  Cuzdan B  adres(pubkey-hash): {}", hex::encode(b_hash));
-    println!("  Cuzdan B gizli anahtar     : {} ", hex::encode(_b_sk.as_bytes()));
+    println!("  Cuzdan B gizli anahtar     : {} ", hex::encode(_b_sk.expose_secret()));
 
     // ========================================================================
     // ADIM 2 — NODE'A "BAGLAN"

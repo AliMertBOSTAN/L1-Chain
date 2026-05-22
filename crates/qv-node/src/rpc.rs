@@ -508,7 +508,7 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
     async fn get_stake_distribution(&self) -> RpcResult<StakeDistributionSnapshot> {
         tracing::debug!("RPC: getStakeDistribution");
         let dist = self.stake_distribution.read().await;
-        Ok(StakeDistributionSnapshot::from_distribution(&*dist))
+        Ok(StakeDistributionSnapshot::from_distribution(&dist))
     }
 
     async fn get_epoch_nonce(&self) -> RpcResult<EpochNonceInfo> {
