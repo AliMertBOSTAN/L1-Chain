@@ -708,17 +708,17 @@ impl Node {
         // Step 2: Verify chain linkage and slot monotonicity.
         self.validate_chain_linkage(block).await?;
 
-        // Step 3: Apply block effects to UTXO set.
+        // Step 3: Apply block effects to the UTXO set. This also rejects
+        //         ledger-invalid blocks (e.g. double-spends) before the
+        //         block is committed to consensus state.
         self.utxo_store
             .apply_block(block)
             .map_err(crate::NodeError::Storage)?;
 
-        // Step 4: Persist the block to storage.
-        self.block_store
-            .put_block(block)
-            .map_err(crate::NodeError::Storage)?;
-
-        // Step 5: Update consensus chain state with new entry.
+        // Step 4: Commit the block to the consensus chain state. If the
+        //         chain state rejects it, roll back the UTXO effects from
+        //         step 3 so storage does not drift out of sync. The block
+        //         is persisted (step 5) only after it is fully accepted.
         let chain_entry = ChainEntry {
             hash: block_hash,
             parent_hash: block.header.prev_hash,
@@ -727,12 +727,25 @@ impl Node {
             producer_key_hash: block.header.producer_key_hash,
         };
 
-        {
+        let add_result = {
             let mut chain_state = self.chain_state.lock().await;
-            chain_state
-                .add_block(chain_entry)
-                .map_err(|e| crate::NodeError::Consensus(e.into()))?;
+            chain_state.add_block(chain_entry)
+        };
+        if let Err(e) = add_result {
+            if let Err(revert_err) = self.utxo_store.revert_block(block) {
+                tracing::error!(
+                    error = %revert_err,
+                    "failed to revert UTXO effects after chain-state rejection"
+                );
+            }
+            return Err(crate::NodeError::Consensus(e.into()));
         }
+
+        // Step 5: Persist the block to storage — only after it is fully
+        //         accepted by both the UTXO ledger and the chain state.
+        self.block_store
+            .put_block(block)
+            .map_err(crate::NodeError::Storage)?;
 
         // Step 6: Remove confirmed transactions from mempool.
         let spent_outpoints: BTreeSet<_> = block

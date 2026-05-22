@@ -46,6 +46,7 @@ pub mod node;
 pub mod rpc;
 pub mod signals;
 pub mod slot_ticker;
+pub mod sync;
 pub mod validation;
 
 use thiserror::Error;
