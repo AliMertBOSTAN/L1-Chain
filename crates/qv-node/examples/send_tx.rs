@@ -279,13 +279,13 @@ fn main() -> anyhow::Result<()> {
 
     separator("5. SIGNING");
 
-    let payload = tx
-        .canonical_bytes()
-        .expect("canonical encoding must succeed");
-    let signature = qv_crypto::sign_pqc(&sender_sk, &payload)?;
+    // ADR-012: sign the witness-excluded sighash; the witness carries only
+    // <signature> <pubkey> and the locking script derives the message via
+    // the SIG_HASH opcode.
+    let sighash = tx.sighash().expect("sighash must compute");
+    let signature = qv_crypto::sign_pqc(&sender_sk, &sighash)?;
 
     let witness_script = ScriptBuilder::new()
-        .push_bytes(&payload)
         .push_bytes(signature.as_bytes())
         .push_bytes(sender_pk.as_bytes())
         .build();
@@ -295,7 +295,7 @@ fn main() -> anyhow::Result<()> {
     let tx_id = tx.id().expect("signed tx must produce valid id");
 
     println!("  Algorithm:  Dilithium Level 3 (PQC)");
-    println!("  Payload:    {} bytes", payload.len());
+    println!("  Sighash:    {} bytes", sighash.len());
     println!("  Signature:  {} bytes", signature.as_bytes().len());
     println!("  Witness:    {} bytes", tx.inputs[0].witness.len());
     println!("  TX ID:      {}", tx_id);

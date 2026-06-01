@@ -106,7 +106,14 @@ pub struct Context {
     /// Current slot (for `SLOT_NUMBER` opcode).
     pub current_slot: Slot,
     /// Pre-computed transaction hash (SHA3-256 of canonical bytes).
+    ///
+    /// Includes input witnesses — suitable for identity/introspection, but
+    /// **not** for signing (a witness is part of the signed message → cyclic).
     pub tx_hash: [u8; 32],
+    /// Pre-computed signature hash: SHA3-256 of the canonical bytes with all
+    /// input witnesses cleared. Witness-independent, so it is the message a
+    /// signature commits to (ADR-012). Used by the `SIG_HASH` opcode.
+    pub sighash: [u8; 32],
 }
 
 impl Context {
@@ -119,11 +126,13 @@ impl Context {
             .canonical_bytes()
             .map(|b| sha3_256(&b))
             .unwrap_or([0u8; 32]);
+        let sighash = tx.sighash().unwrap_or([0u8; 32]);
         Self {
             tx,
             resolved_inputs,
             current_slot,
             tx_hash,
+            sighash,
         }
     }
 }
@@ -468,6 +477,9 @@ pub fn execute_instructions(
             }
             OpCode::TxHash => {
                 push(&mut stack, Value::Bytes(ctx.tx_hash.to_vec()))?;
+            }
+            OpCode::SigHash => {
+                push(&mut stack, Value::Bytes(ctx.sighash.to_vec()))?;
             }
             OpCode::SlotNumber => {
                 let slot: u64 = ctx.current_slot.as_u64();
@@ -903,6 +915,18 @@ mod tests {
     fn tx_fee() {
         let r = run(&[Instruction::simple(OpCode::TxFee)]).unwrap();
         assert_eq!(r.final_stack, vec![Value::Int(10)]);
+    }
+
+    #[test]
+    fn sighash_opcode_pushes_context_sighash() {
+        let ctx = dummy_ctx();
+        let bytes = encode_instructions(&[Instruction::simple(OpCode::SigHash)]);
+        let mut gas = GasMeter::new(100_000);
+        let r = execute(&bytes, &ctx, &mut gas).unwrap();
+        assert_eq!(r.final_stack, vec![Value::Bytes(ctx.sighash.to_vec())]);
+        // The sighash is witness-excluded, so for a witness-less tx it equals
+        // the tx_hash; the meaningful divergence is exercised in qv-core tests.
+        assert_eq!(ctx.sighash.len(), 32);
     }
 
     // -- Hashing --

@@ -187,11 +187,31 @@ sabit, Taylor terim sayısı (K=9), taşma bütçesi (`< 2^124`) ve oracle uyumu
 Detaylar ADR-009'da. f64 `leader_threshold`/`to_unit_interval` yalnızca
 teşhis amaçlı olarak korundu.
 
+## EK BULGU — KRİTİK: İmza işleme bağlı değil (sighash kusuru)
+
+ADR-011 Faz 3 hazırlığında bulundu. `p2pkh_pqc` kilit template'i imza mesajını
+witness'tan alıyordu (witness `<msg, sig, pubkey>`), ve ne script ne de
+`validate_script` bu `msg`'in gerçek işleme karşılık geldiğini doğrulamıyordu.
+Sonuç: mempool'daki bir harcamanın witness'ı çıkarılıp, **aynı UTXO'yu
+saldırgana yönlendiren** ikinci bir işleme yapıştırılabilir; imza `msg`
+üzerinde hâlâ geçerli olduğundan doğrulayıcı bunu kabul eder → uçuştaki
+işlem hırsızlığı. Kök neden: zincirde witness'ları dışlayan bir hash yoktu
+(`tx.id()` / `TxHash` witness-dahil → sighash olarak kullanmak döngüsel).
+
+**Durum**: Düzeltildi (2026-05-22). ADR-012 uygulandı: `Transaction::sighash()`
+(tüm girdi witness'ları boşaltılmış kanonik baytların SHA3-256'sı), `qv-script`'e
+`SigHash` (`0x69`) introspection opcode'u, `p2pkh_pqc` ve `stealth_p2pkh`
+template'leri `SigHash` kullanacak şekilde yeniden yazıldı (witness artık
+`<sig> <pubkey>` / `<sig> <spend_pk> <shared_secret>` — mesaj taşınmıyor),
+`qv-wallet::tx_builder` sighash imzalıyor. İmza artık işlemin girdi+çıktılarına
+bağlı; uçtaki witness yeniden-oynatma kapandı. Regresyon testi
+`p2pkh_rejects_signature_for_other_tx` ile doğrulandı. Detaylar ADR-012'de.
+
 ## Uzun vade — BFT finality gadget
 
 Mutlak finalite (ağ bölünmesi altında bile iki çelişen blok asla finalize
 edilemez) yalnızca Praos üstüne bir BFT finality gadget ile elde edilir: bir
 validator komitesi her N blokta oylar, 2/3+ oy alan blok geri alınamaz olur.
 Casper FFG / GRANDPA tarzı; Cardano'nun yaklaşımı Ouroboros Peras. Ayrı bir ADR
-konusu (öneri: ADR-011; ADR-008/009/010 sırasıyla maxvalid-bg, deterministik
-lider kontrolü ve bootstrap sync için kullanıldı).
+konusu (öneri: ADR-013; ADR-008..012 sırasıyla maxvalid-bg, deterministik lider
+kontrolü, bootstrap sync, stealth entegrasyonu ve işlem sighash'i için kullanıldı).

@@ -133,6 +133,67 @@ impl HybridKeyPair {
     pub fn level(&self) -> KyberLevel {
         self.public.level
     }
+
+    /// Borrow the raw X25519 secret-key bytes (32 bytes).
+    ///
+    /// **Caller must treat the returned slice as sensitive.** It is the
+    /// material that lets anyone decapsulate the X25519 half of any hybrid
+    /// ciphertext addressed to this keypair. Used by trusted-export paths
+    /// (e.g. publishing a view key to one's own node for stealth scanning).
+    #[must_use]
+    pub fn x25519_secret_bytes(&self) -> &[u8] {
+        self.x25519_secret.as_slice()
+    }
+
+    /// Borrow the raw Kyber secret-key bytes.
+    ///
+    /// **Caller must treat the returned slice as sensitive.** See
+    /// [`Self::x25519_secret_bytes`] for the same warning.
+    #[must_use]
+    pub fn kyber_secret_bytes(&self) -> &[u8] {
+        self.kyber_secret.as_slice()
+    }
+
+    /// Reconstruct a hybrid keypair from the raw component byte buffers
+    /// produced by [`Self::x25519_secret_bytes`] / [`Self::kyber_secret_bytes`]
+    /// plus the matching public-key bytes.
+    ///
+    /// Used by RPC handlers and import flows that receive a serialized view
+    /// key over the wire. The lengths of every input are validated against
+    /// the given Kyber parameter set; mismatches return
+    /// [`CryptoError::InvalidSize`] / [`CryptoError::MalformedPublicKey`].
+    pub fn from_raw_parts(
+        level: KyberLevel,
+        x25519_pk: [u8; X25519_PK_BYTES],
+        x25519_sk: Vec<u8>,
+        kyber_pk: Vec<u8>,
+        kyber_sk: Vec<u8>,
+    ) -> Result<Self> {
+        if x25519_sk.len() != X25519_PK_BYTES {
+            return Err(CryptoError::InvalidSize {
+                expected: X25519_PK_BYTES,
+                actual: x25519_sk.len(),
+            });
+        }
+        if kyber_pk.len() != level.kyber_public_key_bytes() {
+            return Err(CryptoError::MalformedPublicKey);
+        }
+        if kyber_sk.len() != level.kyber_secret_key_bytes() {
+            return Err(CryptoError::InvalidSize {
+                expected: level.kyber_secret_key_bytes(),
+                actual: kyber_sk.len(),
+            });
+        }
+        Ok(Self {
+            public: HybridPublicKey {
+                x25519: x25519_pk,
+                kyber: kyber_pk,
+                level,
+            },
+            x25519_secret: SecureBytes::from_vec(x25519_sk),
+            kyber_secret: SecureBytes::from_vec(kyber_sk),
+        })
+    }
 }
 
 impl core::fmt::Debug for HybridKeyPair {
@@ -442,6 +503,42 @@ mod tests {
             assert_eq!(kp.public.kyber.len(), level.kyber_public_key_bytes());
             assert_eq!(kp.kyber_secret.len(), level.kyber_secret_key_bytes());
         }
+    }
+
+    #[test]
+    fn from_raw_parts_roundtrips_secrets_and_decapsulates() {
+        // Export then re-import a hybrid keypair via the public raw-bytes
+        // interface (used by RPC view-key exchange / wallet → own-node
+        // stealth scanning). The re-imported keypair must decapsulate any
+        // ciphertext that targets the original public key.
+        let level = KyberLevel::Level3;
+        let original = generate_keypair(level).unwrap();
+        let (ct, ss_sender) = encapsulate(&original.public).unwrap();
+
+        let x25519_pk = original.public.x25519;
+        let kyber_pk = original.public.kyber.clone();
+        let x25519_sk = original.x25519_secret_bytes().to_vec();
+        let kyber_sk = original.kyber_secret_bytes().to_vec();
+
+        let imported =
+            HybridKeyPair::from_raw_parts(level, x25519_pk, x25519_sk, kyber_pk, kyber_sk).unwrap();
+        let ss_imported = decapsulate(&imported, &ct).unwrap();
+        assert_eq!(ss_sender, ss_imported);
+    }
+
+    #[test]
+    fn from_raw_parts_rejects_wrong_kyber_sk_length() {
+        let level = KyberLevel::Level3;
+        let kp = generate_keypair(level).unwrap();
+        let err = HybridKeyPair::from_raw_parts(
+            level,
+            kp.public.x25519,
+            kp.x25519_secret_bytes().to_vec(),
+            kp.public.kyber.clone(),
+            vec![0u8; 10], // wrong length
+        )
+        .unwrap_err();
+        assert!(matches!(err, CryptoError::InvalidSize { .. }));
     }
 
     #[test]

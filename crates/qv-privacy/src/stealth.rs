@@ -271,11 +271,33 @@ pub fn create_stealth_output(
 
 /// **Recipient** scans an output to check if it belongs to them.
 ///
-/// Returns `Some(ScanResult)` if the output is ours, `None` otherwise.
-/// Uses a fast view-tag pre-filter: only performs KEM decapsulation if the
-/// view tag matches (1/256 false positive rate on non-matching outputs).
+/// Decapsulates the KEM ciphertext with the view key and checks the view
+/// tag (a 1/256 pre-filter). On a tag match it returns `Some(ScanResult)`
+/// carrying the **recomputed** `onetime_pk_hash`.
+///
+/// The caller MUST then verify that the output's locking script commits to
+/// that hash (`qv_script::stealth_p2pkh`) — the view tag alone is not proof
+/// of ownership. The commitment is not carried in the on-chain `StealthInfo`
+/// (ADR-011), so it cannot be checked here.
 pub fn scan_output(
     stealth_keys: &StealthKeys,
+    output: &StealthOutput,
+) -> Result<Option<ScanResult>, PrivacyError> {
+    scan_output_view(&stealth_keys.view_kp, &stealth_keys.spend_kp.public, output)
+}
+
+/// Same as [`scan_output`] but takes the view keypair and spend **public**
+/// key separately, so callers that don't hold the spend secret (e.g. an RPC
+/// server scanning the UTXO set on the recipient's behalf) can still detect
+/// outputs without ever touching spending material.
+///
+/// The spend secret is **not** required to detect ownership — only to spend
+/// the discovered UTXO afterwards. This separation lets a wallet publish its
+/// view key + spend public key to its own node for balance/scan RPCs while
+/// keeping the spend secret entirely on the client.
+pub fn scan_output_view(
+    view_kp: &HybridKeyPair,
+    spend_pk: &PqcPublicKey,
     output: &StealthOutput,
 ) -> Result<Option<ScanResult>, PrivacyError> {
     // 1. Reconstruct the KEM ciphertext.
@@ -296,7 +318,7 @@ pub fn scan_output(
     };
 
     // 2. Decapsulate to recover shared secret.
-    let shared_secret = decapsulate_hybrid(&stealth_keys.view_kp, &ciphertext)
+    let shared_secret = decapsulate_hybrid(view_kp, &ciphertext)
         .map_err(|e| PrivacyError::Crypto(e.to_string()))?;
 
     // 3. Check view tag (fast filter).
@@ -306,16 +328,16 @@ pub fn scan_output(
         return Ok(None);
     }
 
-    // 4. Verify one-time pk hash.
-    let expected_hash = compute_onetime_pk_hash(&shared_secret, &stealth_keys.spend_kp.public);
-    if expected_hash != output.onetime_pk_hash {
-        // View tag matched by coincidence (1/256 probability) but hash doesn't.
-        return Ok(None);
-    }
+    // 4. Recompute the one-time commitment from *our* static spend key.
+    //    `onetime_pk_hash` is NOT carried in the on-chain `StealthInfo` — it
+    //    is the output's locking-script commitment (`stealth_p2pkh`, ADR-011).
+    //    The caller must verify the returned hash against that locking
+    //    script; the view tag alone is only a 1/256 pre-filter.
+    let onetime_pk_hash = compute_onetime_pk_hash(&shared_secret, spend_pk);
 
     Ok(Some(ScanResult {
         shared_secret,
-        onetime_pk_hash: output.onetime_pk_hash,
+        onetime_pk_hash,
     }))
 }
 

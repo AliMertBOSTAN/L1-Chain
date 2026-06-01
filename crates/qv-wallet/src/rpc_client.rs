@@ -1,8 +1,11 @@
-//! JSON-RPC client.
+//! JSON-RPC client for talking to a `qv-node` over HTTP.
 use crate::{WalletError, WalletResult};
+use qv_privacy::StealthKeys;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+/// Thin JSON-RPC 2.0 over HTTP client.
 pub struct RpcClient {
     url: String,
     client: Client,
@@ -14,7 +17,40 @@ impl std::fmt::Debug for RpcClient {
     }
 }
 
+/// One match returned by `qv_scanStealth` — mirror of the server's
+/// `StealthScan` wire format (kept loosely coupled with serde, no qv-node
+/// dep to avoid a workspace cycle).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StealthMatch {
+    /// Reserved — currently always `0`.
+    pub height: u64,
+    /// Hex-encoded funding `TxId`.
+    pub tx_id: String,
+    /// Output index inside the funding transaction.
+    pub output_index: u32,
+    /// Value (smallest units).
+    pub value: u64,
+    /// Recovered shared secret (hex). Needed to spend this UTXO.
+    pub shared_secret_hex: String,
+    /// One-time PK hash commitment from the locking script (hex).
+    pub onetime_pk_hash_hex: String,
+}
+
+/// One match returned by `qv_scanP2pkh` — a plain `p2pkh_pqc` UTXO
+/// locked to the wallet's static spend public-key hash.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pkhMatch {
+    /// Hex-encoded funding `TxId`.
+    pub tx_id: String,
+    /// Output index inside the funding transaction.
+    pub output_index: u32,
+    /// Value (smallest units).
+    pub value: u64,
+}
+
 impl RpcClient {
+    /// Build a client pointing at the given HTTP endpoint, e.g.
+    /// `http://127.0.0.1:8080`.
     pub fn new(url: impl Into<String>) -> Self {
         RpcClient {
             url: url.into(),
@@ -22,7 +58,9 @@ impl RpcClient {
         }
     }
 
-    pub async fn call(&self, method: &str, params: Vec<Value>) -> WalletResult<Value> {
+    /// Issue a generic JSON-RPC call. Returns the `result` field on success;
+    /// any `error` field is propagated as [`WalletError::Rpc`].
+    pub async fn call(&self, method: &str, params: Value) -> WalletResult<Value> {
         let payload = json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -36,7 +74,7 @@ impl RpcClient {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| WalletError::Rpc(format!("request: {}", e)))?;
+            .map_err(|e| WalletError::Rpc(format!("request: {e}")))?;
 
         if !response.status().is_success() {
             return Err(WalletError::Rpc(format!("http {}", response.status())));
@@ -45,14 +83,141 @@ impl RpcClient {
         let body: Value = response
             .json()
             .await
-            .map_err(|e| WalletError::Rpc(format!("decode: {}", e)))?;
+            .map_err(|e| WalletError::Rpc(format!("decode: {e}")))?;
 
-        if body.get("error").is_some() {
-            return Err(WalletError::Rpc("rpc error".into()));
+        if let Some(err) = body.get("error") {
+            return Err(WalletError::Rpc(format!("rpc error: {err}")));
         }
 
         body.get("result")
             .cloned()
-            .ok_or_else(|| WalletError::Rpc("no result".into()))
+            .ok_or_else(|| WalletError::Rpc("no result field in response".into()))
+    }
+
+    /// Same as [`Self::call`] but accepts a positional `Vec<Value>` (the
+    /// legacy shape used by older callers).
+    pub async fn call_positional(
+        &self,
+        method: &str,
+        params: Vec<Value>,
+    ) -> WalletResult<Value> {
+        self.call(method, Value::Array(params)).await
+    }
+
+    /// Wire-encode a `StealthKeys` into the JSON object that
+    /// `qv_getBalanceFor` / `qv_scanStealth` expect.
+    ///
+    /// **Important.** This exposes the recipient's view secret keys — never
+    /// send it to anyone but your own trusted node.
+    fn view_key_payload(keys: &StealthKeys) -> Value {
+        let kyber_level = match keys.view_kp.public.level {
+            qv_crypto::KyberLevel::Level1 => 1,
+            qv_crypto::KyberLevel::Level3 => 3,
+            qv_crypto::KyberLevel::Level5 => 5,
+        };
+        let dilithium_level = match keys.spend_kp.public.level() {
+            qv_crypto::DilithiumLevel::Level2 => 2,
+            qv_crypto::DilithiumLevel::Level3 => 3,
+            qv_crypto::DilithiumLevel::Level5 => 5,
+        };
+        json!({
+            "kyber_level": kyber_level,
+            "dilithium_level": dilithium_level,
+            "x25519_pk_hex": hex::encode(keys.view_kp.public.x25519),
+            "x25519_sk_hex": hex::encode(keys.view_kp.x25519_secret_bytes()),
+            "kyber_pk_hex": hex::encode(&keys.view_kp.public.kyber),
+            "kyber_sk_hex": hex::encode(keys.view_kp.kyber_secret_bytes()),
+            "spend_pk_hex": hex::encode(keys.spend_kp.public.as_bytes()),
+        })
+    }
+
+    /// Query the total stealth-detectable balance for `keys` (`qv_getBalanceFor`).
+    pub async fn get_balance_for(&self, keys: &StealthKeys) -> WalletResult<u64> {
+        let result = self
+            .call("qv_getBalanceFor", json!([Self::view_key_payload(keys)]))
+            .await?;
+        result
+            .as_u64()
+            .ok_or_else(|| WalletError::Rpc(format!("expected u64 balance, got {result}")))
+    }
+
+    /// Scan the live UTXO set for stealth outputs that `keys` can detect
+    /// (`qv_scanStealth`). The height range is currently best-effort — see
+    /// the node-side docs.
+    pub async fn scan_stealth(
+        &self,
+        keys: &StealthKeys,
+        from_height: u64,
+        to_height: u64,
+    ) -> WalletResult<Vec<StealthMatch>> {
+        let result = self
+            .call(
+                "qv_scanStealth",
+                json!([Self::view_key_payload(keys), from_height, to_height]),
+            )
+            .await?;
+        serde_json::from_value::<Vec<StealthMatch>>(result)
+            .map_err(|e| WalletError::Rpc(format!("scan response parse: {e}")))
+    }
+
+    /// Submit a hex-encoded bincode transaction (`qv_sendTransaction`).
+    pub async fn send_transaction(&self, tx_hex: &str) -> WalletResult<Value> {
+        self.call("qv_sendTransaction", json!([tx_hex])).await
+    }
+
+    /// Scan the UTXO set for plain `p2pkh_pqc` outputs locked to the given
+    /// 32-byte pubkey hash (`qv_scanP2pkh`). Used by wallets to discover
+    /// non-stealth funds such as genesis allocations.
+    pub async fn scan_p2pkh(
+        &self,
+        pubkey_hash: &[u8; 32],
+    ) -> WalletResult<Vec<P2pkhMatch>> {
+        let result = self
+            .call("qv_scanP2pkh", json!([hex::encode(pubkey_hash)]))
+            .await?;
+        serde_json::from_value::<Vec<P2pkhMatch>>(result)
+            .map_err(|e| WalletError::Rpc(format!("scan_p2pkh response parse: {e}")))
+    }
+
+    /// Borrow the configured RPC URL (useful for logging / UI display).
+    #[must_use]
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_debug_contains_url() {
+        let c = RpcClient::new("http://localhost:1234");
+        let dbg = format!("{c:?}");
+        assert!(dbg.contains("http://localhost:1234"));
+    }
+
+    #[test]
+    fn view_key_payload_shape_is_correct() {
+        use qv_crypto::{DilithiumLevel, KyberLevel};
+        let keys = StealthKeys::generate(KyberLevel::Level3, DilithiumLevel::Level3).unwrap();
+        let v = RpcClient::view_key_payload(&keys);
+        // Required fields are present and well-typed.
+        assert_eq!(v["kyber_level"], 3);
+        assert_eq!(v["dilithium_level"], 3);
+        for field in [
+            "x25519_pk_hex",
+            "x25519_sk_hex",
+            "kyber_pk_hex",
+            "kyber_sk_hex",
+            "spend_pk_hex",
+        ] {
+            assert!(v[field].is_string(), "{field} must be a hex string");
+        }
     }
 }

@@ -1,10 +1,112 @@
 ﻿# QuantumVault - Proje Hafizasi
 
-_Son guncelleme: 2026-05-21 (4-node yerel devnet + monitoring)_
+_Son guncelleme: 2026-05-22 (stealth + sighash + cüzdan UI + devnet köprüsü)_
 
 > **Doküman uyumu:** Bu dosya `PROJECT_STATUS.md` ve `docs/ROADMAP.md` ile birlikte
 > okunmalıdır. ROADMAP'teki **Placeholder ve Mock Envanteri** (A-J grupları) açık
 > işlerin tek doğru kaynağıdır.
+
+---
+
+## Oturum: Stealth + Sighash + Cüzdan Uygulaması (2026-05-22)
+
+Konsensüs çatallanma denetimi → ADR-008/009/010 → ADR-011 (stealth Faz 1-5)
+→ ADR-012 (sighash) → devnet köprüsü → tek-komutluk launcher script'leri
+ile L1 + cüzdan uçtan uca akışı kapatıldı.
+
+### Kararlar
+
+- **Witness-dışlayan sighash (ADR-012).** `Transaction::sighash()` =
+  `SHA3-256(canonical_bytes(tx with all input witnesses cleared))`. Bunu
+  imzalamak (canonical_bytes değil) tx'i witness'ından bağımsızlaştırır →
+  mempool'daki bir tx'in witness'ını çıkarıp başka tx'e yapıştırmak artık
+  imkânsız. `qv-script` yeni `SigHash` (`0x69`) opcode'u ile script'in
+  imzalanan mesajı işlemin kendisinden almasını sağlıyor.
+- **`p2pkh_pqc` artık `<sig> <pubkey>` witness'ı taşıyor** (mesaj çıkartıldı,
+  script `SigHash` ile türetiyor). `stealth_p2pkh` template'i `TxHash` →
+  `SigHash` geçişiyle döngüsellikten kurtuldu, artık gerçek doğrulamada
+  harcanabilir hâle geldi.
+- **PQC stealth tasarımı (ADR-011).** Klasik EC stealth'in tek-seferlik
+  public key türetmesi Dilithium ile mümkün değil; bunun yerine alıcı
+  statik `spend_kp`'sini kullanır + çıktı `stealth_p2pkh(SHA3(tag ||
+  shared_secret || spend_pk))` taahhüdü taşır + witness'ta `shared_secret`
+  bulunur. Harcama-anında ilişkilendirilebilirlik bilinçli ödünleşim;
+  tespit-anında ilişkilendirilemezlik (üçüncü taraf için) korunur.
+- **`StealthInfo` zincir-üstü formatı.** `kem_ciphertext` (eski
+  `ephemeral_pubkey`) + `kyber_level` + `view_tag`. `onetime_pk_hash`
+  zincire yazılmıyor — `locking_script` zaten taşıyor.
+- **Cüzdan tarafı view-key wire formatı.** `StealthViewKey` (kyber/dilithium
+  seviyeleri + 4 hex anahtar + spend_pk hex). `qv-node` `scan_output_view(
+  view_kp, spend_pk, ...)` ile spend secret'a değmeden tarama yapar — node
+  bizim güvendiğimiz lokal node olmak şartıyla view key güvenle paylaşılır.
+- **Devnet bootstrap köprüsü.** Devnet genesis'i artık
+  `DEVNET_TEST_MNEMONIC` (`abandon …×23 art`)'tan türetilen ilk 10 spend
+  public key'e fon dağıtıyor (eski `sha3("qv-devnet-account-"||i)` yolu
+  kaldırıldı). Bir cüzdan `devnet-import` ile bu mnemonic'i içeri alınca
+  `qv_scanP2pkh` ile bakiyeyi anında görür. View key OS entropy ile
+  üretildiği için stealth determinizmi yok; ilk transfer plain UTXO'yu
+  stealth çıktıya çevirir (köprü tek yönlü).
+- **Adres formatı.** Tam payable adres `qvst1<hex>` (bincode payload, ~6.4
+  KB); kısa kimlik fingerprint `qvfp1<40 hex>`. Fingerprint UI'da küçük QR
+  olarak basılır; tam adres için 2-parçalı QR ("QVADDR1:1/2:" + "2/2:") ya
+  da `.qvaddr` JSON dosyası.
+
+### Yeni / değiştirilen dosyalar
+
+- `crates/qv-core/src/transaction.rs` — `Transaction::sighash()` + 4 test.
+- `crates/qv-script/src/{opcode,gas,interpreter}.rs` — `SigHash` opcode (`0x69`).
+- `crates/qv-script/src/templates.rs` — `p2pkh_pqc` ve `stealth_p2pkh` `SigHash`
+  kullanıyor; witness format değişti; `p2pkh_rejects_signature_for_other_tx`
+  regresyon testi.
+- `crates/qv-privacy/src/stealth.rs` — `scan_output_view(view_kp, spend_pk, out)`
+  yeni (mevcut `scan_output` wrapper).
+- `crates/qv-crypto/src/hybrid_kem.rs` — `HybridKeyPair::from_raw_parts` +
+  `x25519/kyber_secret_bytes` export'u.
+- `crates/qv-wallet/src/`:
+  - `tx_builder.rs` — `add_stealth_output`, `sign_stealth_input`,
+    `sign_plain_input` (per-input plain p2pkh imzalama).
+  - `address.rs` — `qvst1` / `qvfp1` encoding.
+  - `qvaddr.rs` — `.qvaddr` JSON + QR helpers (`address_to_qr_parts` /
+    `address_from_qr_parts` / `render_qr_svg` / `render_qr_unicode`).
+  - `server.rs` — axum HTTP API (`/api/wallet/{create,import,unlock,lock,
+    address,address.qvaddr,fingerprint.svg,address-qr,import-qvaddr,
+    qr-reassemble}`, `/api/{status,balance,utxos}`, `POST /api/send`).
+  - `server_ui.rs` — gömülü tek-dosya HTML/CSS/JS UI (create/import/unlock/
+    balance/UTXO tablo + plain/stealth etiketi/Send formu/QR).
+  - `rpc_client.rs` — `get_balance_for`, `scan_stealth`, `scan_p2pkh`,
+    `send_transaction` + `StealthMatch`/`P2pkhMatch` DTO'ları.
+  - `hd.rs` — `DEVNET_TEST_MNEMONIC` + `derive_spend_key` artık `pub`.
+  - `cli.rs` + `main.rs` — yeni komutlar: `devnet-import`, `serve`,
+    `send-stealth`, `--save`, `--qr`, `--full-qr`, `--to-qvaddr`.
+- `crates/qv-node/src/`:
+  - `rpc.rs` — `qv_getBalanceFor`, `qv_scanStealth`, `qv_scanP2pkh`
+    gerçek implementasyonlar; `StealthViewKey` + `StealthScan` +
+    `P2pkhMatch` wire types.
+  - `genesis.rs` — `devnet_genesis()` artık `DEVNET_TEST_MNEMONIC`'ten
+    türetiyor; `devnet_genesis_matches_wallet_test_mnemonic` köprü
+    invariant testi.
+  - `main.rs` — `--init --network devnet` çıktısı mnemonic'i ekrana basar.
+- `crates/qv-node/Cargo.toml` — `qv-privacy` workspace dep eklendi.
+- `Cargo.toml` (workspace) — `axum 0.7` (default-features=false,
+  features=["json","tokio","http1","query"]) ve `qrcode 0.14` (sadece "svg")
+  eklendi.
+- `devnet/run-single.{ps1,sh}` — 1 node + cüzdan UI tek atışta.
+- `devnet/run-all.{ps1,sh}` — 4 node + cüzdan UI + node-monitor.
+- `devnet/SCRIPTS.md` — Türkçe kullanım kılavuzu.
+- `docs/ADR/011-stealth-address-integration.md` — Faz 1-5 "uygulandı".
+- `docs/ADR/012-transaction-sighash.md` — yeni ADR.
+- `docs/security/qv-consensus-fork-finality-audit.md` — sighash bulgusu eklendi.
+- `CLAUDE.md` — ADR-012 referansı, ADR-011 durumu.
+- `docs/ROADMAP.md` — N-01, N-02, W-02, W-03, W-04, W-07, P-02, D-01, D-05,
+  D-06 kapatıldı.
+
+### Doğrulama
+
+- ADR-012 (qv-core, qv-script, qv-wallet, qv-node) lokalde derlenip test
+  edildi, tüm testler + clippy `-D warnings` YEŞİL.
+- ADR-011 Faz 1, 2, 3 lokalde derlenip test edildi, hepsi YEŞİL.
+- ADR-011 Faz 4, 5 + devnet köprüsü + launcher script'leri **henüz lokalde
+  derlenmedi** — kullanıcı sıradaki oturumda test edecek.
 
 ---
 

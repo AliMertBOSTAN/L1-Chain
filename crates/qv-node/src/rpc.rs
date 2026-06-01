@@ -12,6 +12,8 @@ use qv_consensus::slot::SlotClock;
 use qv_consensus::stake::StakeDistribution;
 use qv_consensus::ChainState;
 use qv_core::{Amount, Block, BlockHash, Height, OutPoint, Transaction, TxId};
+use qv_crypto::{DilithiumLevel, HybridKeyPair, KyberLevel, PqcPublicKey};
+use qv_privacy::stealth::{scan_output_view, StealthOutput as PrivacyStealthOutput};
 use qv_mempool::clear::{ClearPool, MempoolEntry};
 use qv_mempool::encrypted::EncryptedPool;
 use qv_storage::block_store::BlockStore;
@@ -48,15 +50,35 @@ pub trait QvNodeApi {
     #[method(name = "qv_getUtxo")]
     async fn get_utxo(&self, outpoint: String) -> RpcResult<Option<UtxoInfo>>;
 
-    /// Get the balance for a stealth address (scanning helper).
-    #[method(name = "qv_getBalanceFor")]
-    async fn get_balance_for(&self, view_key_hex: String) -> RpcResult<u64>;
+    /// Scan the current UTXO set for plain `p2pkh_pqc(pubkey_hash)` outputs.
+    ///
+    /// Used by wallets to discover "non-stealth" funds — most importantly,
+    /// genesis allocations and outputs received from senders that did not
+    /// produce a stealth-locked payment. Returns every matching outpoint
+    /// with its value. Spending uses the regular Dilithium spend key with
+    /// `sign_with` / `sign_inputs` (plain p2pkh, no `shared_secret`).
+    #[method(name = "qv_scanP2pkh")]
+    async fn scan_p2pkh(&self, pubkey_hash_hex: String) -> RpcResult<Vec<P2pkhMatch>>;
 
-    /// Scan stealth outputs in a range.
+    /// Sum the value of every stealth UTXO that the given view key can
+    /// decapsulate (ADR-011 Faz 4). The spend secret never leaves the
+    /// client — only the view key and the spend **public** key are sent.
+    /// The `view_key` payload is the structured [`StealthViewKey`] form.
+    #[method(name = "qv_getBalanceFor")]
+    async fn get_balance_for(&self, view_key: StealthViewKey) -> RpcResult<u64>;
+
+    /// Scan the current UTXO set for outputs that the given view key can
+    /// detect (ADR-011 Faz 4). Returns every matching outpoint together
+    /// with the `shared_secret` and `onetime_pk_hash` needed to spend it.
+    ///
+    /// `from_height` / `to_height` are presently best-effort — the UTXO
+    /// set is not height-indexed, so the entire live set is scanned and
+    /// the range parameters are ignored. They are preserved on the wire so
+    /// a future height-indexed scan can adopt them without a breaking change.
     #[method(name = "qv_scanStealth")]
     async fn scan_stealth(
         &self,
-        view_key_hex: String,
+        view_key: StealthViewKey,
         from_height: u64,
         to_height: u64,
     ) -> RpcResult<Vec<StealthScan>>;
@@ -134,14 +156,121 @@ pub struct UtxoInfo {
     pub has_stealth: bool,
 }
 
-/// Stealth address scan result.
+/// Stealth UTXO match returned by `qv_scanStealth` (ADR-011 Faz 4).
+///
+/// `shared_secret_hex` and `onetime_pk_hash_hex` are what the wallet needs
+/// to construct a spend witness (`<sig> <spend_pk> <shared_secret>` against
+/// the output's `stealth_p2pkh(onetime_pk_hash)` locking script — see ADR-011
+/// and ADR-012). They are sensitive: holding them, together with the spend
+/// secret key, lets the holder spend this UTXO. The client that submitted
+/// the view key is presumed to be the legitimate owner.
+///
+/// `height` is unused for now (see [`QvNodeApi::scan_stealth`] docs); the
+/// field is preserved on the wire for a future height-indexed scan.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(crate = "serde")]
 pub struct StealthScan {
+    /// Reserved — currently always `0` (UTXO set is not height-indexed).
     pub height: u64,
+    /// Hex-encoded `TxId` of the funding transaction.
     pub tx_id: String,
+    /// Output index inside the funding transaction.
     pub output_index: u32,
+    /// Value of the output in smallest units.
     pub value: u64,
+    /// Recovered shared secret (32-byte hex). Needed to spend the UTXO.
+    pub shared_secret_hex: String,
+    /// One-time public-key hash committed to by the output's locking
+    /// script (32-byte hex).
+    pub onetime_pk_hash_hex: String,
+}
+
+/// One match returned by `qv_scanP2pkh` — a plain `p2pkh_pqc` UTXO
+/// locked to the queried public-key hash.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(crate = "serde")]
+pub struct P2pkhMatch {
+    /// Hex-encoded funding `TxId`.
+    pub tx_id: String,
+    /// Output index inside the funding transaction.
+    pub output_index: u32,
+    /// Value (smallest units).
+    pub value: u64,
+}
+
+/// Wire payload that carries a stealth view-key over JSON-RPC.
+///
+/// Bundles the recipient's hybrid view keypair (Kyber + X25519, including
+/// the secrets) and their **spend public key**. The spend secret never
+/// appears here — it is not needed for scanning, only for spending, and
+/// the wallet keeps it locally.
+///
+/// Hex strings are lower-case and unprefixed. Lengths are validated by
+/// [`Self::into_view_keys`] against the declared `kyber_level`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(crate = "serde")]
+pub struct StealthViewKey {
+    /// Kyber parameter set: 1, 3, or 5.
+    pub kyber_level: u8,
+    /// Dilithium parameter set used by the spend key: 2, 3, or 5.
+    pub dilithium_level: u8,
+    /// X25519 public key (32 bytes), hex.
+    pub x25519_pk_hex: String,
+    /// X25519 secret key (32 bytes), hex.
+    pub x25519_sk_hex: String,
+    /// Kyber public key, hex.
+    pub kyber_pk_hex: String,
+    /// Kyber secret key, hex.
+    pub kyber_sk_hex: String,
+    /// Dilithium spend public key, hex.
+    pub spend_pk_hex: String,
+}
+
+impl StealthViewKey {
+    /// Parse the wire form into a usable hybrid keypair + spend public key.
+    ///
+    /// Validates every byte-length and rejects unknown parameter levels.
+    /// On success the returned `HybridKeyPair` carries the secret material
+    /// in zeroize-on-drop buffers — the server should drop it as soon as
+    /// the scan finishes.
+    pub fn into_view_keys(&self) -> Result<(HybridKeyPair, PqcPublicKey), String> {
+        let kyber_level = match self.kyber_level {
+            1 => KyberLevel::Level1,
+            3 => KyberLevel::Level3,
+            5 => KyberLevel::Level5,
+            other => return Err(format!("unknown Kyber level: {other}")),
+        };
+        let dilithium_level = match self.dilithium_level {
+            2 => DilithiumLevel::Level2,
+            3 => DilithiumLevel::Level3,
+            5 => DilithiumLevel::Level5,
+            other => return Err(format!("unknown Dilithium level: {other}")),
+        };
+
+        let x25519_pk_bytes =
+            hex::decode(&self.x25519_pk_hex).map_err(|e| format!("x25519_pk_hex: {e}"))?;
+        let x25519_pk: [u8; 32] = x25519_pk_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "x25519_pk_hex must decode to exactly 32 bytes".to_string())?;
+        let x25519_sk =
+            hex::decode(&self.x25519_sk_hex).map_err(|e| format!("x25519_sk_hex: {e}"))?;
+        let kyber_pk =
+            hex::decode(&self.kyber_pk_hex).map_err(|e| format!("kyber_pk_hex: {e}"))?;
+        let kyber_sk =
+            hex::decode(&self.kyber_sk_hex).map_err(|e| format!("kyber_sk_hex: {e}"))?;
+
+        let view_kp =
+            HybridKeyPair::from_raw_parts(kyber_level, x25519_pk, x25519_sk, kyber_pk, kyber_sk)
+                .map_err(|e| format!("view keypair: {e}"))?;
+
+        let spend_pk_bytes =
+            hex::decode(&self.spend_pk_hex).map_err(|e| format!("spend_pk_hex: {e}"))?;
+        let spend_pk = PqcPublicKey::from_bytes(dilithium_level, &spend_pk_bytes)
+            .map_err(|e| format!("spend_pk: {e}"))?;
+
+        Ok((view_kp, spend_pk))
+    }
 }
 
 /// Current mempool status.
@@ -456,53 +585,150 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
         }
     }
 
-    async fn get_balance_for(&self, _view_key_hex: String) -> RpcResult<u64> {
-        tracing::debug!(view_key = %_view_key_hex, "RPC: getBalanceFor");
+    async fn scan_p2pkh(&self, pubkey_hash_hex: String) -> RpcResult<Vec<P2pkhMatch>> {
+        tracing::debug!(%pubkey_hash_hex, "RPC: scanP2pkh");
 
-        // Note: A full implementation would:
-        // 1. Parse the view_key_hex into stealth view keys
-        // 2. Iterate over UTXO set entries
-        // 3. For each UTXO with stealth_info, call stealth::scan_output()
-        // 4. Sum the values of matching outputs
-        //
-        // This requires the privacy module and a way to iterate all UTXOs efficiently.
-        // For now, return a stub error since stealth key parsing requires actual key material.
+        let hash_bytes = hex::decode(&pubkey_hash_hex).map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                format!("pubkey_hash_hex: {e}"),
+                None::<()>,
+            )
+        })?;
+        let pk_hash: [u8; 32] = hash_bytes.as_slice().try_into().map_err(|_| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                "pubkey_hash must decode to exactly 32 bytes",
+                None::<()>,
+            )
+        })?;
 
-        Err(jsonrpsee::types::ErrorObject::owned(
-            -32603,
-            "stealth key scanning not yet implemented in RPC",
-            None::<()>,
-        ))
+        // The canonical p2pkh_pqc locking script for this hash; we compare
+        // every UTXO's locking_script bytes against this exact target.
+        let expected_script = qv_script::p2pkh_pqc(&pk_hash);
+
+        let entries = self.utxo_store.entries().map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32603,
+                format!("utxo store error: {e}"),
+                None::<()>,
+            )
+        })?;
+
+        let mut matches: Vec<P2pkhMatch> = Vec::new();
+        for (outpoint, output) in entries {
+            // Stealth outputs and p2pkh outputs are disjoint locking-script
+            // shapes; this comparison naturally skips stealth UTXOs.
+            if output.locking_script.as_bytes() != expected_script.as_slice() {
+                continue;
+            }
+            matches.push(P2pkhMatch {
+                tx_id: outpoint.tx_id.to_hex(),
+                output_index: outpoint.index,
+                value: output.value.as_u64(),
+            });
+        }
+        matches.sort_by(|a, b| {
+            a.tx_id
+                .cmp(&b.tx_id)
+                .then(a.output_index.cmp(&b.output_index))
+        });
+        Ok(matches)
+    }
+
+    async fn get_balance_for(&self, view_key: StealthViewKey) -> RpcResult<u64> {
+        tracing::debug!(
+            kyber_level = view_key.kyber_level,
+            dilithium_level = view_key.dilithium_level,
+            "RPC: getBalanceFor"
+        );
+        // Reuse `scan_stealth`'s detection logic so the two RPCs cannot
+        // disagree about what "ours" means.
+        let matches = self
+            .scan_stealth(view_key, 0, u64::MAX)
+            .await?;
+        Ok(matches.iter().map(|m| m.value).sum())
     }
 
     async fn scan_stealth(
         &self,
-        _view_key_hex: String,
-        _from_height: u64,
-        _to_height: u64,
+        view_key: StealthViewKey,
+        from_height: u64,
+        to_height: u64,
     ) -> RpcResult<Vec<StealthScan>> {
         tracing::debug!(
-            view_key = %_view_key_hex,
-            from_height = %_from_height,
-            to_height = %_to_height,
+            from_height,
+            to_height,
+            kyber_level = view_key.kyber_level,
             "RPC: scanStealth"
         );
 
-        // Note: A full implementation would:
-        // 1. Parse the view_key_hex into StealthKeys
-        // 2. Fetch blocks in [from_height, to_height] range
-        // 3. For each transaction output with stealth_info:
-        //    - Call stealth::scan_output() with the view keys
-        //    - If it matches, record the output as StealthScan
-        // 4. Return the list of matching outputs
-        //
-        // For now, return a stub error since this requires key parsing.
+        let (view_kp, spend_pk) = view_key.into_view_keys().map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(-32602, format!("invalid view key: {e}"), None::<()>)
+        })?;
 
-        Err(jsonrpsee::types::ErrorObject::owned(
-            -32603,
-            "stealth scanning not yet implemented in RPC",
-            None::<()>,
-        ))
+        let entries = self.utxo_store.entries().map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32603,
+                format!("utxo store error: {e}"),
+                None::<()>,
+            )
+        })?;
+
+        let mut matches: Vec<StealthScan> = Vec::new();
+        for (outpoint, output) in entries {
+            // Only outputs that carry a stealth payload can possibly be ours.
+            let Some(info) = output.stealth_info.as_ref() else {
+                continue;
+            };
+
+            // Rebuild the qv-privacy view of the output. `onetime_pk_hash` is
+            // not carried on-chain (ADR-011); the scanner recomputes it from
+            // the recovered shared secret + our spend pk. We cross-check it
+            // against the output's locking script below to defeat the 1/256
+            // view-tag false positive.
+            let probe = PrivacyStealthOutput {
+                kem_ciphertext: info.ephemeral_pubkey.clone(),
+                kyber_level: info.kyber_level,
+                view_tag: info.view_tag,
+                onetime_pk_hash: [0u8; 32], // unused by scan_output_view
+            };
+
+            let scan = match scan_output_view(&view_kp, &spend_pk, &probe) {
+                Ok(Some(r)) => r,
+                Ok(None) => continue,
+                Err(e) => {
+                    // Malformed stealth payload — skip the output, don't abort
+                    // the whole scan.
+                    tracing::debug!(?outpoint, "skipping malformed stealth output: {e}");
+                    continue;
+                }
+            };
+
+            // Verify the locking script commits to the scanned one-time hash.
+            let expected_script = qv_script::stealth_p2pkh(&scan.onetime_pk_hash);
+            if output.locking_script.as_bytes() != expected_script.as_slice() {
+                // View-tag false positive (1/256 expected). Not actually ours.
+                continue;
+            }
+
+            matches.push(StealthScan {
+                height: 0, // UTXO set is not height-indexed (ADR-011 future work).
+                tx_id: outpoint.tx_id.to_hex(),
+                output_index: outpoint.index,
+                value: output.value.as_u64(),
+                shared_secret_hex: hex::encode(scan.shared_secret.as_bytes()),
+                onetime_pk_hash_hex: hex::encode(scan.onetime_pk_hash),
+            });
+        }
+
+        // Deterministic order so repeated calls produce identical wire bytes.
+        matches.sort_by(|a, b| {
+            a.tx_id
+                .cmp(&b.tx_id)
+                .then(a.output_index.cmp(&b.output_index))
+        });
+        Ok(matches)
     }
 
     async fn get_stake_distribution(&self) -> RpcResult<StakeDistributionSnapshot> {
@@ -676,6 +902,77 @@ mod tests {
         };
         let json = serde_json::to_string(&utxo).unwrap();
         let _deserialized: UtxoInfo = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn stealth_scan_serde_roundtrip() {
+        let scan = StealthScan {
+            height: 0,
+            tx_id: "ab".repeat(32),
+            output_index: 7,
+            value: 50_000,
+            shared_secret_hex: "cd".repeat(32),
+            onetime_pk_hash_hex: "ef".repeat(32),
+        };
+        let json = serde_json::to_string(&scan).unwrap();
+        let back: StealthScan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.tx_id, scan.tx_id);
+        assert_eq!(back.output_index, scan.output_index);
+        assert_eq!(back.value, scan.value);
+        assert_eq!(back.shared_secret_hex, scan.shared_secret_hex);
+        assert_eq!(back.onetime_pk_hash_hex, scan.onetime_pk_hash_hex);
+    }
+
+    #[test]
+    fn stealth_view_key_roundtrips_through_into_view_keys() {
+        use qv_privacy::stealth::{create_stealth_output, scan_output_view, StealthKeys};
+
+        // Alice generates a fresh stealth identity and exports the view-key
+        // portion to the wire form (`StealthViewKey`). The server re-imports
+        // it via `into_view_keys` and must still be able to detect a payment
+        // that was created against Alice's published address.
+        let alice = StealthKeys::generate(KyberLevel::Level3, DilithiumLevel::Level3).unwrap();
+        let wire = StealthViewKey {
+            kyber_level: 3,
+            dilithium_level: 3,
+            x25519_pk_hex: hex::encode(alice.view_kp.public.x25519),
+            x25519_sk_hex: hex::encode(alice.view_kp.x25519_secret_bytes()),
+            kyber_pk_hex: hex::encode(&alice.view_kp.public.kyber),
+            kyber_sk_hex: hex::encode(alice.view_kp.kyber_secret_bytes()),
+            spend_pk_hex: hex::encode(alice.spend_kp.public.as_bytes()),
+        };
+
+        // Survives a JSON roundtrip on the wire.
+        let json = serde_json::to_string(&wire).unwrap();
+        let parsed: StealthViewKey = serde_json::from_str(&json).unwrap();
+        let (view_kp, spend_pk) = parsed.into_view_keys().expect("parse view key");
+
+        // The reconstructed pair must detect a payment to Alice's address.
+        let (stealth_output, _ss) = create_stealth_output(&alice.address()).unwrap();
+        let scan = scan_output_view(&view_kp, &spend_pk, &stealth_output)
+            .unwrap()
+            .expect("reconstructed view key must detect the output");
+        assert_eq!(scan.onetime_pk_hash, stealth_output.onetime_pk_hash);
+    }
+
+    #[test]
+    fn stealth_view_key_rejects_wrong_kyber_level() {
+        let alice = qv_privacy::stealth::StealthKeys::generate(
+            KyberLevel::Level3,
+            DilithiumLevel::Level3,
+        )
+        .unwrap();
+        let wire = StealthViewKey {
+            kyber_level: 9, // invalid
+            dilithium_level: 3,
+            x25519_pk_hex: hex::encode(alice.view_kp.public.x25519),
+            x25519_sk_hex: hex::encode(alice.view_kp.x25519_secret_bytes()),
+            kyber_pk_hex: hex::encode(&alice.view_kp.public.kyber),
+            kyber_sk_hex: hex::encode(alice.view_kp.kyber_secret_bytes()),
+            spend_pk_hex: hex::encode(alice.spend_kp.public.as_bytes()),
+        };
+        let err = wire.into_view_keys().unwrap_err();
+        assert!(err.contains("Kyber"));
     }
 
     #[test]

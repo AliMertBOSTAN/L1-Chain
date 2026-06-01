@@ -1,6 +1,69 @@
 ﻿# QuantumVault — Proje Durumu
 
-_Son güncelleme: 2026-05-21 (4-node yerel devnet gerçekten yakınsıyor + monitoring)_
+_Son güncelleme: 2026-05-22 (stealth uçtan uca + sighash + cüzdan UI + devnet köprüsü)_
+
+---
+
+## Stealth Uçtan Uca + Sighash + Cüzdan UI (2026-05-22)
+
+ADR-011 (stealth adres entegrasyonu) tüm fazları (1-5) ve ADR-012
+(işlem sighash'i) tamamlandı. Sonuç: bir kullanıcı **tek komutla** ayağa
+kalkan bir devnet + cüzdan UI yığınında PQC stealth transferi yapabiliyor.
+
+### Bitenler
+
+- **ADR-012 — sighash.** `Transaction::sighash()` (witness-dışlayan
+  SHA3-256), `qv-script` `SigHash` opcode (`0x69`), `p2pkh_pqc` /
+  `stealth_p2pkh` template'leri yeni witness ile uyumlu hâle getirildi.
+  In-flight witness yeniden-oynatma açığı (KRİTİK) kapandı, regresyon
+  testi (`p2pkh_rejects_signature_for_other_tx`) yerleşti.
+- **ADR-011 Faz 1-5 — stealth.**
+  - **Faz 1-2:** `StealthInfo` formatı + `stealth_p2pkh` template +
+    `scan_output_view` (spend secret gerektirmeyen tarama).
+  - **Faz 3:** `TxBuilder::add_stealth_output`, `sign_stealth_input`,
+    `sign_plain_input` (mix-pool girdi imzalama).
+  - **Faz 4:** `qv_getBalanceFor` + `qv_scanStealth` + `qv_scanP2pkh`
+    gerçek implementasyon; `StealthViewKey` wire payload + `StealthScan`
+    zenginleştirildi (shared_secret + onetime_pk_hash).
+  - **Faz 5:** Cüzdan uygulaması — axum HTTP API + gömülü HTML/CSS/JS UI
+    (oluştur/import/unlock/balance/UTXO tablo/Send formu/QR + `.qvaddr`).
+    CLI: `serve`, `balance`, `scan`, `send-stealth`, `devnet-import`,
+    `--save`, `--qr`, `--full-qr`, `--to-qvaddr`.
+- **Devnet bootstrap köprüsü.** `devnet_genesis()` artık
+  `DEVNET_TEST_MNEMONIC`'ten cüzdan HD yolunda türetilen ilk 10 hesabı
+  pre-fund'lıyor. Cüzdan `devnet-import` → `qv_scanP2pkh` ile bakiyeyi
+  anında görür → transfer atabilir → çıktılar daima stealth.
+- **Tek-komutla launcher script'leri.** `devnet/run-single.{ps1,sh}`
+  (1 node + cüzdan UI), `devnet/run-all.{ps1,sh}` (4 node + cüzdan +
+  monitör). Her ikisi de `start | stop | status | clean`. Türkçe
+  kullanım kılavuzu: `devnet/SCRIPTS.md`.
+- **Adres encoding'i.** Tam payable adres `qvst1<~6.4KB hex>` (bincode
+  payload), kısa kimlik fingerprint `qvfp1<40 hex>`. UI'da küçük QR olarak
+  fingerprint basılır; tam adres için 2 parçalı QR ya da `.qvaddr` JSON
+  dosyası.
+
+### Doğrulama durumu
+
+- ADR-011 Faz 1-3 + ADR-012: lokalde derlendi + test edildi + clippy
+  `-D warnings` YEŞİL.
+- ADR-011 Faz 4-5 + devnet köprüsü + launcher script'leri: **henüz
+  lokalde derlenmedi** (bu oturumdaki son ekler). Sıradaki oturumda
+  duman testi gerekiyor.
+
+### Kapanan ROADMAP envanteri
+
+N-01, N-02, W-02, W-03, W-04, W-07, P-02, D-01, D-05, D-06. Detay:
+`docs/ROADMAP.md` Faz 5 satırı.
+
+### Açık kalan (Faz 5 dışı)
+
+- **C-05** — Hybrid KEM (Kyber+X25519) seeded keygen. View key hâlâ OS
+  entropy. Sonuç: cüzdan keystore'unu yeniden açınca aynı view key
+  türetilmez → daha önce alınmış stealth ödemeler "kayıp" görünür. Düz
+  p2pkh kısmı etkilenmez. Çözüm: `pqcrypto-kyber` seeded API'ye geçiş
+  veya seed'den deterministik üretici eklemek.
+- P-01 (Bulletproofs), MP-01 (encrypted mempool wiring), N-05 (mainnet
+  ceremony), K-03/K-05 (UTXO commitment header), T-01 (Pedersen DKG).
 
 ---
 

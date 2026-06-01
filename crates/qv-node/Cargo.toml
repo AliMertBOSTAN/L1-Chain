@@ -35,6 +35,7 @@ qv-storage   = { workspace = true }
 qv-net       = { workspace = true }
 qv-mempool   = { workspace = true }
 qv-script    = { workspace = true }
+qv-privacy   = { workspace = true }
 qv-wallet    = { workspace = true }
 
 # Async runtime

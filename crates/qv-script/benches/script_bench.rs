@@ -42,16 +42,15 @@ fn bench_script_p2pkh_validation(c: &mut Criterion) {
     let pk_hash = pubkey_hash(kp.public.as_bytes());
     let locking_script = CoreScript::new(p2pkh_pqc(&pk_hash));
 
-    // Create a test transaction (the message to sign)
+    // Create a test transaction; the signature commits to its sighash.
     let (tx, _) = create_test_tx_with_witness(vec![]);
-    let payload = bincode::serialize(&tx).expect("serialize tx");
+    let sighash = tx.sighash().expect("sighash");
 
-    // Sign the payload
-    let sig = sign_pqc(&kp.secret, &payload).expect("sign");
+    // Sign the witness-excluded sighash (ADR-012)
+    let sig = sign_pqc(&kp.secret, &sighash).expect("sign");
 
-    // Build witness bytecode: push msg, sig, pubkey
+    // Build witness bytecode: push sig, pubkey (message derived via SIG_HASH)
     let witness_bytes = ScriptBuilder::new()
-        .push_bytes(&payload)
         .push_bytes(sig.as_bytes())
         .push_bytes(kp.public.as_bytes())
         .build();

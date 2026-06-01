@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "kdf": {
+    "algo": "argon2id",
+    "params": "65540,3,1",
+    "salt": "8d7c9b26c7b003c35aa9b95b56ac9b56"
+  },
+  "cipher": {
+    "algo": "aes-256-gcm",
+    "iv": "25f8efeea5a0db7da711d424",
+    "ciphertext": "f2f7c9a8d4a4d83fcfa057227212e457fc99274b0652bfbb3b844c0300cb3203aa43ecf32de2cb4abe77f31154386f19e1fafdbde5873001ec57a66c5f82219614b1eafcb815c35d17629eff935c059ba9f73ffe1181c629a21e5b354bf6476dfd43b4431c3cfaf54f1a5047a423d14d02d63e1e0f5d243734ca68c973815db51294d35c5c52f9e43530b67bcccfb1cf36b477ce2f0b0e85c3ad35726c843b724ebbdbd8e1e86e5452c6deef723aa1100e476347b852bc1a45f13da0e55d5f42b4ec0d0c30",
+    "tag": ""
+  }
+}

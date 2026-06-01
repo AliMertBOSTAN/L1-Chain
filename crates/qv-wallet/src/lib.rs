@@ -8,13 +8,17 @@
 // `[workspace.lints.rust]`. Crate-level override removed during scaffolding;
 // will be re-tightened in Faz 9 (audit-ready).
 
+pub mod address;
 pub mod cli;
 pub mod coin_select;
 pub mod hd;
 pub mod keystore;
 pub mod mnemonic;
+pub mod qvaddr;
 pub mod rpc_client;
 pub mod scanner;
+pub mod server;
+pub mod server_ui;
 pub mod tx_builder;
 
 /// Wallet-layer error type.

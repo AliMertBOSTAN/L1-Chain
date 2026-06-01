@@ -56,7 +56,9 @@ pub use gas::{gas_cost, GasMeter, DEFAULT_GAS_LIMIT, MULTISIG_PER_KEY_COST};
 pub use interpreter::{execute, execute_instructions, Context, ExecResult, ScriptError};
 
 /// Standard script templates (P2PKH, multisig, AMM, lending); see [`templates`] module.
-pub use templates::{amm_swap, lending_repay, multisig_pqc, p2pkh_pqc, pubkey_hash, ScriptBuilder};
+pub use templates::{
+    amm_swap, lending_repay, multisig_pqc, p2pkh_pqc, pubkey_hash, stealth_p2pkh, ScriptBuilder,
+};
 
 /// High-level script validation and compilation; see [`script`] module.
 pub use script::{compile, disassemble, validate_script, validate_script_with_gas};

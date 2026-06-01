@@ -47,6 +47,8 @@ rpassword          = { workspace = true }
 
 # --- rpc / http ---
 reqwest            = { workspace = true }
+axum               = { workspace = true }
+qrcode             = { workspace = true }
 
 [dev-dependencies]
 tempfile           = { workspace = true }

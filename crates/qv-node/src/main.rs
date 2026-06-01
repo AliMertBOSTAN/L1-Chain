@@ -97,7 +97,29 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
-            println!("\nNode initialized. Run without --init to start.\n");
+            println!();
+            println!("================================================================");
+            println!("  DEVNET TEST WALLET — IMPORT THIS MNEMONIC INTO qv-wallet");
+            println!("================================================================");
+            println!();
+            println!("  Mnemonic: {}", qv_wallet::hd::DEVNET_TEST_MNEMONIC);
+            println!();
+            println!("  Run:");
+            println!(
+                "    qv-wallet import-mnemonic \"{}\"",
+                qv_wallet::hd::DEVNET_TEST_MNEMONIC
+            );
+            println!();
+            println!("  Each of the first 10 accounts on this mnemonic starts with");
+            println!(
+                "  {} smallest units (~{} QV) of plain p2pkh_pqc balance.",
+                qv_node::genesis::DEVNET_TOKENS_PER_ACCOUNT,
+                qv_node::genesis::DEVNET_TOKENS_PER_ACCOUNT / 1_000_000_000
+            );
+            println!("  PUBLIC — never use on mainnet.");
+            println!("================================================================");
+            println!();
+            println!("Node initialized. Run without --init to start.\n");
         } else {
             println!(
                 "\nNode initialized for network: {}. Run without --init to start.\n",

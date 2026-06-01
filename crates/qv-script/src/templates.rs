@@ -99,20 +99,28 @@ impl ScriptBuilder {
 /// DUP HASH_SHA3                      ← hash the pubkey on top
 /// PUSH <expected_pk_hash>            ← push the expected hash
 /// EQ VERIFY                          ← check they match
-/// CHECKSIG_PQC                       ← verify signature
+/// SIG_HASH ROT ROT                   ← push sighash, reorder to (msg sig pubkey)
+/// CHECKSIG_PQC                       ← verify signature over the sighash
 /// ```
 ///
-/// The witness must push `(tx_hash_bytes, signature, pubkey)` onto the
-/// stack before this locking script runs.
+/// The witness pushes only `(signature, pubkey)`. The message the signature
+/// commits to is **not** carried in the witness — the script derives it from
+/// the transaction itself via the `SIG_HASH` opcode (ADR-012). `SIG_HASH` is
+/// the witness-excluded transaction hash, so it binds the signature to *this*
+/// transaction and closes the in-flight witness-replay vulnerability where a
+/// mempool witness could be lifted onto an attacker's transaction.
 #[must_use]
 pub fn p2pkh_pqc(pubkey_hash: &[u8; 32]) -> Vec<u8> {
     ScriptBuilder::new()
-        // Stack at entry: ... msg sig pubkey
-        .op(OpCode::Dup)           // ... msg sig pubkey pubkey
-        .op(OpCode::HashSha3)      // ... msg sig pubkey hash(pubkey)
-        .push_bytes(pubkey_hash)   // ... msg sig pubkey hash(pk) expected_hash
-        .op(OpCode::Eq)            // ... msg sig pubkey (hash==expected)
-        .op(OpCode::Verify)        // ... msg sig pubkey   (fail if false)
+        // Stack at entry: ... sig pubkey
+        .op(OpCode::Dup)           // ... sig pubkey pubkey
+        .op(OpCode::HashSha3)      // ... sig pubkey hash(pubkey)
+        .push_bytes(pubkey_hash)   // ... sig pubkey hash(pk) expected_hash
+        .op(OpCode::Eq)            // ... sig pubkey (hash==expected)
+        .op(OpCode::Verify)        // ... sig pubkey   (fail if false)
+        .op(OpCode::SigHash)       // ... sig pubkey sighash
+        .op(OpCode::Rot)           // ... pubkey sighash sig
+        .op(OpCode::Rot)           // ... sighash sig pubkey
         .op(OpCode::CheckSigPqc)   // ... result
         .build()
 }
@@ -123,6 +131,54 @@ pub fn p2pkh_pqc(pubkey_hash: &[u8; 32]) -> Vec<u8> {
 #[must_use]
 pub fn pubkey_hash(pubkey_bytes: &[u8]) -> [u8; 32] {
     sha3_256(pubkey_bytes)
+}
+
+// ============================================================================
+// Template: stealth_p2pkh (ADR-011)
+// ============================================================================
+
+/// Domain separator for the stealth one-time commitment.
+///
+/// MUST byte-for-byte match `qv_privacy::stealth`'s `STEALTH_KDF_TAG`
+/// (used by `compute_onetime_pk_hash`). See ADR-011. A future cleanup
+/// should hoist this constant into `qv-core` so the two crates cannot drift.
+const STEALTH_KDF_TAG: &[u8] = b"QuantumVault-Stealth-v1";
+
+/// Create a **stealth pay-to-public-key-hash** locking script (ADR-011).
+///
+/// Locks an output to a stealth one-time commitment. Only the recipient —
+/// who can decapsulate the output's KEM ciphertext with their view key to
+/// recover `shared_secret` — can satisfy it.
+///
+/// The witness must push, bottom-to-top:
+/// ```text
+/// <signature> <spend_pubkey> <shared_secret>
+/// ```
+///
+/// The script verifies:
+/// 1. `onetime_pk_hash == SHA3-256(STEALTH_KDF_TAG || shared_secret || spend_pubkey)`
+/// 2. `CHECKSIG_PQC(spend_pubkey, signature, sighash)` — the signature is
+///    bound to *this* transaction via the `SIG_HASH` opcode (ADR-012).
+///    `SIG_HASH` excludes input witnesses, so it is non-circular (unlike
+///    `TX_HASH`, which would hash the witness that carries the signature).
+#[must_use]
+pub fn stealth_p2pkh(onetime_pk_hash: &[u8; 32]) -> Vec<u8> {
+    ScriptBuilder::new()
+        // Witness on entry:        sig spend_pk shared_secret
+        .op(OpCode::Over) //         sig spend_pk shared_secret spend_pk
+        .op(OpCode::Cat) //          sig spend_pk (shared_secret||spend_pk)
+        .push_bytes(STEALTH_KDF_TAG) // sig spend_pk (ss||pk) TAG
+        .op(OpCode::Swap) //         sig spend_pk TAG (ss||pk)
+        .op(OpCode::Cat) //          sig spend_pk (TAG||ss||pk)
+        .op(OpCode::HashSha3) //     sig spend_pk H
+        .push_bytes(onetime_pk_hash) // sig spend_pk H commitment
+        .op(OpCode::Eq) //           sig spend_pk (H==commitment)
+        .op(OpCode::Verify) //       sig spend_pk          (fail if mismatch)
+        .op(OpCode::SigHash) //      sig spend_pk sighash
+        .op(OpCode::Rot) //          spend_pk sighash sig
+        .op(OpCode::Rot) //          sighash sig spend_pk
+        .op(OpCode::CheckSigPqc) //  result
+        .build()
 }
 
 // ============================================================================
@@ -333,15 +389,194 @@ mod tests {
         let pk_hash = [0xAB; 32];
         let script_bytes = p2pkh_pqc(&pk_hash);
         let instrs = decode_script(&script_bytes).unwrap();
-        // DUP, HASH_SHA3, PUSH(32 bytes), EQ, VERIFY, CHECKSIG_PQC
-        assert_eq!(instrs.len(), 6);
+        // DUP, HASH_SHA3, PUSH(32 bytes), EQ, VERIFY, SIG_HASH, ROT, ROT, CHECKSIG_PQC
+        assert_eq!(instrs.len(), 9);
         assert_eq!(instrs[0].op, OpCode::Dup);
         assert_eq!(instrs[1].op, OpCode::HashSha3);
         assert_eq!(instrs[2].op, OpCode::Push1);
         assert_eq!(instrs[2].data, pk_hash.to_vec());
         assert_eq!(instrs[3].op, OpCode::Eq);
         assert_eq!(instrs[4].op, OpCode::Verify);
-        assert_eq!(instrs[5].op, OpCode::CheckSigPqc);
+        assert_eq!(instrs[5].op, OpCode::SigHash);
+        assert_eq!(instrs[6].op, OpCode::Rot);
+        assert_eq!(instrs[7].op, OpCode::Rot);
+        assert_eq!(instrs[8].op, OpCode::CheckSigPqc);
+    }
+
+    #[test]
+    fn p2pkh_spendable_with_sighash_witness() {
+        use qv_crypto::{pqc_sign, DilithiumLevel};
+
+        // Owner keypair; the locking script commits to SHA3-256(pubkey).
+        let kp = pqc_sign::generate_keypair(DilithiumLevel::Level3).unwrap();
+        let pubkey = kp.public.as_bytes().to_vec();
+        let pk_hash = pubkey_hash(&pubkey);
+        let script_bytes = p2pkh_pqc(&pk_hash);
+
+        let tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![TxOutput::new(Amount::from(100), CoreScript::default())],
+        );
+        let resolved = vec![TxOutput::new(Amount::from(100), CoreScript::default())];
+        let ctx = Context::new(tx, resolved, Slot::from(7));
+
+        // Sign the witness-excluded sighash — the script pulls it via SIG_HASH.
+        let sig = pqc_sign::sign(&kp.secret, &ctx.sighash).unwrap();
+
+        // Witness: <sig> <pubkey>  (bottom -> top). No message carried.
+        let mut witness_and_script = ScriptBuilder::new()
+            .push_bytes(sig.as_bytes())
+            .push_bytes(&pubkey)
+            .build();
+        witness_and_script.extend_from_slice(&script_bytes);
+
+        let mut gas = GasMeter::new(10_000_000);
+        let result = execute(&witness_and_script, &ctx, &mut gas).unwrap();
+        assert!(
+            result.success,
+            "p2pkh output must be spendable with a sighash-bound signature"
+        );
+    }
+
+    #[test]
+    fn p2pkh_rejects_signature_for_other_tx() {
+        use qv_crypto::{pqc_sign, DilithiumLevel};
+
+        let kp = pqc_sign::generate_keypair(DilithiumLevel::Level3).unwrap();
+        let pubkey = kp.public.as_bytes().to_vec();
+        let pk_hash = pubkey_hash(&pubkey);
+        let script_bytes = p2pkh_pqc(&pk_hash);
+
+        // The legitimate transaction the owner intends to sign.
+        let real_tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![TxOutput::new(Amount::from(100), CoreScript::default())],
+        );
+        let resolved = vec![TxOutput::new(Amount::from(100), CoreScript::default())];
+        let real_ctx = Context::new(real_tx, resolved.clone(), Slot::from(7));
+        let sig = pqc_sign::sign(&kp.secret, &real_ctx.sighash).unwrap();
+
+        // Attacker reuses <sig> <pubkey> on a DIFFERENT tx (outputs redirected).
+        let evil_tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![TxOutput::new(Amount::from(100), CoreScript::new(vec![0xEE]))],
+        );
+        let evil_ctx = Context::new(evil_tx, resolved, Slot::from(7));
+        assert_ne!(
+            real_ctx.sighash, evil_ctx.sighash,
+            "redirecting outputs must change the sighash"
+        );
+
+        let mut witness_and_script = ScriptBuilder::new()
+            .push_bytes(sig.as_bytes())
+            .push_bytes(&pubkey)
+            .build();
+        witness_and_script.extend_from_slice(&script_bytes);
+
+        let mut gas = GasMeter::new(10_000_000);
+        let result = execute(&witness_and_script, &evil_ctx, &mut gas).unwrap();
+        assert!(
+            !result.success,
+            "a signature bound to another tx's sighash must not validate here"
+        );
+    }
+
+    #[test]
+    fn stealth_p2pkh_decompiles_correctly() {
+        let onetime = [0xCD; 32];
+        let instrs = decode_script(&stealth_p2pkh(&onetime)).unwrap();
+        // OVER CAT PUSH(tag) SWAP CAT HASH_SHA3 PUSH(hash) EQ VERIFY SIG_HASH ROT ROT CHECKSIG_PQC
+        assert_eq!(instrs.len(), 13);
+        assert_eq!(instrs[0].op, OpCode::Over);
+        assert_eq!(instrs[1].op, OpCode::Cat);
+        assert_eq!(instrs[2].op, OpCode::Push1);
+        assert_eq!(instrs[2].data, b"QuantumVault-Stealth-v1".to_vec());
+        assert_eq!(instrs[3].op, OpCode::Swap);
+        assert_eq!(instrs[4].op, OpCode::Cat);
+        assert_eq!(instrs[5].op, OpCode::HashSha3);
+        assert_eq!(instrs[6].op, OpCode::Push1);
+        assert_eq!(instrs[6].data, onetime.to_vec());
+        assert_eq!(instrs[7].op, OpCode::Eq);
+        assert_eq!(instrs[8].op, OpCode::Verify);
+        assert_eq!(instrs[9].op, OpCode::SigHash);
+        assert_eq!(instrs[10].op, OpCode::Rot);
+        assert_eq!(instrs[11].op, OpCode::Rot);
+        assert_eq!(instrs[12].op, OpCode::CheckSigPqc);
+    }
+
+    #[test]
+    fn stealth_p2pkh_spendable_with_correct_witness() {
+        use qv_crypto::{pqc_sign, DilithiumLevel};
+
+        // Recipient's static spend keypair + an arbitrary shared secret.
+        let kp = pqc_sign::generate_keypair(DilithiumLevel::Level3).unwrap();
+        let spend_pk = kp.public.as_bytes().to_vec();
+        let shared_secret = vec![0x5Au8; 32];
+
+        // Commitment exactly as qv-privacy's compute_onetime_pk_hash builds it:
+        // SHA3-256(STEALTH_KDF_TAG || shared_secret || spend_pk).
+        let mut preimage = b"QuantumVault-Stealth-v1".to_vec();
+        preimage.extend_from_slice(&shared_secret);
+        preimage.extend_from_slice(&spend_pk);
+        let onetime_pk_hash = sha3_256(&preimage);
+
+        let script_bytes = stealth_p2pkh(&onetime_pk_hash);
+
+        let tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![TxOutput::new(Amount::from(100), CoreScript::default())],
+        );
+        let resolved = vec![TxOutput::new(Amount::from(100), CoreScript::default())];
+        let ctx = Context::new(tx, resolved, Slot::from(7));
+
+        // Sign the witness-excluded sighash — the script pulls it via SIG_HASH.
+        let sig = pqc_sign::sign(&kp.secret, &ctx.sighash).unwrap();
+
+        // Witness: <sig> <spend_pk> <shared_secret>  (bottom -> top).
+        let mut witness_and_script = ScriptBuilder::new()
+            .push_bytes(sig.as_bytes())
+            .push_bytes(&spend_pk)
+            .push_bytes(&shared_secret)
+            .build();
+        witness_and_script.extend_from_slice(&script_bytes);
+
+        let mut gas = GasMeter::new(10_000_000);
+        let result = execute(&witness_and_script, &ctx, &mut gas).unwrap();
+        assert!(
+            result.success,
+            "stealth output must be spendable with the correct witness"
+        );
+    }
+
+    #[test]
+    fn stealth_p2pkh_rejects_wrong_shared_secret() {
+        let spend_pk = vec![0xABu8; 96];
+        let correct_ss = vec![0x5Au8; 32];
+
+        let mut preimage = b"QuantumVault-Stealth-v1".to_vec();
+        preimage.extend_from_slice(&correct_ss);
+        preimage.extend_from_slice(&spend_pk);
+        let onetime_pk_hash = sha3_256(&preimage);
+        let script_bytes = stealth_p2pkh(&onetime_pk_hash);
+
+        let tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![TxOutput::new(Amount::from(100), CoreScript::default())],
+        );
+        let resolved = vec![TxOutput::new(Amount::from(100), CoreScript::default())];
+        let ctx = Context::new(tx, resolved, Slot::from(7));
+
+        // Witness carries the WRONG shared secret -> commitment check fails.
+        let mut witness_and_script = ScriptBuilder::new()
+            .push_bytes(&[0u8; 8]) // dummy signature
+            .push_bytes(&spend_pk)
+            .push_bytes(&[0x99u8; 32]) // wrong shared secret
+            .build();
+        witness_and_script.extend_from_slice(&script_bytes);
+
+        let mut gas = GasMeter::new(10_000_000);
+        let err = execute(&witness_and_script, &ctx, &mut gas).unwrap_err();
+        assert!(matches!(err, crate::interpreter::ScriptError::VerifyFailed));
     }
 
     #[test]

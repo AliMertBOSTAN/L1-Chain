@@ -6,6 +6,18 @@ use crate::{WalletError, WalletResult};
 use qv_crypto::{sha3_256, DilithiumLevel, KyberLevel};
 use qv_privacy::StealthKeys;
 
+/// Well-known **devnet test mnemonic** (BIP-39, 24 words, checksum-valid).
+///
+/// This is the standard "abandon … art" test vector used widely across
+/// PQC / EVM tooling. On `--network devnet`, the node's genesis allocates
+/// funds to spend keys derived from this mnemonic; a fresh wallet that
+/// imports the same phrase will therefore see those funds via
+/// `qv_scanP2pkh` immediately (see ADR-011 / "plain-p2pkh köprüsü").
+///
+/// **Never use on mainnet** — the secret is public.
+pub const DEVNET_TEST_MNEMONIC: &str =
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+
 pub trait SeedDeriver: Send + Sync {
     fn derive_account(&self, seed: &[u8; 64], account_idx: u32) -> WalletResult<StealthKeys>;
 }
@@ -38,13 +50,16 @@ impl DefaultSeedDeriver {
 
     /// Derive the spend key (Dilithium) for an account.
     ///
-    /// **Status (envanter C-04, REOPENED 2026-05-07):** would be deterministic
-    /// once `qv_crypto::from_seed_pqc` is wired against `ml-dsa = "0.0.4"`
-    /// (see envanter C-06). For now, this calls the stub which returns
-    /// `Err` — wallet `init` will surface that error to the user. Keystore
-    /// save / mnemonic flow still works; only the address derivation step
-    /// fails until C-06 closes.
-    fn derive_spend_key(
+    /// Deterministic per (seed, account_idx, dilithium_level): the path
+    /// `"QuantumVault-Spend-v1" || seed || account_idx (big-endian u32)` is
+    /// hashed with SHA3-256 to obtain the 32-byte ξ that FIPS 204 KeyGen
+    /// requires (ADR-006 / envanter C-04 closed via ml-dsa 0.0.4).
+    ///
+    /// **Public** so external callers (most importantly the devnet genesis
+    /// builder in `qv-node`) can derive the same spend keys without going
+    /// through the heavier `derive_account` path, which also derives a
+    /// view key (the view key uses OS entropy until C-05 closes).
+    pub fn derive_spend_key(
         &self,
         seed: &[u8; 64],
         account_idx: u32,
@@ -94,6 +109,35 @@ impl SeedDeriver for DefaultSeedDeriver {
         let view_kp = self.derive_view_key(seed, account_idx)?;
         let spend_kp = self.derive_spend_key(seed, account_idx)?;
 
+        Ok(StealthKeys { view_kp, spend_kp })
+    }
+}
+
+impl DefaultSeedDeriver {
+    /// Generate a fresh hybrid (Kyber + X25519) view keypair using OS
+    /// entropy. Exposed publicly so the keystore upgrade flow (envanter
+    /// C-05) can persist it once and reuse on every unlock.
+    ///
+    /// **Not** deterministic from the wallet seed — Kyber doesn't expose
+    /// a seeded API in our `pqcrypto-kyber` version. View keys are
+    /// therefore persisted in the keystore alongside the mnemonic.
+    pub fn generate_fresh_view_keypair(&self) -> WalletResult<qv_crypto::HybridKeyPair> {
+        qv_crypto::generate_hybrid_keypair(self.kyber_level)
+            .map_err(|e| WalletError::Crypto(e.to_string()))
+    }
+
+    /// Derive an account combining a deterministic spend key (from
+    /// `seed`+`account_idx`) with a **caller-supplied** view keypair.
+    ///
+    /// Use this on every unlock so the persisted view key is reused
+    /// instead of regenerated.
+    pub fn derive_account_with_view(
+        &self,
+        seed: &[u8; 64],
+        account_idx: u32,
+        view_kp: qv_crypto::HybridKeyPair,
+    ) -> WalletResult<StealthKeys> {
+        let spend_kp = self.derive_spend_key(seed, account_idx)?;
         Ok(StealthKeys { view_kp, spend_kp })
     }
 }

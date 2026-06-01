@@ -6,8 +6,10 @@ use qv_core::{
     merkle_root_of, Amount, Block, BlockHash, BlockHeader, Hash256, Height, Script, Slot,
     Timestamp, Transaction, TxOutput, UtxoCommitment, BLOCK_VERSION,
 };
-use qv_crypto::{from_seed_pqc, sha3_256, DilithiumLevel, PqcPublicKey, PqcSecretKey};
+use qv_crypto::{PqcPublicKey, PqcSecretKey};
 use qv_script::templates::{p2pkh_pqc, pubkey_hash};
+use qv_wallet::hd::{DefaultSeedDeriver, DEVNET_TEST_MNEMONIC};
+use qv_wallet::Mnemonic;
 use tracing::info;
 
 /// Build a genesis block with specified initial UTXO allocations.
@@ -73,64 +75,72 @@ pub fn build_genesis_block(allocations: &[(PqcPublicKey, u64)]) -> Block {
     Block::new(header, vec![genesis_tx])
 }
 
-/// Generate a devnet genesis block with 10 allocated keypairs.
+/// Number of accounts pre-funded by [`devnet_genesis`].
+pub const DEVNET_ACCOUNTS: usize = 10;
+/// Smallest-unit balance allocated to each devnet account.
+pub const DEVNET_TOKENS_PER_ACCOUNT: u64 = 1_000_000_000;
+
+/// Generate the devnet genesis block.
 ///
-/// This convenience function generates 10 fresh Dilithium keypairs at Level 3,
-/// each allocated 1_000_000_000 tokens (smallest units), and returns both the
-/// genesis block and the secret keys for wallet/signing use.
+/// The genesis allocates `DEVNET_TOKENS_PER_ACCOUNT` smallest units to each
+/// of the first [`DEVNET_ACCOUNTS`] spend keys derived from the well-known
+/// [`DEVNET_TEST_MNEMONIC`] via the wallet's HD path. This means **a fresh
+/// wallet that imports `DEVNET_TEST_MNEMONIC` will see genesis funds at
+/// startup** (via `qv_scanP2pkh`), which is the only practical way to
+/// bootstrap end-to-end transfer testing without a faucet.
 ///
-/// # Returns
+/// The returned `Vec<PqcSecretKey>` carries the corresponding spend secret
+/// keys in account order (for tools that need them directly — e.g. signed
+/// devnet examples). They are exactly what `DefaultSeedDeriver::derive_spend_key`
+/// produces for the same mnemonic + account index.
 ///
-/// A tuple of:
-/// - The genesis `Block` with 10 outputs
-/// - A `Vec` of the corresponding `PqcSecretKey`s in the same order
+/// **Never use on mainnet** — the mnemonic is public.
+///
+/// # Determinism
+///
+/// Two calls produce byte-identical blocks: the mnemonic is constant, the
+/// HD derivation is pure SHA3 + FIPS-204 `KeyGen_internal`, and the
+/// allocation loop is deterministic. This is exercised by
+/// [`devnet_genesis_is_deterministic`].
 ///
 /// # Panics
 ///
-/// Panics if key generation fails (should be extremely rare with proper entropy).
-#[allow(clippy::expect_used)] // SAFETY: deterministic devnet keygen — failure is unreachable
+/// Panics if the well-known mnemonic fails to parse / derive (impossible
+/// in practice — it is a fixed valid BIP-39 vector).
+#[allow(clippy::expect_used)] // SAFETY: fixed-vector mnemonic + deterministic keygen — failure is unreachable
 pub fn devnet_genesis() -> (Block, Vec<PqcSecretKey>) {
-    const DEVNET_ACCOUNTS: usize = 10;
-    const TOKENS_PER_ACCOUNT: u64 = 1_000_000_000;
+    info!(
+        accounts = DEVNET_ACCOUNTS,
+        "building devnet genesis from DEVNET_TEST_MNEMONIC"
+    );
+
+    let mnemonic =
+        Mnemonic::from_phrase(DEVNET_TEST_MNEMONIC).expect("DEVNET_TEST_MNEMONIC must be valid");
+    let seed = mnemonic
+        .to_seed("")
+        .expect("DEVNET_TEST_MNEMONIC must produce a seed");
+
+    // Default HD path uses Dilithium Level 3 — matches the wallet defaults
+    // so an imported keystore produces byte-identical spend pubkeys.
+    let deriver = DefaultSeedDeriver::default_levels();
 
     let mut allocations = Vec::with_capacity(DEVNET_ACCOUNTS);
     let mut secret_keys = Vec::with_capacity(DEVNET_ACCOUNTS);
-
-    info!("deriving {DEVNET_ACCOUNTS} devnet keypairs at Level 3 from deterministic seeds");
-
-    // **Deterministic seeded keygen** (FIPS 204 §6.1 KeyGen_internal via ADR-006).
-    //
-    // Each account's seed is `SHA3-256("qv-devnet-account-" || index_byte)`. This
-    // means `qv-node init` and `qv-node run` and `examples/send_tx.rs` all
-    // converge on the same genesis block, so wallets persist across restarts
-    // and the smoke test loop is reproducible.
-    //
-    // For production networks this is replaced by the mainnet genesis ceremony
-    // (envanter N-05); these fixed devnet keys are intentionally **public** —
-    // they exist only in `archive/cpp-v1/`-grade testnet scenarios.
     for i in 0..DEVNET_ACCOUNTS {
-        let mut preimage = Vec::with_capacity(32);
-        preimage.extend_from_slice(b"qv-devnet-account-");
-        preimage.push(i as u8);
-        let seed = sha3_256(&preimage);
-
-        let pair = from_seed_pqc(DilithiumLevel::Level3, &seed)
-            .expect("from_seed_pqc must succeed for deterministic devnet keypair");
-
-        allocations.push((pair.public.clone(), TOKENS_PER_ACCOUNT));
+        #[allow(clippy::cast_possible_truncation)]
+        let pair = deriver
+            .derive_spend_key(&seed, i as u32)
+            .expect("derive_spend_key must succeed for the test mnemonic");
+        allocations.push((pair.public.clone(), DEVNET_TOKENS_PER_ACCOUNT));
         secret_keys.push(pair.secret.clone());
-
-        info!(account = i, "derived keypair from seed");
+        info!(account = i, "derived devnet spend keypair from test mnemonic");
     }
 
     let genesis_block = build_genesis_block(&allocations);
-
     info!(
-        block_hash = ?genesis_block.header,
         tx_count = genesis_block.transactions.len(),
         "devnet genesis block created"
     );
-
     (genesis_block, secret_keys)
 }
 
@@ -141,8 +151,10 @@ mod tests {
     use qv_core::MerkleRoot;
     // Tests still use `generate_pqc_keypair` for the small `build_genesis_block`
     // unit tests where determinism doesn't matter; the production `devnet_genesis`
-    // path uses `from_seed_pqc` for reproducible smoke tests (see ADR-006).
-    use qv_crypto::generate_pqc_keypair;
+    // path now derives from `DEVNET_TEST_MNEMONIC` for reproducibility *and*
+    // wallet-import compatibility (a fresh wallet that imports the same
+    // mnemonic sees the genesis funds via `qv_scanP2pkh`).
+    use qv_crypto::{generate_pqc_keypair, DilithiumLevel};
 
     #[test]
     fn genesis_block_has_no_inputs() {
@@ -221,6 +233,34 @@ mod tests {
         // (we can't directly verify they match without signing, but we can check count)
         for key in secret_keys.iter() {
             assert_eq!(key.level(), DilithiumLevel::Level3);
+        }
+    }
+
+    /// Bridge invariant — the **whole reason** for sourcing devnet genesis
+    /// from `DEVNET_TEST_MNEMONIC`: a fresh wallet importing the same
+    /// mnemonic must derive the exact spend pubkey hashes that genesis
+    /// locked the funds to. If this drifts (e.g., the HD path or the KDF
+    /// changes), `qv_scanP2pkh` would return zero matches and the wallet
+    /// would never see its starting balance.
+    #[test]
+    fn devnet_genesis_matches_wallet_test_mnemonic() {
+        let (block, _) = devnet_genesis();
+        let genesis_tx = &block.transactions[0];
+
+        let mnemonic = Mnemonic::from_phrase(DEVNET_TEST_MNEMONIC).unwrap();
+        let seed = mnemonic.to_seed("").unwrap();
+        let deriver = DefaultSeedDeriver::default_levels();
+
+        for i in 0..DEVNET_ACCOUNTS {
+            #[allow(clippy::cast_possible_truncation)]
+            let kp = deriver.derive_spend_key(&seed, i as u32).unwrap();
+            let expected_hash = pubkey_hash(kp.public.as_bytes());
+            let expected_script = p2pkh_pqc(&expected_hash);
+            assert_eq!(
+                genesis_tx.outputs[i].locking_script.as_bytes(),
+                expected_script.as_slice(),
+                "devnet account {i} genesis output must be locked to the wallet-derived spend pubkey hash"
+            );
         }
     }
 

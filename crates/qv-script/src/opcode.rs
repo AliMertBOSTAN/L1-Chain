@@ -273,6 +273,8 @@ pub enum OpCode {
     OutputCount = 0x67,
     /// Push the fee paid by this transaction.
     TxFee = 0x68,
+    /// Push the signature hash (witness-excluded tx hash) of this transaction.
+    SigHash = 0x69,
 
     // ---- Covenants (0x70–0x7F) ----
     /// Pop `(index, hash)` → verify output #index has that script hash.
@@ -297,7 +299,7 @@ pub enum OpCode {
 
 impl OpCode {
     /// Number of opcodes defined.
-    pub const COUNT: usize = 57;
+    pub const COUNT: usize = 58;
 
     /// Maximum allowed script size in bytes.
     pub const MAX_SCRIPT_SIZE: usize = 16_384;
@@ -364,6 +366,7 @@ impl OpCode {
             0x66 => Ok(Self::InputCount),
             0x67 => Ok(Self::OutputCount),
             0x68 => Ok(Self::TxFee),
+            0x69 => Ok(Self::SigHash),
 
             0x70 => Ok(Self::AssertOutputScriptHash),
             0x71 => Ok(Self::AssertDatumHash),
@@ -439,6 +442,7 @@ impl OpCode {
             Self::InputCount => "INPUT_COUNT",
             Self::OutputCount => "OUTPUT_COUNT",
             Self::TxFee => "TX_FEE",
+            Self::SigHash => "SIG_HASH",
             Self::AssertOutputScriptHash => "ASSERT_OUTPUT_SCRIPT_HASH",
             Self::AssertDatumHash => "ASSERT_DATUM_HASH",
             Self::AssertValue => "ASSERT_VALUE",
@@ -745,6 +749,7 @@ mod tests {
             OpCode::InputCount,
             OpCode::OutputCount,
             OpCode::TxFee,
+            OpCode::SigHash,
             OpCode::AssertOutputScriptHash,
             OpCode::AssertDatumHash,
             OpCode::AssertValue,

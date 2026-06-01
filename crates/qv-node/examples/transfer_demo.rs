@@ -105,10 +105,10 @@ fn main() -> anyhow::Result<()> {
     tx.fee = Amount::from(fee);
     tx.validity_interval = ValidityInterval::UNBOUNDED;
 
-    let payload = tx.canonical_bytes().expect("canonical encoding");
-    let signature = sign_pqc(&a_sk, &payload)?;
+    // ADR-012: sign the witness-excluded sighash; witness is <sig> <pubkey>.
+    let sighash = tx.sighash().expect("sighash");
+    let signature = sign_pqc(&a_sk, &sighash)?;
     let witness = ScriptBuilder::new()
-        .push_bytes(&payload)
         .push_bytes(signature.as_bytes())
         .push_bytes(a_pk.as_bytes())
         .build();

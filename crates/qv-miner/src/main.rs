@@ -266,7 +266,7 @@ async fn cmd_run(
     let current_slot = slot_clock
         .current_info(now_ms)
         .map(|info| info.slot)
-        .unwrap_or(qv_core::Slot::GENESIS);
+        .unwrap_or(Slot::GENESIS);
 
     let mut sl = SlotLoop::new(&params, current_slot, initial_nonce);
     sl.stake_distribution = Some(stake_distribution);

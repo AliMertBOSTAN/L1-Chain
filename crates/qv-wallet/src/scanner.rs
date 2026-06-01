@@ -68,17 +68,26 @@ impl StealthScanner {
                 continue;
             };
 
-            // Reconstruct the StealthOutput from the transaction output's stealth_info.
+            // Reconstruct the StealthOutput from the on-chain stealth_info.
+            // `onetime_pk_hash` is not carried here — it is the output's
+            // locking-script commitment, verified below (ADR-011).
             let stealth_output = qv_privacy::stealth::StealthOutput {
                 kem_ciphertext: stealth_info.ephemeral_pubkey.clone(),
-                kyber_level: 3, // Default to Level3; could be derived from stealth_info if encoded
+                kyber_level: stealth_info.kyber_level,
                 view_tag: stealth_info.view_tag,
-                onetime_pk_hash: [0u8; 32], // Placeholder; will be checked in scan_output
+                onetime_pk_hash: [0u8; 32], // unused by scan_output (ADR-011)
             };
 
             // Attempt to scan the output.
             match qv_privacy::stealth::scan_output(stealth_keys, &stealth_output) {
-                Ok(Some(_scan_result)) => {
+                Ok(Some(scan_result)) => {
+                    // View tag matched. Confirm ownership: the output must be
+                    // locked to stealth_p2pkh(onetime_pk_hash) (ADR-011).
+                    let expected_script = qv_script::stealth_p2pkh(&scan_result.onetime_pk_hash);
+                    if output.locking_script.as_bytes() != expected_script.as_slice() {
+                        // 1/256 view-tag false positive — not actually ours.
+                        continue;
+                    }
                     // This output is ours. Add it to the match store.
                     let tx_id = tx
                         .id()

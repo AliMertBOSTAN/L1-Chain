@@ -20,11 +20,12 @@
 | GitHub Actions CI | ✅ **5 job yeşil**: clippy, rustfmt, rustdoc, cargo-audit, cargo-deny (2026-05-14) |
 | Çalışan binary'ler | qv-node (kısmen), qv-wallet (init/send/address çalışıyor), qv-miner (M-09 core: VRF+stake distribution+slot loop+SIGINT) |
 | Çalışan akışlar | CLI parse, mnemonic gen, PQC key gen, config save/load, **gerçek Ristretto255-VRF**, **gerçek Sum-KES (depth-11) on Dilithium**, in-memory blok pipeline, wallet keystore (Argon2id + AES-256-GCM), wallet send (TxBuilder + Dilithium sign + RPC), node `shutdown()` graceful flush, miner slot loop |
-| **Eksik / placeholder** | Hibrit Kyber handshake (NET-01), Bulletproofs gerçek implementasyon (P-01), mainnet genesis ceremony tooling (N-05), miner daemon RPC fetch (M-09b), 2 RPC metodu (N-01/N-02 stealth scan/balance), block producer UTXO commitment hash (K-03/K-05), AMM batcher (K-07), Pedersen DKG (T-01) |
+| **Eksik / placeholder** | Bulletproofs gerçek implementasyon (P-01), mainnet genesis ceremony tooling (N-05), miner daemon RPC fetch (M-09b), block producer UTXO commitment hash (K-03/K-05), AMM batcher (K-07), Pedersen DKG (T-01), BFT finality gadget (ADR-013 öneri) |
 | Boş `Ok(...)` veya stub dönen public method | ~26 (envanterde takipli) |
 | Bilinçli `#[ignore]` test | 36 (detay: bkz. **O. Ignored Test İndeksi**) |
 | **Kapanmış envanter ID'leri (2026-05-14)** | C-01, C-02, C-04, C-06, C-07, K-01, K-02, K-04, **K-06**, L-01..L-04, M-01, M-02, M-03, M-04, M-05, **M-09 (core)**, N-04, N-07, G-01, G-02, W-05, W-06, B-01, B-02, **+ CI sprint (clippy/fmt/rustdoc/audit/deny)** (**26+ envanter girdisi**) |
 | **4-node yerel devnet (2026-05-21)** | ✅ Gerçek libp2p çok-process devnet: ayrı `qv-node`'lar bağlanıp blok gossip'liyor ve aynı zincirde yakınsıyor (round-robin lider); Dilithium-imzalı transfer 4 node'a yayılıyor. Launcher + CLI monitor + transfer demoları eklendi. Detay: PROJECT_STATUS.md / MEMORY.md (2026-05-21 oturumu) |
+| **Stealth + sighash + cüzdan uygulaması (2026-05-22)** | ✅ ADR-011 (Faz 1-5) + ADR-012 uygulandı. `Transaction::sighash()` + `SigHash` opcode (`0x69`) → in-flight witness yeniden-oynatma kapandı. `stealth_p2pkh` template'i gerçek doğrulamada çalışıyor. Cüzdan: `qv_scanStealth` + `qv_scanP2pkh` (devnet köprüsü), axum tabanlı HTTP API + gömülü HTML/CSS/JS UI, QR + `.qvaddr` desteği, `qvst1…` / `qvfp1…` adres formatı. `devnet/run-single.{ps1,sh}` ve `devnet/run-all.{ps1,sh}` tek-komutla launcher script'leri eklendi. Devnet genesis artık `DEVNET_TEST_MNEMONIC`'ten türetiliyor — bir cüzdanın `devnet-import` ile import etmesi bakiyeyi anında getiriyor |
 
 ---
 
@@ -42,7 +43,7 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 | ~~C-02~~ | ✅ **KAPATILDI 2026-05-06** — `qv_crypto::kes` modülü yazıldı (Sum-KES on Dilithium L3, depth=11, N=2048). API: `generate`, `sign`, `verify`, `evolve`. 11 unit test (slow ones `#[ignore]`). Forward security: master seed zeroize + per-period leaf seed zeroize | — |
 | C-03 | `crates/qv-crypto/src/lib.rs:11-13` | Doc tablosunda `vrf/kes/threshold` hâlâ "TODO" diyor — threshold artık dolu, doc güncellenmeli | Faz 0 (doc fix) |
 | ~~C-04~~ | ✅ **KAPATILDI 2026-05-07** — full ml-dsa swap (ADR-006). `from_seed_pqc` artık `<MlDsaP as KeyGen>::key_gen_internal(&B32)` ile FIPS 204 deterministik seeded keygen sunuyor. HD wallet, KES leaf, stealth recovery, miner cold key hepsi runtime'da çalışır | — |
-| C-05 | `crates/qv-wallet/src/hd.rs::derive_view_key`, `crates/qv-crypto/src/hybrid_kem.rs` | **Hybrid KEM seeded keygen yok** — `pqcrypto-kyber` 0.8 seeded API açmıyor. View key (X25519 + Kyber) hâlâ OS entropy kullanıyor | Faz 5 (wallet pro) |
+| ~~C-05~~ | ✅ **KAPATILDI 2026-05-22** (pratik çözüm) — `pqcrypto-kyber` 0.8 hâlâ seeded keygen sunmuyor; bunun yerine view key cüzdan keystore'una **kalıcı şifreli** yazılıyor. v2 keystore formatı `view_keypairs: BTreeMap<u32, PersistedViewKey>` taşıyor; `init` / `import-mnemonic` / `devnet-import` ilk hesap için fresh KEM çifti üretip persist ediyor; `unlock_account` mevcut keypair'i yeniden kullanıyor, yeni account ilk açıldığında üretip otomatik yazıyor (v1→v2 dosya migrasyonu in-place). Sonuç: stealth ödemeler keystore intact olduğu sürece restart'a dayanır. Tam FIPS 203 deterministik seeded çözümü için `ml-kem` migrasyonu ileride ayrı bir ADR olarak yapılabilir | — |
 | ~~C-06~~ | ✅ **KAPATILDI 2026-05-07** (ADR-006). RustCrypto `ml-dsa = "0.0.4"` seçildi ve full swap yapıldı (`pqcrypto-dilithium` workspace'den çıkarıldı). Spike (`spikes/c06-mldsa/`) 6/6 ✅ ile API doğrulandı. Wire format değişikliği: sk 4000→4032 byte, sig 3293→3309 byte (FIPS 204 final) | — |
 | ~~C-07~~ | ✅ **DOĞRULANDI 2026-05-07** — kullanıcı lokalde `cargo build`'i başlattı; **qv-crypto compile etti** (içinde vrf.rs + kes.rs). schnorrkel 0.11 API çağrılarım (`MiniSecretKey::ED25519_MODE`, `vrf_sign`, `VRFInOut::to_preout()`, `make_bytes(domain)`) gerçek ile uyumlu. Test çalıştırma henüz yapılmadı — VRF roundtrip gerçek runtime davranışını C-06 sonrası mı, yoksa bağımsız mı doğrulayacağımız ayrı konu | — |
 
@@ -52,9 +53,9 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 |---|---|---|---|
 | ~~K-01~~ | ✅ **KAPATILDI 2026-05-06** — `RistrettoVrfEvaluator` impl edildi (`leader_schedule.rs`). Mevcut `TestVrf` mock korundu. 4 yeni unit test (deterministik, roundtrip, wrong-pk, fairness) | — |
 | ~~K-02~~ | ✅ **KAPATILDI 2026-05-06** — `DilithiumSumKesVerifier` impl edildi (`block_validator.rs`). Stateless, bincode-decoded `KesSignature`'ı doğruluyor; mevcut `TestKesVerifier` korundu | — |
-| K-03 | `crates/qv-node/src/slot_ticker.rs:218-221` | `utxo_commitment = UtxoCommitment::ZERO` placeholder — gerçek post-apply UTXO snapshot hash gerekiyor | Faz 2/3 |
+| ~~K-03~~ | ✅ **KAPATILDI 2026-05-22** — `SlotTicker::compute_post_apply_commitment` artık canlı UTXO setini snapshot'lar, blok'un transaction'larını speculatively uygular ve elde edilen `commitment_root()`'u header'a stamp eder. 2 unit test: boş blok için snapshot = post; non-trivial blok için bağımsız `InMemoryUtxoSet` mutasyonu ile aynı root. Mainnet için incremental (sparse Merkle) sürüm Faz 9'da | — |
 | ~~K-04~~ | ✅ **KAPATILDI 2026-05-06** — `SlotTicker::with_kes_signing(kes_sk)` builder ile gerçek KES bağlanır; `produce_block` içinde `bincode::serialize(&unsigned_header)` üzerinde `qv_crypto::kes_sign` çağrılır. `kes_sk = None` (legacy/test path) backward-compatible | — |
-| K-05 | `crates/qv-miner/src/block_producer.rs:100-102, 117` | `utxo_commitment = ZERO`, `producer_key_hash = ZERO` placeholder | Faz 3 |
+| K-05 | `crates/qv-miner/src/block_producer.rs:100-102, 117` | `utxo_commitment = ZERO`, `producer_key_hash = ZERO` placeholder. **Not (2026-05-22):** qv-node lokalde K-03'ü kapattı; miner ayrı binary olduğundan UTXO setini bilmiyor → RPC köprüsü gerekli (`qv_getPostApplyCommitment(tx_hex)` veya benzeri). Ayrı follow-up | Faz 3 |
 | ~~K-06~~ | `crates/qv-miner/src/block_producer.rs::produce_block_with_decryption` | ✅ **KAPATILDI 2026-05-12** — Yeni fonksiyon `produce_block_with_decryption<D: ThresholdDecryptor>` mevcut `produce_block` yanına eklendi. Committee üyesi olan operatör `encrypted_pool.decrypt_batch(decryptor, shares)` ile drain + decrypt + bincode-deserialize akışını çalıştırır; sonuç clear-pool ile merge edilir. `MockThresholdDecryptor` ile test (`produce_block_with_decryption_merges_encrypted_tx`). Production decryptor T-01 (Pedersen DKG / Feldman VSS asymmetry) kapandığında devreye girer | — |
 | K-07 | `crates/qv-miner/src/block_producer.rs::produce_block_with_decryption` step 4 yorumu | AMM batcher wire scaffolding noktası genişletildi: `qv_defi::batcher::build_amm_batch` çağrı noktası, intent extraction helper'ı eksik (`qv-defi::Intent::extract_swap` yazılmamış) ve pool state oracle RPC yok. Intent tx'leri şimdilik plain UTXO spend gibi akar | Faz 6/7 |
 
@@ -82,8 +83,8 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 
 | ID | Yer | Sorun | Kapatan faz |
 |---|---|---|---|
-| N-01 | `crates/qv-node/src/rpc.rs:290-303` | `get_balance_for` → `"stealth key scanning not yet implemented in RPC"` | Faz 5 |
-| N-02 | `crates/qv-node/src/rpc.rs:305-329` | `scan_stealth` → aynı şekilde "not yet implemented" | Faz 5 |
+| ~~N-01~~ | ✅ **KAPATILDI 2026-05-22** (ADR-011 Faz 4) — `qv_getBalanceFor(view_key: StealthViewKey)` artık gerçek toplam (stealth + plain p2pkh köprüsü) döner. `StealthViewKey` wire payload + `into_view_keys` validation, `qv-privacy::scan_output_view(view_kp, spend_pk, out)` ile spend secret'a değmeden tarama | — |
+| ~~N-02~~ | ✅ **KAPATILDI 2026-05-22** (ADR-011 Faz 4) — `qv_scanStealth(view_key, from_height, to_height)` UTXO setini geziyor; `stealth_info` taşıyan her çıktıda `scan_output_view` çağırıp locking-script bytewise eşleşmesiyle view-tag false positive'lerini eliyor. `StealthScan` artık `shared_secret_hex` + `onetime_pk_hash_hex` taşıyor (cüzdan harcayabilsin). Bonus: `qv_scanP2pkh(pubkey_hash_hex)` köprüsü düz genesis allokasyonlarını da bulur | — |
 | N-03 | `crates/qv-node/src/network_handler.rs:90-97` | `VrfProof` ve `Vote` mesajları sadece debug log; finality akışı yok | Faz 3/4 |
 | ~~N-04~~ | ✅ **KAPATILDI 2026-05-06** — `Node::shutdown()` artık gossip channel'i kapatiyor + final tip/clear-pool snapshot'i log'luyor. Storage backend'leri Drop'ta zaten flush ediyor; future `KvStore::flush()` trait metodu eklenince explicit hale gelecek | — |
 | N-05 | `crates/qv-node/src/node.rs:191-198` | Mainnet/testnet için "Real genesis ceremony would use threshold Kyber DKG — placeholder for now"; `ceremony.rs` modülü var ama bağlanmamış | Faz 9/10 |
@@ -93,20 +94,20 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 
 | ID | Yer | Sorun | Kapatan faz |
 |---|---|---|---|
-| W-01 | `crates/qv-wallet/src/cli.rs:17-42` | CLI'de sadece 6 komut: `Init, ImportMnemonic, Address, Scan, Balance, Send`. PROJECT_STATUS'un vaat ettiği `swap, lp-add, lp-remove, borrow, repay, pool-info, export-view-key, disclose` **tanımlı değil** | Faz 5/6 |
-| W-02 | `crates/qv-wallet/src/main.rs:30-32` | `Address` sadece `tracing::info!` atıp dönüyor | Faz 1 |
-| W-03 | `crates/qv-wallet/src/main.rs:33-35` | `Scan` log + son | Faz 5 |
-| W-04 | `crates/qv-wallet/src/main.rs:36-38` | `Balance` log + son | Faz 1 |
+| W-01 | `crates/qv-wallet/src/cli.rs` | DeFi komutları (`swap, lp-add, lp-remove, borrow, repay, pool-info, export-view-key, disclose`) hâlâ tanımlı değil. **Eklendi 2026-05-22:** `devnet-import`, `send-stealth`, `serve` (UI), `address` flag'leri (`--save`, `--qr`, `--full-qr`). | Faz 5/6 (DeFi kısmı Faz 6'da) |
+| ~~W-02~~ | ✅ **KAPATILDI 2026-05-22** (ADR-011 Faz 5) — `cmd_address` artık tam `qvst1…` adresini, kısa `qvfp1…` fingerprint'ini, opsiyonel ASCII QR (`--qr`, `--full-qr`) ve `.qvaddr` dosyasını (`--save <path>`) yazar | — |
+| ~~W-03~~ | ✅ **KAPATILDI 2026-05-22** (ADR-011 Faz 5) — `cmd_scan` `qv_scanStealth` + `qv_scanP2pkh` çağırıyor; her iki havuzu listeliyor | — |
+| ~~W-04~~ | ✅ **KAPATILDI 2026-05-22** (ADR-011 Faz 5) — `cmd_balance` stealth + plain bakiyeyi toplayıp basıyor | — |
 | ~~W-05~~ | ✅ **KAPATILDI 2026-05-06** — `cmd_send` end-to-end: keystore load → spend key derive → input/recipient parse → p2pkh_pqc locking script → TxBuilder → Dilithium sign → bincode+hex encode → opsiyonel `--broadcast` ile RPC `qv_sendTransaction`. CLI flagleri: `--to-pubkey`, `--amount`, `--input <txid:idx>`, `--input-value`, `--account`, `--fee`, `--broadcast` | — |
 | ~~W-06~~ | ✅ **KAPATILDI 2026-05-06** — `cmd_init`: mnemonic üret + password prompt + Argon2id+AES-GCM ile keystore'a yaz + ilk hesabin stealth adresini bas. Bonus: `WalletKeystore::save/load` artik gercek calisiyor (placeholder `key = [0u8;32]` silindi). Yeni komutlar: `import-mnemonic`, `address` |
-| W-07 | `crates/qv-wallet/src/scanner.rs:76-77` | `StealthOutput.onetime_pk_hash = [0u8; 32]` placeholder; gerçek block scan'inde hiç match olmaz | Faz 5 |
+| ~~W-07~~ | ✅ **KAPATILDI 2026-05-22** (ADR-011 Faz 2) — `scanner.scan_transaction` artık `qv_privacy::scan_output`'un yeniden hesapladığı `onetime_pk_hash`'i kullanıyor; locking script'i `qv_script::stealth_p2pkh(scan.onetime_pk_hash)` ile bytewise karşılaştırıyor (1/256 view-tag false-positive elenir) | — |
 
 ### F. qv-privacy
 
 | ID | Yer | Sorun | Kapatan faz |
 |---|---|---|---|
 | P-01 | `crates/qv-privacy/src/confidential.rs` | `Committer / RangeProver / RangeVerifier` trait + Mock impl. Gerçek Bulletproofs entegrasyonu yok | Faz 8 |
-| P-02 | `crates/qv-privacy/src/stealth.rs` | `SpendKeyDeriver` trait + `MockSpendKeyDeriver`; gerçek Dilithium det. keygen yok | Faz 5 (C-04 ile birlikte) |
+| ~~P-02~~ | ✅ **KAPATILDI 2026-05-22** (ADR-011) — `MockSpendKeyDeriver` artık tasarım gereği kullanılmıyor. ADR-011 PQC-stealth modeli tek-seferlik harcama anahtarı türetmek yerine alıcının statik `spend_kp`'sini + `stealth_p2pkh(SHA3(tag || ss || spend_pk))` taahhüdü + witness'taki `shared_secret`'i birleştiriyor. Eski `SpendKeyDeriver` trait'i yasal/legacy testler için duruyor | — |
 | P-03 | (proje geneli) | STARK range proof migration — winterfell entegrasyonu trait arkasında, yapılmadı | Faz 8 sonrası |
 
 ### G. qv-net
@@ -127,12 +128,12 @@ o satır kaldırılır; yeni placeholder eklenirse buraya yazılır. Bu liste te
 
 | ID | Yer | Sorun | Kapatan faz |
 |---|---|---|---|
-| D-01 | `tests/e2e/20_stealth_transfer.sh` | RPC `scan_stealth` (N-02) stub olduğu için yeşil olamaz | Faz 5 |
-| D-02 | `tests/e2e/10_simple_transfer.sh` | Wallet `send` komutu (W-05) gerçek işlem üretmediği için yeşil olamaz | Faz 1 |
+| ~~D-01~~ | ✅ **KAPATILDI 2026-05-22** — N-02 (scan_stealth) gerçek implementasyon aldı. Bash script çalıştırılabilir hâle geldi; lokal smoke testi ile yeniden doğrulanması gerekiyor (re-test pending) | — |
+| ~~D-02~~ | ✅ **KAPATILDI 2026-05-22** — W-05 zaten kapalıydı; ADR-012 sighash + plain p2pkh köprüsü sonrası `qv-wallet send-stealth` ve `send` yolları yeni `devnet/run-single.{ps1,sh}` script'inden tek atışta çalıştırılabilir | — |
 | D-03 | `tests/e2e/60_encrypted_mempool.sh` | Encrypted mempool decrypt akışı (MP-01, K-06) bağlı değil | Faz 7 |
 | D-04 | `tests/e2e/30_amm_swap.sh` & `40_lending.sh` | qv-defi on-chain script entegrasyonu mock — covenant assert gerçek çalışmıyor | Faz 6 |
-| D-05 | `devnet/scripts/faucet.py` | `submit_transaction` çağrısı W-05 / wallet imzalamasına bağımlı | Faz 1 |
-| D-06 | `devnet/scripts/explorer.py` | RPC stub'larına bağlı; `get_balance_for` (N-01) için boş dönüş | Faz 5 |
+| ~~D-05~~ | ✅ **KAPATILDI 2026-05-22** (alternatif olarak) — Faucet.py'a artık ihtiyaç yok: devnet genesis `DEVNET_TEST_MNEMONIC`'ten türetilen ilk 10 hesabı önceden fonluyor. Cüzdan `devnet-import` ile keystore'u kurar, `qv_scanP2pkh` ile bakiye anında görünür. Faucet script'ini koruyup ileride sözleşme tabanlı faucet yapmak hâlâ mümkün | — |
+| ~~D-06~~ | ✅ **KAPATILDI 2026-05-22** — N-01 (get_balance_for) gerçek implementasyon aldı. `explorer.py` artık anlamlı veri döner; re-test pending | — |
 
 ### K. Build verify bulguları (2026-05-07 oturumu)
 
@@ -247,11 +248,11 @@ Hepsi C-04/C-06 + T-01 + B-03 kapandığında otomatik yeşillenir; veya test pr
 | Faz | Açıklama | Kapatacağı envanter ID'leri |
 |---|---|---|
 | Faz 0 | Hijyen + dokümantasyon | C-03, DOC-01..06 (DOC-05 ✅ 2026-05-06) |
-| Faz 1 | Devnet MVP single-node + RPC bind + wallet keystore | ✅ **N-04, W-05, W-06** kapandi (2026-05-06). Kalan: M-04, M-07, M-08, M-12, M-13, W-02, W-04, D-02, D-05 |
+| Faz 1 | Devnet MVP single-node + RPC bind + wallet keystore | ✅ **N-04, W-02, W-04, W-05, W-06, D-02, D-05** kapandi. `devnet/run-single.{ps1,sh}` ile tek komutluk MVP kuruldu. Kalan: M-04, M-07, M-08, M-12, M-13 |
 | Faz 2 | RocksDB persistence | (K-03 ile birlikte UTXO snapshot) |
 | Faz 3 | Single-node consensus loop + gerçek VRF/KES | ✅ **Workspace derler + tum test suite yesil 2026-05-07** (728/0/38). C-01, C-02, K-01, K-02, K-04, M-01, M-02, M-03, M-05, C-07 (schnorrkel verify), L-01..L-04 (test triaj) hepsi tamam. **Runtime gap'i sadece C-04/C-06** (from_seed_pqc → ml-dsa swap). Kalan başka: K-03/K-05 (UTXO commitment), K-07 (AMM batcher), M-09 (miner daemon), N-03 (vote/finality), N-06 |
 | Faz 4 | libp2p networking + hibrit handshake | NET-01, M-09 (gossip yönü) |
-| Faz 5 | Wallet pro + stealth address | **C-05 (Hybrid KEM seeded keygen)**, N-01, N-02, P-02, W-01 (kısmen), W-03, W-07, D-01, D-06 |
+| Faz 5 | Wallet pro + stealth address | ✅ **ADR-011 Faz 1-5 + ADR-012 + C-05 kapandı (2026-05-22)**: N-01, N-02, P-02, W-03, W-07, D-01, D-06, **C-05** hepsi yeşil. C-05 keystore v2 + per-account `view_keypairs` ile kapatıldı (view key persist edilir). W-01 DeFi komutları Faz 6'ya kaldı. |
 | Faz 6 | Script VM + DeFi temelleri | M-06, K-07 (kısmen), W-01, D-04 |
 | Faz 7 | Encrypted mempool + MEV koruması | K-06, K-07, MP-01, MP-02, D-03 |
 | Faz 8 | Confidential amounts | P-01, P-03 |

@@ -150,11 +150,18 @@ impl core::fmt::Debug for Datum {
 }
 
 /// Stealth-address payload attached to a [`TxOutput`].
+///
+/// Carries everything a recipient needs to detect the output with their
+/// view key (ADR-011): `ephemeral_pubkey` is the hybrid-KEM ciphertext and
+/// `kyber_level` is the Kyber parameter set required to decapsulate it.
 #[derive(Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StealthInfo {
-    /// Ephemeral Kyber public key.
+    /// Ephemeral hybrid-KEM ciphertext; the recipient decapsulates it with
+    /// their view secret key to recover the shared secret.
     pub ephemeral_pubkey: Vec<u8>,
-    /// One-byte view tag.
+    /// Kyber parameter level (1, 3, or 5) needed to decapsulate.
+    pub kyber_level: u8,
+    /// One-byte view tag for fast scanning.
     pub view_tag: u8,
 }
 
@@ -162,8 +169,9 @@ impl core::fmt::Debug for StealthInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "StealthInfo(eph_pk={} bytes, tag=0x{:02x})",
+            "StealthInfo(eph_pk={} bytes, kyber_level={}, tag=0x{:02x})",
             self.ephemeral_pubkey.len(),
+            self.kyber_level,
             self.view_tag
         )
     }
@@ -454,6 +462,23 @@ impl Transaction {
         let bytes = self.canonical_bytes()?;
         Ok(TxId::from_bytes(sha3_256(&bytes)))
     }
+
+    /// Compute the **signature hash** — the message every input signature
+    /// commits to (ADR-012).
+    ///
+    /// Unlike [`Self::id`], all input witnesses are cleared before hashing,
+    /// so the result is independent of the signatures themselves. This makes
+    /// it safe to sign (no circular dependency: signature → witness → hash)
+    /// and binds the signature to the transaction's inputs and outputs,
+    /// closing the witness-replay theft vector.
+    pub fn sighash(&self) -> Result<[u8; 32], TransactionError> {
+        let mut bare = self.clone();
+        for input in &mut bare.inputs {
+            input.witness = Witness::default();
+        }
+        let bytes = bare.canonical_bytes()?;
+        Ok(sha3_256(&bytes))
+    }
 }
 
 // ============================================================================
@@ -514,6 +539,69 @@ mod tests {
         let a = tx.id().unwrap();
         let b = tx.id().unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn sighash_is_deterministic() {
+        let tx = simple_tx();
+        assert_eq!(tx.sighash().unwrap(), tx.sighash().unwrap());
+    }
+
+    #[test]
+    fn sighash_is_independent_of_witness() {
+        // The whole point of ADR-012: changing a witness must NOT change the
+        // sighash, so a signature can commit to it without circularity.
+        let tx = simple_tx();
+        let base = tx.sighash().unwrap();
+
+        let mut signed = tx.clone();
+        signed.inputs[0].witness = Witness::new(vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(
+            signed.sighash().unwrap(),
+            base,
+            "witness bytes must not affect the sighash"
+        );
+
+        let mut signed2 = tx.clone();
+        signed2.inputs[0].witness = Witness::new(vec![0x01; 128]);
+        assert_eq!(signed2.sighash().unwrap(), base);
+    }
+
+    #[test]
+    fn sighash_changes_when_outputs_or_inputs_change() {
+        let tx = simple_tx();
+        let base = tx.sighash().unwrap();
+
+        let mut redirected = tx.clone();
+        redirected.outputs[0].locking_script = Script::new(vec![0xEE]);
+        assert_ne!(
+            redirected.sighash().unwrap(),
+            base,
+            "redirecting an output must change the sighash"
+        );
+
+        let mut more_value = tx.clone();
+        more_value.outputs[0].value = Amount::from(101);
+        assert_ne!(more_value.sighash().unwrap(), base);
+
+        let mut extra_input = tx.clone();
+        extra_input.inputs.push(TxInput::new(dummy_outpoint(9, 0)));
+        assert_ne!(extra_input.sighash().unwrap(), base);
+    }
+
+    #[test]
+    fn sighash_differs_from_txid_once_witnessed() {
+        // txid includes witnesses; sighash excludes them. For a witnessed tx
+        // the two must diverge, which is why txid cannot serve as a sighash.
+        let mut tx = simple_tx();
+        tx.inputs[0].witness = Witness::new(vec![0xAB; 64]);
+        let txid = tx.id().unwrap();
+        let sighash = tx.sighash().unwrap();
+        assert_ne!(
+            txid.as_bytes(),
+            &sighash,
+            "a witnessed tx's id must not equal its sighash"
+        );
     }
 
     #[test]
@@ -616,6 +704,7 @@ mod tests {
             .with_datum(Datum::new(vec![0x02, 0x03]))
             .with_stealth(StealthInfo {
                 ephemeral_pubkey: vec![0x04; 32],
+                kyber_level: 3,
                 view_tag: 0x7F,
             });
         let bytes = bincode::serialize(&out).unwrap();

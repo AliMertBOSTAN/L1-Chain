@@ -171,6 +171,16 @@ tempfile           = "3.10"
 # --- http client (wallet RPC) ---
 reqwest            = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# --- http server (wallet UI; ADR-011 Faz 5) ---
+# axum 0.7 reuses the same hyper 1 stack that jsonrpsee already pulls in.
+# `query` is needed by `Query<...>` extractor used in QR-parts endpoint.
+axum               = { version = "0.7", default-features = false, features = ["json", "tokio", "http1", "query"] }
+
+# --- QR rendering (wallet UI; ADR-011 Faz 5) ---
+# Default features pull the `image` crate (~4 MB of deps); we only need
+# SVG + the always-present Unicode renderer for CLI ASCII output.
+qrcode             = { version = "0.14", default-features = false, features = ["svg"] }
+
 # --- testing / benchmarking ---
 criterion      = { version = "0.5", features = ["html_reports"] }
 proptest       = "1.4"

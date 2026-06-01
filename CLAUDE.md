@@ -50,6 +50,7 @@ altında referans olarak duruyor. Aktif geliştirme `crates/` altında.
 
 ### Gizlilik — Opt-in Model
 - **Varsayılan**: KEM tabanlı Stealth Addresses (Kyber view + Dilithium spend)
+  - Not: primitifler var ama uçtan uca entegrasyon henüz tamam değil — ADR-011
 - **Privacy mode (opsiyonel)**: Confidential amounts — Bulletproofs (klasik curve)
   - Not: Bulletproofs PQC değil; kullanıcı bilinçli trade-off
   - STARK range proof migration gelecek sürümde
@@ -140,5 +141,7 @@ config/            # genesis.toml, ağ parametreleri (gelecek)
 - [ADR-008](docs/ADR/008-genesis-maxvalid-bg.md) — Genesis maxvalid-bg çatal seçimi (çekirdek uygulandı)
 - [ADR-009](docs/ADR/009-deterministic-leader-check.md) — deterministik (sabit-nokta) lider kontrolü
 - [ADR-010](docs/ADR/010-bootstrap-sync.md) — bootstrap senkronizasyon altyapısı (çekirdek uygulandı)
+- [ADR-011](docs/ADR/011-stealth-address-integration.md) — stealth adres uçtan uca entegrasyonu (Faz 1-5 uygulandı)
+- [ADR-012](docs/ADR/012-transaction-sighash.md) — işlem sighash'i; imzayı işleme bağlama (uygulandı)
 - [Çatallanma & Finalite Denetimi](docs/security/qv-consensus-fork-finality-audit.md) — fork/finalite güvenlik denetimi
 - [ABSTRACT.md](docs/ABSTRACT.md) — proje felsefesi ve kime hitap ediyor

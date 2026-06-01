@@ -163,7 +163,7 @@ mod tests {
         let args = vec!["wallet", "address", "1"];
         let cli = Cli::try_parse_from(args).expect("parse");
         match cli.command {
-            Commands::Address { account } => {
+            Commands::Address { account, .. } => {
                 assert_eq!(account, 1);
             }
             _ => panic!("wrong command"),

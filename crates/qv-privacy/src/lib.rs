@@ -72,8 +72,8 @@ pub use confidential::{
 };
 pub use stealth::{
     compute_onetime_pk_hash, compute_view_tag, create_stealth_output, recover_spend_key,
-    scan_output, MockSpendKeyDeriver, ScanResult, SpendKeyDeriver, StealthAddress, StealthKeys,
-    StealthOutput,
+    scan_output, scan_output_view, MockSpendKeyDeriver, ScanResult, SpendKeyDeriver,
+    StealthAddress, StealthKeys, StealthOutput,
 };
 pub use view_key::{DisclosureProof, PrivacyMode, ViewKey};
 

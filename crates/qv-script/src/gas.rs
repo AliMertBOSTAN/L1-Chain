@@ -79,7 +79,8 @@ pub const fn gas_cost(op: OpCode) -> u64 {
         | OpCode::SlotNumber
         | OpCode::InputCount
         | OpCode::OutputCount
-        | OpCode::TxFee => 10,
+        | OpCode::TxFee
+        | OpCode::SigHash => 10,
 
         // ---- Covenant assertions (20) ----
         OpCode::AssertOutputScriptHash | OpCode::AssertDatumHash | OpCode::AssertValue => 20,

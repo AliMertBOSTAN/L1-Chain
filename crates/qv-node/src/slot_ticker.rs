@@ -47,8 +47,10 @@ pub struct SlotTicker<V: VrfEvaluator> {
     /// Block storage (retained for constructor symmetry; block
     /// persistence now happens in the node event loop's `handle_block`).
     _block_store: Arc<BlockStore<MemoryKvStore>>,
-    /// UTXO storage for inclusion in headers (used during block production).
-    _utxo_store: Arc<UtxoStore<MemoryKvStore>>,
+    /// UTXO storage — block producer snapshots the live set, applies the
+    /// candidate block's transactions speculatively, and stamps the
+    /// resulting commitment in the header (envanter K-03/K-05).
+    utxo_store: Arc<UtxoStore<MemoryKvStore>>,
     /// Consensus chain state (tip height, hash, slot).
     chain_state: Arc<Mutex<ChainState>>,
     /// Transaction mempool (locked for concurrent access).
@@ -115,7 +117,7 @@ impl<V: VrfEvaluator> SlotTicker<V> {
             epoch_nonce,
             vrf,
             _block_store: block_store,
-            _utxo_store: utxo_store,
+            utxo_store,
             chain_state,
             clear_pool,
             _active_slot_coeff: active_slot_coeff,
@@ -295,10 +297,13 @@ impl<V: VrfEvaluator> SlotTicker<V> {
         }
         let merkle_root = merkle_root_of(&tx_ids);
 
-        // Step 4: Get the current UTXO commitment.
-        // For now, use a placeholder. In production, this would be the hash
-        // of the UTXO set after applying this block's transactions (envanter K-03).
-        let utxo_commitment = qv_core::UtxoCommitment::ZERO;
+        // Step 4: Speculatively apply this block's transactions to a
+        // snapshot of the live UTXO set and stamp the resulting
+        // commitment in the header (envanter K-03 / K-05). The real
+        // apply happens later in the node's `handle_block`; if any
+        // transaction here turns out invalid, that downstream apply
+        // will refuse the block and the slot is lost cleanly.
+        let utxo_commitment = self.compute_post_apply_commitment(&transactions)?;
 
         // Step 5: Build the block header — first WITHOUT the KES signature.
         // We then compute the bytes-to-sign over the unsigned header, sign
@@ -370,6 +375,53 @@ impl<V: VrfEvaluator> SlotTicker<V> {
         );
 
         Ok(())
+    }
+
+    /// Snapshot the persistent UTXO set, apply the candidate block's
+    /// transactions to a clone, and return the resulting commitment
+    /// root (envanter K-03 / K-05).
+    ///
+    /// Mainnet will eventually want an incremental commitment (sparse
+    /// Merkle tree) so we don't pay O(N) on every block. For devnet sizes
+    /// the full snapshot is fine and keeps the logic obviously correct.
+    fn compute_post_apply_commitment(
+        &self,
+        transactions: &[qv_core::Transaction],
+    ) -> Result<qv_core::UtxoCommitment, SlotTickerError> {
+        use qv_core::{InMemoryUtxoSet, OutPoint, UtxoSet};
+
+        // 1. Snapshot the live persistent set. Duplicates would be a
+        //    storage-layer bug; we propagate any DuplicateOutPoint as
+        //    `Storage` since this path cannot recover from it.
+        let entries = self
+            .utxo_store
+            .entries()
+            .map_err(|_| SlotTickerError::Storage)?;
+        let mut set = InMemoryUtxoSet::new();
+        for (outpoint, output) in entries {
+            set.insert(outpoint, output)
+                .map_err(|_| SlotTickerError::Storage)?;
+        }
+
+        // 2. Apply each transaction in block order. Chained txs (tx_k
+        //    consumes an output produced by tx_{<k} in the same block)
+        //    work because we insert before the next iteration removes.
+        for tx in transactions {
+            for input in &tx.inputs {
+                set.remove(&input.prev_output)
+                    .map_err(|_| SlotTickerError::TransactionError)?;
+            }
+            let tx_id = tx.id().map_err(|_| SlotTickerError::TransactionError)?;
+            for (idx, output) in tx.outputs.iter().enumerate() {
+                let idx_u32 = u32::try_from(idx)
+                    .map_err(|_| SlotTickerError::TransactionError)?;
+                let op = OutPoint::new(tx_id.clone(), idx_u32);
+                set.insert(op, output.clone())
+                    .map_err(|_| SlotTickerError::TransactionError)?;
+            }
+        }
+
+        Ok(set.commitment_root())
     }
 }
 
@@ -587,5 +639,138 @@ mod tests {
         let root_a = merkle_root_of(&[tx1, tx2]);
         let root_b = merkle_root_of(&[tx1, tx2]);
         assert_eq!(root_a, root_b);
+    }
+
+    #[tokio::test]
+    async fn post_apply_commitment_matches_snapshot_on_empty_block() {
+        // An empty block of transactions must leave the UTXO commitment
+        // equal to the live set's commitment (envanter K-03).
+        use qv_core::{Amount, OutPoint, Script, TxId, TxOutput, UtxoSet};
+        use qv_storage::utxo_store::UtxoStore as Store;
+
+        let clock = test_slot_clock();
+        let (dist, pool_id) = test_stake_distribution();
+        let vrf = test_vrf();
+
+        let block_store = Arc::new(BlockStore::new(MemoryKvStore::new()));
+        let utxo_store = Arc::new(Store::new(MemoryKvStore::new()));
+        // Pre-populate the live UTXO set with two arbitrary outputs.
+        let op1 = OutPoint::new(TxId::from_bytes([0x11; 32]), 0);
+        let op2 = OutPoint::new(TxId::from_bytes([0x22; 32]), 1);
+        utxo_store
+            .insert(op1.clone(), TxOutput::new(Amount::from(100), Script::default()))
+            .unwrap();
+        utxo_store
+            .insert(op2.clone(), TxOutput::new(Amount::from(200), Script::default()))
+            .unwrap();
+
+        let chain_state =
+            Arc::new(Mutex::new(ChainState::genesis(&ConsensusParams::mainnet())));
+        let clear_pool = Arc::new(Mutex::new(ClearPool::new(
+            qv_mempool::clear::ClearPoolConfig::ephemeral(),
+        )));
+        let (event_tx, _rx) = mpsc::channel::<NodeEvent>(16);
+
+        let ticker = SlotTicker::new(
+            clock,
+            pool_id,
+            Arc::new(dist),
+            EpochNonce::GENESIS,
+            vrf,
+            block_store,
+            utxo_store.clone(),
+            chain_state,
+            clear_pool,
+            0.05,
+            event_tx,
+        );
+
+        let post = ticker.compute_post_apply_commitment(&[]).unwrap();
+        let live = utxo_store.commitment_root().unwrap();
+        assert_eq!(
+            post, live,
+            "empty block must not change the UTXO commitment"
+        );
+        assert_ne!(
+            post,
+            qv_core::UtxoCommitment::ZERO,
+            "two-entry set must have a non-zero commitment"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_apply_commitment_reflects_block_effects() {
+        // A non-empty block must change the commitment in a way that
+        // matches applying the same effects manually.
+        use qv_core::{
+            Amount, InMemoryUtxoSet, OutPoint, Script, Transaction, TxId, TxInput, TxOutput,
+            UtxoSet,
+        };
+        use qv_storage::utxo_store::UtxoStore as Store;
+
+        let clock = test_slot_clock();
+        let (dist, pool_id) = test_stake_distribution();
+        let vrf = test_vrf();
+
+        let block_store = Arc::new(BlockStore::new(MemoryKvStore::new()));
+        let utxo_store = Arc::new(Store::new(MemoryKvStore::new()));
+
+        // Seed: one spendable UTXO of value 500.
+        let funding_op = OutPoint::new(TxId::from_bytes([0x33; 32]), 0);
+        let funding_out = TxOutput::new(Amount::from(500), Script::default());
+        utxo_store
+            .insert(funding_op.clone(), funding_out.clone())
+            .unwrap();
+
+        let chain_state =
+            Arc::new(Mutex::new(ChainState::genesis(&ConsensusParams::mainnet())));
+        let clear_pool = Arc::new(Mutex::new(ClearPool::new(
+            qv_mempool::clear::ClearPoolConfig::ephemeral(),
+        )));
+        let (event_tx, _rx) = mpsc::channel::<NodeEvent>(16);
+
+        let ticker = SlotTicker::new(
+            clock,
+            pool_id,
+            Arc::new(dist),
+            EpochNonce::GENESIS,
+            vrf,
+            block_store,
+            utxo_store.clone(),
+            chain_state,
+            clear_pool,
+            0.05,
+            event_tx,
+        );
+
+        // Build a single transaction that spends funding_op into two
+        // new outputs (200 + 290, leaving 10 as implicit fee).
+        let tx = Transaction::new(
+            vec![TxInput::new(funding_op.clone())],
+            vec![
+                TxOutput::new(Amount::from(200), Script::new(vec![0xAA])),
+                TxOutput::new(Amount::from(290), Script::new(vec![0xBB])),
+            ],
+        );
+
+        let block_commitment = ticker
+            .compute_post_apply_commitment(std::slice::from_ref(&tx))
+            .unwrap();
+
+        // Re-derive the same commitment via an independent path: build a
+        // fresh InMemoryUtxoSet, mutate it the same way, take its root.
+        let mut expected_set = InMemoryUtxoSet::new();
+        expected_set
+            .insert(funding_op, funding_out)
+            .unwrap();
+        expected_set.remove(&tx.inputs[0].prev_output).unwrap();
+        let tx_id = tx.id().unwrap();
+        for (idx, out) in tx.outputs.iter().enumerate() {
+            expected_set
+                .insert(OutPoint::new(tx_id.clone(), idx as u32), out.clone())
+                .unwrap();
+        }
+        assert_eq!(block_commitment, expected_set.commitment_root());
+        assert_ne!(block_commitment, qv_core::UtxoCommitment::ZERO);
     }
 }

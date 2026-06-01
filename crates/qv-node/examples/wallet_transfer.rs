@@ -17,6 +17,7 @@
 //!   - bir "cuzdan"in aslinda ne oldugu          (ADIM 1)
 //!   - cuzdanin node'a nasil "baglandigi"        (ADIM 2)
 //!   - bir islemin nasil imzalandigi/dogrulandigi (ADIM 5)
+//!
 //! ============================================================================
 
 #![allow(
@@ -168,42 +169,46 @@ fn main() -> anyhow::Result<()> {
     // A'nin bu UTXO'yu harcamaya YETKILI oldugunu kanitlamamiz gerekir.
     // Kanit = A'nin gizli anahtariyla atilmis bir imza.
     //
-    //  (a) IMZALANACAK MESAJ:
-    //      `tx.canonical_bytes()` — islemin tanik(witness)-icermeyen kanonik
-    //      bayt dizilimi. Imza islemin ICERIGINE baglanir; tek bayt degisse
-    //      imza gecersiz olur. (Imzayi imzanin icine koyamayiz; o yuzden
-    //      mesaj witness'siz hesaplanir.)
+    //  (a) IMZALANACAK MESAJ — SIGHASH (ADR-012):
+    //      `tx.sighash()` — islemin TUM girdi witness'lari bosaltilmis
+    //      kanonik baytlarinin SHA3-256'si. Imza islemin ICERIGINE
+    //      (girdiler + ciktilar) baglanir; tek bayt degisse imza gecersiz
+    //      olur. Witness disarida birakildigi icin dongusellik yoktur ve
+    //      imza, mempool'daki bir islemden cikarilip baska bir isleme
+    //      yapistirilamaz (in-flight replay kapandi).
     //
     //  (b) IMZA:
-    //      `sign_pqc(&a_sk, &mesaj)` — A'nin GIZLI anahtariyla Dilithium /
+    //      `sign_pqc(&a_sk, &sighash)` — A'nin GIZLI anahtariyla Dilithium /
     //      ML-DSA (kuantum-guvenli) imzasi uretir (~3.3 KB).
     //
     //  (c) TANIK (witness):
-    //      Mesaji, imzayi ve acik anahtari girdiye ilistiririz. Bunu kucuk bir
-    //      script olarak paketleriz: [mesaj, imza, acik_anahtar] yigina birakilir.
+    //      Sadece imzayi ve acik anahtari girdiye ilistiririz. Bunu kucuk bir
+    //      script olarak paketleriz: [imza, acik_anahtar] yigina birakilir.
+    //      Mesaj artik witness'ta tasinmaz; script onu SIG_HASH opcode'uyla
+    //      islemin kendisinden turetir.
     //
     //  (d) NODE NASIL DOGRULAR:
     //      Harcadigimiz UTXO `p2pkh_pqc(A'nin adresi)` ile kilitliydi. Bir node
     //      blogu islerken script VM'ini calistirir:
     //        1) witness'taki acik anahtari alir, SHA3-256'sini hesaplar, kilitteki
     //           adresle (pubkey-hash) eslesiyor mu bakar,
-    //        2) CHECKSIG_PQC: imzayi, mesaji ve acik anahtari dogrular.
-    //      Ikisi de gecerse UTXO harcanabilir; degilse islem reddedilir. Yani
+    //        2) SIG_HASH ile islemin sighash'ini yigina basar,
+    //        3) CHECKSIG_PQC: imzayi, sighash'i ve acik anahtari dogrular.
+    //      Hepsi gecerse UTXO harcanabilir; degilse islem reddedilir. Yani
     //      "sahiplik" = gecerli imza uretebilen gizli anahtara sahip olmaktir.
     // ========================================================================
-    let message = tx.canonical_bytes().expect("kanonik bayt dizilimi");
-    let signature = sign_pqc(&a_sk, &message)?;
+    let sighash = tx.sighash().expect("sighash hesaplanamadi");
+    let signature = sign_pqc(&a_sk, &sighash)?;
     let witness_script = ScriptBuilder::new()
-        .push_bytes(&message) // (a) imzalanan mesaj
-        .push_bytes(signature.as_bytes()) // (b) imzanin kendisi
-        .push_bytes(a_pk.as_bytes()) // (c) A'nin acik anahtari
+        .push_bytes(signature.as_bytes()) // (a) imzanin kendisi
+        .push_bytes(a_pk.as_bytes()) // (b) A'nin acik anahtari
         .build();
     tx.inputs[0].witness = Witness::new(witness_script);
 
     let txid = tx.id().expect("imzali islem id'si");
     println!("\n[ADIM 5] Islem imzalandi");
     println!("  algoritma : Dilithium / ML-DSA Level 3 (post-quantum)");
-    println!("  mesaj     : {} bayt (witness'siz kanonik islem)", message.len());
+    println!("  sighash   : {} bayt (witness'siz kanonik islem ozeti)", sighash.len());
     println!("  imza      : {} bayt", signature.as_bytes().len());
     println!("  islem id  : {}", txid.to_hex());
 
