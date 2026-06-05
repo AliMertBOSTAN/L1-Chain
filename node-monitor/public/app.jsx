@@ -859,7 +859,7 @@ function TxHistoryRow({ e }) {
   );
 }
 
-function TxTab({ tx, state }) {
+function TxTab({ tx, state, txWindow, setTxWindow }) {
   if (!tx || !tx.ok)
     return <div className="empty">İşlem verisi yok — devnet çalışmıyor olabilir.</div>;
   const nodeN = (state && state.config && state.config.nodes) ? state.config.nodes.length : 4;
@@ -867,6 +867,9 @@ function TxTab({ tx, state }) {
   const blocks = tx.blocks || [];
   const history = tx.txHistory || [];
   const dropped = history.filter(e => e.status === 'dropped').length;
+  // Slot süresine göre kabaca "X dakikalik geçmiş" göster.
+  const slotMs = (state && state.config && state.config.slotMs) || 500;
+  const approxMinutes = ((txWindow * slotMs) / 60000).toFixed(1);
   return (
     <>
       <div className="grid tiles" style={{ marginBottom: 12 }}>
@@ -875,6 +878,21 @@ function TxTab({ tx, state }) {
           sub={dropped ? dropped + ' tanesi düştü' : 'oturum boyunca görülen'} />
         <Tile label="Zincirdeki işlemli blok" value={String(blocks.length)} sub={tx.scannedFrom + '–' + tx.tip + ' arası'} />
         <Tile label="Zincirdeki işlem" value={fmt(blocks.reduce((s, b) => s + b.txCount, 0))} sub="genesis dahil" />
+      </div>
+      <div className="panel" style={{ marginBottom: 12, padding: '8px 12px', display: 'flex',
+            alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span className="dim" style={{ fontSize: 12 }}>Tarama penceresi:</span>
+        {[300, 600, 1200, 2400, 5000].map(n => (
+          <button key={n}
+            className={n === txWindow ? 'active' : ''}
+            style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid var(--border)',
+              background: n === txWindow ? 'var(--accent)' : 'transparent',
+              color: n === txWindow ? '#001428' : 'var(--text)', cursor: 'pointer', fontSize: 12 }}
+            onClick={() => setTxWindow(n)}>{n} blok</button>
+        ))}
+        <span className="dim" style={{ fontSize: 11, marginLeft: 'auto' }}>
+          ~{approxMinutes} dakika geriye bakıyor (slot {slotMs}ms × {txWindow})
+        </span>
       </div>
       <p className="dim" style={{ fontSize: 12, marginBottom: 12 }}>
         Yeni gönderilen bir işlem önce <b>mempool</b>'a düşer. Bir slot lideri onu bloğa dahil
@@ -1340,6 +1358,7 @@ function App() {
   const [tx, setTx] = useState(null);
   const [logs, setLogs] = useState(null);
   const [forkWindow, setForkWindow] = useState(48);
+  const [txWindow, setTxWindow] = useState(600);
   const [logFilterNode, setLogFilterNode] = useState('');
   const [logFilterKind, setLogFilterKind] = useState('');
   const [auto, setAuto] = useState(true);
@@ -1354,12 +1373,12 @@ function App() {
     } catch (e) { setConnOk(false); }
     try {
       if (activeTab === 'forks') setForks(await fetchJSON('/api/forks?count=' + forkWindow));
-      else if (activeTab === 'tx') setTx(await fetchJSON('/api/transactions'));
+      else if (activeTab === 'tx') setTx(await fetchJSON('/api/transactions?count=' + txWindow));
       else if (activeTab === 'logs')
         setLogs(await fetchJSON('/api/logs?count=350' +
           (logFilterNode ? '&node=' + encodeURIComponent(logFilterNode) : '')));
     } catch (e) { /* ağır uç geçici hatası — sessiz geç */ }
-  }, [activeTab, forkWindow, logFilterNode]);
+  }, [activeTab, forkWindow, txWindow, logFilterNode]);
 
   // Canlı güncelleme: React state üzerinden — DOM yerinde yamanır, sayfa sıfırlanmaz.
   useEffect(() => {
@@ -1398,7 +1417,7 @@ function App() {
         )}
         {activeTab === 'consensus' && <Consensus state={appState} />}
         {activeTab === 'perf' && <Perf state={appState} />}
-        {activeTab === 'tx' && <TxTab tx={tx} state={appState} />}
+        {activeTab === 'tx' && <TxTab tx={tx} state={appState} txWindow={txWindow} setTxWindow={setTxWindow} />}
         {activeTab === 'logs' && (
           <LogsTab logs={logs} state={appState}
             filterNode={logFilterNode} setFilterNode={setLogFilterNode}

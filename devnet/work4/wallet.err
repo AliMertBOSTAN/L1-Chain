@@ -1,0 +1,1 @@
+WARN: binding multi-tenant wallet to 0.0.0.0:7777. Custodial mode is acceptable for devnet/demo only — every logged-in user's spend secret lives in this process's RAM.

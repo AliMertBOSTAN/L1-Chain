@@ -156,7 +156,7 @@ async fn cmd_run(
     use qv_consensus::{PoolId, VrfProof};
     use qv_core::{
         merkle_root_of, Block, BlockHash, BlockHeader, Hash256, Height, ProtocolParams, Slot,
-        Timestamp, Transaction, UtxoCommitment, BLOCK_VERSION,
+        Timestamp, Transaction, BLOCK_VERSION,
     };
     use qv_miner::node_rpc::NodeRpcClient;
     use qv_miner::slot_loop::{run_slot_loop, SlotLoop};
@@ -328,8 +328,8 @@ async fn cmd_run(
 
             let mut transactions: Vec<Transaction> = Vec::with_capacity(pending_hex.len());
             let mut tx_ids = Vec::with_capacity(pending_hex.len());
-            for hex_tx in pending_hex {
-                let raw = hex::decode(&hex_tx).map_err(|e| {
+            for hex_tx in &pending_hex {
+                let raw = hex::decode(hex_tx).map_err(|e| {
                     qv_miner::MinerError::Serialization(format!(
                         "pending tx hex decode failed: {e}"
                     ))
@@ -349,11 +349,23 @@ async fn cmd_run(
             // 4.3 Merkle root over txids.
             let merkle_root = merkle_root_of(&tx_ids);
 
-            // 4.4 Build unsigned header → KES sign → attach signature.
-            //
-            // `utxo_commitment` stays `ZERO` (envanter K-03/K-05); the
-            // post-apply UTXO snapshot hash is a separate workstream and
-            // the verifier currently treats the field as opaque.
+            // 4.4 Ask the node to compute the post-apply UTXO commitment for
+            //     this candidate block (envanter K-05). The node speculatively
+            //     applies these txs to a snapshot and returns the resulting
+            //     root — we stamp it into the header so the verifier (and any
+            //     light client) can audit state across forks. We send the
+            //     same hex list we received from `get_pending_transactions`
+            //     so the node decodes byte-identical `Transaction`s.
+            let utxo_commitment = rpc
+                .get_post_apply_commitment(pending_hex)
+                .await
+                .map_err(|e| {
+                    qv_miner::MinerError::BlockProduction(format!(
+                        "get_post_apply_commitment failed: {e}"
+                    ))
+                })?;
+
+            // 4.5 Build unsigned header → KES sign → attach signature.
             let now_secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -365,7 +377,7 @@ async fn cmd_run(
                 slot,
                 timestamp: Timestamp::from(now_secs),
                 merkle_root,
-                utxo_commitment: UtxoCommitment::ZERO,
+                utxo_commitment,
                 vrf_proof: vrf_proof.0.clone(),
                 kes_sig: Vec::new(),
                 producer_key_hash: producer_hash,

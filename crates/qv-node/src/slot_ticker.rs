@@ -379,50 +379,72 @@ impl<V: VrfEvaluator> SlotTicker<V> {
 
     /// Snapshot the persistent UTXO set, apply the candidate block's
     /// transactions to a clone, and return the resulting commitment
-    /// root (envanter K-03 / K-05).
-    ///
-    /// Mainnet will eventually want an incremental commitment (sparse
-    /// Merkle tree) so we don't pay O(N) on every block. For devnet sizes
-    /// the full snapshot is fine and keeps the logic obviously correct.
+    /// root. Delegates to the shared [`speculative_utxo_commitment`]
+    /// helper so the RPC `qv_getPostApplyCommitment` (used by external
+    /// miners) and the in-process slot ticker use exactly the same
+    /// arithmetic.
     fn compute_post_apply_commitment(
         &self,
         transactions: &[qv_core::Transaction],
     ) -> Result<qv_core::UtxoCommitment, SlotTickerError> {
-        use qv_core::{InMemoryUtxoSet, OutPoint, UtxoSet};
-
-        // 1. Snapshot the live persistent set. Duplicates would be a
-        //    storage-layer bug; we propagate any DuplicateOutPoint as
-        //    `Storage` since this path cannot recover from it.
-        let entries = self
-            .utxo_store
-            .entries()
-            .map_err(|_| SlotTickerError::Storage)?;
-        let mut set = InMemoryUtxoSet::new();
-        for (outpoint, output) in entries {
-            set.insert(outpoint, output)
-                .map_err(|_| SlotTickerError::Storage)?;
-        }
-
-        // 2. Apply each transaction in block order. Chained txs (tx_k
-        //    consumes an output produced by tx_{<k} in the same block)
-        //    work because we insert before the next iteration removes.
-        for tx in transactions {
-            for input in &tx.inputs {
-                set.remove(&input.prev_output)
-                    .map_err(|_| SlotTickerError::TransactionError)?;
-            }
-            let tx_id = tx.id().map_err(|_| SlotTickerError::TransactionError)?;
-            for (idx, output) in tx.outputs.iter().enumerate() {
-                let idx_u32 = u32::try_from(idx)
-                    .map_err(|_| SlotTickerError::TransactionError)?;
-                let op = OutPoint::new(tx_id.clone(), idx_u32);
-                set.insert(op, output.clone())
-                    .map_err(|_| SlotTickerError::TransactionError)?;
-            }
-        }
-
-        Ok(set.commitment_root())
+        speculative_utxo_commitment(&self.utxo_store, transactions)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Shared speculative UTXO commitment helper (envanter K-03 / K-05)
+// ---------------------------------------------------------------------------
+
+/// Compute the UTXO commitment that *would* result from applying
+/// `transactions` to `utxo_store` — without actually mutating storage.
+///
+/// Used by:
+/// - the in-process block producer ([`SlotTicker::compute_post_apply_commitment`])
+/// - the `qv_getPostApplyCommitment` RPC handler (`qv-node::rpc`), which
+///   lets out-of-process miners stamp the correct value into their
+///   block headers without needing a full local UTXO snapshot.
+///
+/// Algorithm: snapshot the live persistent set into an in-memory
+/// [`qv_core::InMemoryUtxoSet`], speculatively apply each transaction
+/// in order (remove inputs, insert outputs), then return its
+/// `commitment_root()`. Chained transactions (later tx consuming an
+/// output produced by an earlier tx in the same block) work because
+/// inserts precede removes in the next iteration.
+///
+/// Mainnet will eventually want an incremental commitment (sparse
+/// Merkle tree) so we don't pay O(N) on every block. For devnet sizes
+/// the full snapshot is fine and keeps the logic obviously correct.
+pub fn speculative_utxo_commitment<S: qv_storage::kv::KvStore>(
+    utxo_store: &qv_storage::utxo_store::UtxoStore<S>,
+    transactions: &[qv_core::Transaction],
+) -> Result<qv_core::UtxoCommitment, SlotTickerError> {
+    use qv_core::{InMemoryUtxoSet, OutPoint, UtxoSet};
+
+    let entries = utxo_store
+        .entries()
+        .map_err(|_| SlotTickerError::Storage)?;
+    let mut set = InMemoryUtxoSet::new();
+    for (outpoint, output) in entries {
+        set.insert(outpoint, output)
+            .map_err(|_| SlotTickerError::Storage)?;
+    }
+
+    for tx in transactions {
+        for input in &tx.inputs {
+            set.remove(&input.prev_output)
+                .map_err(|_| SlotTickerError::TransactionError)?;
+        }
+        let tx_id = tx.id().map_err(|_| SlotTickerError::TransactionError)?;
+        for (idx, output) in tx.outputs.iter().enumerate() {
+            let idx_u32 =
+                u32::try_from(idx).map_err(|_| SlotTickerError::TransactionError)?;
+            let op = OutPoint::new(tx_id, idx_u32);
+            set.insert(op, output.clone())
+                .map_err(|_| SlotTickerError::TransactionError)?;
+        }
+    }
+
+    Ok(set.commitment_root())
 }
 
 /// Errors that can occur during slot ticking or block production.
@@ -645,7 +667,7 @@ mod tests {
     async fn post_apply_commitment_matches_snapshot_on_empty_block() {
         // An empty block of transactions must leave the UTXO commitment
         // equal to the live set's commitment (envanter K-03).
-        use qv_core::{Amount, OutPoint, Script, TxId, TxOutput, UtxoSet};
+        use qv_core::{Amount, OutPoint, Script, TxId, TxOutput};
         use qv_storage::utxo_store::UtxoStore as Store;
 
         let clock = test_slot_clock();
@@ -658,10 +680,10 @@ mod tests {
         let op1 = OutPoint::new(TxId::from_bytes([0x11; 32]), 0);
         let op2 = OutPoint::new(TxId::from_bytes([0x22; 32]), 1);
         utxo_store
-            .insert(op1.clone(), TxOutput::new(Amount::from(100), Script::default()))
+            .insert(op1, TxOutput::new(Amount::from(100), Script::default()))
             .unwrap();
         utxo_store
-            .insert(op2.clone(), TxOutput::new(Amount::from(200), Script::default()))
+            .insert(op2, TxOutput::new(Amount::from(200), Script::default()))
             .unwrap();
 
         let chain_state =
@@ -719,7 +741,7 @@ mod tests {
         let funding_op = OutPoint::new(TxId::from_bytes([0x33; 32]), 0);
         let funding_out = TxOutput::new(Amount::from(500), Script::default());
         utxo_store
-            .insert(funding_op.clone(), funding_out.clone())
+            .insert(funding_op, funding_out.clone())
             .unwrap();
 
         let chain_state =
@@ -746,7 +768,7 @@ mod tests {
         // Build a single transaction that spends funding_op into two
         // new outputs (200 + 290, leaving 10 as implicit fee).
         let tx = Transaction::new(
-            vec![TxInput::new(funding_op.clone())],
+            vec![TxInput::new(funding_op)],
             vec![
                 TxOutput::new(Amount::from(200), Script::new(vec![0xAA])),
                 TxOutput::new(Amount::from(290), Script::new(vec![0xBB])),
@@ -767,7 +789,7 @@ mod tests {
         let tx_id = tx.id().unwrap();
         for (idx, out) in tx.outputs.iter().enumerate() {
             expected_set
-                .insert(OutPoint::new(tx_id.clone(), idx as u32), out.clone())
+                .insert(OutPoint::new(tx_id, idx as u32), out.clone())
                 .unwrap();
         }
         assert_eq!(block_commitment, expected_set.commitment_root());

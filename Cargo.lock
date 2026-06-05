@@ -3785,12 +3785,14 @@ dependencies = [
 name = "qv-mempool"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "dashmap",
  "parking_lot",
  "proptest",
  "qv-common",
  "qv-core",
  "qv-crypto",
+ "rand 0.8.6",
  "serde",
  "thiserror 1.0.69",
  "tracing",

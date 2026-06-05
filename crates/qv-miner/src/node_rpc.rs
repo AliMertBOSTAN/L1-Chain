@@ -183,6 +183,48 @@ impl NodeRpcClient {
             ))
         })
     }
+
+    /// Ask the node to compute the post-apply UTXO commitment for the
+    /// given candidate block (`qv_getPostApplyCommitment`).
+    ///
+    /// Each entry in `tx_bytes_hex` is the hex-encoded bincode of a
+    /// `Transaction` — the same shape `get_pending_transactions` returns,
+    /// so the producer can pass the fetched list straight through.
+    /// Returns the 32-byte commitment root parsed back into the typed
+    /// `UtxoCommitment`. Closes envanter **K-05**.
+    pub async fn get_post_apply_commitment(
+        &self,
+        tx_bytes_hex: Vec<String>,
+    ) -> MinerResult<qv_core::UtxoCommitment> {
+        let params = vec![
+            serde_json::to_value(tx_bytes_hex).map_err(|e| {
+                MinerError::RpcError(format!(
+                    "qv_getPostApplyCommitment: cannot encode tx list: {e}"
+                ))
+            })?,
+        ];
+        let result = self.call("qv_getPostApplyCommitment", params).await?;
+        let hex_str = match result {
+            Value::String(s) => s,
+            other => {
+                return Err(MinerError::RpcError(format!(
+                    "qv_getPostApplyCommitment: expected string result, got {other}"
+                )));
+            }
+        };
+        let bytes = hex::decode(&hex_str).map_err(|e| {
+            MinerError::RpcError(format!(
+                "qv_getPostApplyCommitment: invalid hex: {e}"
+            ))
+        })?;
+        let arr: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+            MinerError::RpcError(format!(
+                "qv_getPostApplyCommitment: expected 32 bytes, got {}",
+                bytes.len()
+            ))
+        })?;
+        Ok(qv_core::UtxoCommitment::from_bytes(arr))
+    }
 }
 
 /// Wire-shape representation of `qv_node::rpc::TipInfo` used by the miner.

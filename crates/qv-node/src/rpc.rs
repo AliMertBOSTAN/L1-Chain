@@ -125,6 +125,22 @@ pub trait QvNodeApi {
     #[method(name = "qv_submitBlock")]
     async fn submit_block(&self, block_bytes: String) -> RpcResult<String>;
 
+    /// Compute the post-apply UTXO commitment for a candidate block.
+    ///
+    /// Each entry in `tx_bytes_hex` is the hex-encoded bincode of a
+    /// `Transaction`. The node speculatively applies them to a snapshot
+    /// of its live UTXO set and returns the resulting commitment root
+    /// (32 bytes, hex). The persistent set is **not** mutated.
+    ///
+    /// Used by external block producers (`qv-miner`) so they can stamp
+    /// the correct value into the block header before signing, without
+    /// running their own UTXO replica (envanter K-05).
+    #[method(name = "qv_getPostApplyCommitment")]
+    async fn get_post_apply_commitment(
+        &self,
+        tx_bytes_hex: Vec<String>,
+    ) -> RpcResult<String>;
+
     // Subscription endpoints are deferred until the node wires up a real
     // event source (block/tx notifier channels). Re-add when implementing:
     //
@@ -183,6 +199,14 @@ pub struct StealthScan {
     /// One-time public-key hash committed to by the output's locking
     /// script (32-byte hex).
     pub onetime_pk_hash_hex: String,
+    /// Hybrid-KEM ciphertext from the on-chain `StealthInfo` (hex).
+    /// Bundled so wallets can produce `.qvdisclose` selective-disclosure
+    /// files without a second RPC round-trip.
+    pub kem_ciphertext_hex: String,
+    /// View tag from the on-chain `StealthInfo` (2-char hex / 1 byte).
+    pub view_tag_hex: String,
+    /// Kyber parameter set baked into the on-chain `StealthInfo` (1, 3, or 5).
+    pub kyber_level: u8,
 }
 
 /// One match returned by `qv_scanP2pkh` — a plain `p2pkh_pqc` UTXO
@@ -266,7 +290,7 @@ impl StealthViewKey {
 
         let spend_pk_bytes =
             hex::decode(&self.spend_pk_hex).map_err(|e| format!("spend_pk_hex: {e}"))?;
-        let spend_pk = PqcPublicKey::from_bytes(dilithium_level, &spend_pk_bytes)
+        let spend_pk = PqcPublicKey::from_bytes(dilithium_level, spend_pk_bytes)
             .map_err(|e| format!("spend_pk: {e}"))?;
 
         Ok((view_kp, spend_pk))
@@ -719,6 +743,9 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
                 value: output.value.as_u64(),
                 shared_secret_hex: hex::encode(scan.shared_secret.as_bytes()),
                 onetime_pk_hash_hex: hex::encode(scan.onetime_pk_hash),
+                kem_ciphertext_hex: hex::encode(&info.ephemeral_pubkey),
+                view_tag_hex: hex::encode([info.view_tag]),
+                kyber_level: info.kyber_level,
             });
         }
 
@@ -835,6 +862,51 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
         );
 
         Ok(block_hash.to_hex())
+    }
+
+    async fn get_post_apply_commitment(
+        &self,
+        tx_bytes_hex: Vec<String>,
+    ) -> RpcResult<String> {
+        tracing::debug!(tx_count = tx_bytes_hex.len(), "RPC: getPostApplyCommitment");
+
+        // Decode every hex entry into a `Transaction`. Reject the whole
+        // request on the first bad entry — that means the producer sent
+        // malformed data and the resulting commitment would be wrong.
+        let mut txs: Vec<Transaction> = Vec::with_capacity(tx_bytes_hex.len());
+        for hex_tx in &tx_bytes_hex {
+            let raw = hex::decode(hex_tx).map_err(|e| {
+                jsonrpsee::types::ErrorObject::owned(
+                    -32602,
+                    format!("invalid hex encoding: {e}"),
+                    None::<()>,
+                )
+            })?;
+            let tx: Transaction = bincode::deserialize(&raw).map_err(|e| {
+                jsonrpsee::types::ErrorObject::owned(
+                    -32602,
+                    format!("invalid transaction encoding: {e}"),
+                    None::<()>,
+                )
+            })?;
+            txs.push(tx);
+        }
+
+        // Speculatively apply against a snapshot — does not mutate
+        // persistent storage. Reuses the same helper the in-process slot
+        // ticker uses so both paths produce byte-identical results.
+        let commitment = crate::slot_ticker::speculative_utxo_commitment(
+            &self.utxo_store,
+            &txs,
+        )
+        .map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32603,
+                format!("speculative apply failed: {e}"),
+                None::<()>,
+            )
+        })?;
+        Ok(hex::encode(commitment.as_bytes()))
     }
 
     async fn get_mempool_status(&self) -> RpcResult<MempoolStatus> {

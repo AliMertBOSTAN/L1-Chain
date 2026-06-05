@@ -121,17 +121,34 @@ for ($i = 0; $i -lt 4; $i++) {
 Write-Host "[config] 4 node configs written to $Work"
 
 # Launch the nodes (staggered so each can dial the ones already up).
+# Her node icin nodeN.cmd JSON metadata yazariz - watchdog yeniden
+# baslatmak gerektiginde ayni argumanlarla launch icin bunu okur.
 $Pids = @()
 for ($i = 0; $i -lt 4; $i++) {
   $cfg = Join-Path $Work "node$i.toml"
+  $logOut = Join-Path $Work "node$i.log"
+  $logErr = Join-Path $Work "node$i.err"
   # Pass args as one quoted string: the config path can contain spaces
   # (e.g. "...\L1 Blockchain\..."), which a bare -ArgumentList array splits.
   $argLine = "--config `"$cfg`" --network devnet --log-level info"
+
+  # Watchdog'un respawn icin okuyacagi metadata.
+  $meta = @{
+    bin    = $Bin
+    args   = $argLine
+    rpc    = $RPC[$i]
+    p2p    = $P2P[$i]
+    met    = $MET[$i]
+    logOut = $logOut
+    logErr = $logErr
+  }
+  $meta | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $Work "node$i.cmd") -Encoding ascii
+
   $p = Start-Process -FilePath $Bin `
         -ArgumentList $argLine `
         -WorkingDirectory $ProjectRoot `
-        -RedirectStandardOutput (Join-Path $Work "node$i.log") `
-        -RedirectStandardError  (Join-Path $Work "node$i.err") `
+        -RedirectStandardOutput $logOut `
+        -RedirectStandardError  $logErr `
         -PassThru -WindowStyle Hidden
   $Pids += $p.Id
   Write-Host "  node$i pid=$($p.Id) rpc=127.0.0.1:$($RPC[$i]) p2p=$($P2P[$i]) metrics=$($MET[$i])"
@@ -139,5 +156,27 @@ for ($i = 0; $i -lt 4; $i++) {
 }
 $Pids | Set-Content -Path (Join-Path $Work "pids")
 Write-Host "[up] 4-node devnet running (warmup ${Warmup}s). logs: $Work\nodeN.log"
+
+# Watchdog (opsiyonel) - QV_LAG_RESTART=1000 gibi degisken set'liyse arka planda
+# bir PowerShell process'i 1000+ blok geride kalan node'lari kapatip yeniden acar.
+if ($env:QV_LAG_RESTART) {
+  $threshold = [int]$env:QV_LAG_RESTART
+  $interval  = if ($env:QV_LAG_INTERVAL) { [int]$env:QV_LAG_INTERVAL } else { 30 }
+  $consec    = if ($env:QV_LAG_CONSEC) { [int]$env:QV_LAG_CONSEC } else { 2 }
+  $watchdog  = Join-Path $ScriptDir "watchdog.ps1"
+  if (Test-Path $watchdog) {
+    $wargs = "-NoProfile -ExecutionPolicy Bypass -File `"$watchdog`" -Work `"$Work`" -Threshold $threshold -Interval $interval -ConsecutiveChecks $consec"
+    $wp = Start-Process -FilePath "powershell.exe" -ArgumentList $wargs `
+            -RedirectStandardOutput (Join-Path $Work "watchdog.log") `
+            -RedirectStandardError  (Join-Path $Work "watchdog.err") `
+            -PassThru -WindowStyle Hidden
+    Write-Host "  watchdog pid=$($wp.Id) threshold=$threshold interval=${interval}s consec=$consec"
+    # Watchdog PID'ini pids dosyasinin sonuna ekle ki stop ile birlikte dussun.
+    Add-Content -Path (Join-Path $Work "pids") -Value $wp.Id
+  } else {
+    Write-Host "  uyari: QV_LAG_RESTART set ama watchdog.ps1 bulunamadi: $watchdog" -ForegroundColor Yellow
+  }
+}
+
 Write-Host "     monitor: python $ScriptDir\monitor.py --work $Work"
 Write-Host "     stop:    .\run-devnet.ps1 stop"

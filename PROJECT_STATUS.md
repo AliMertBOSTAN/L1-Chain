@@ -1,6 +1,78 @@
 ﻿# QuantumVault — Proje Durumu
 
-_Son güncelleme: 2026-05-22 (stealth uçtan uca + sighash + cüzdan UI + devnet köprüsü)_
+_Son güncelleme: 2026-06-03 (multi-tenant cüzdan + LAN bind + monitör tx geçmişi + lag-watchdog)_
+
+---
+
+## Multi-tenant Cüzdan + LAN Bind + Monitör Geçmişi + Watchdog (2026-06-03)
+
+Cüzdan demo'su tek-kullanıcıdan **çoklu-kullanıcılı, telefon dahil
+LAN cihazlarından erişilebilir** bir hâle getirildi. Yan iyileştirmeler:
+monitör'ün işlem geçmişi büyütüldü, devnet'e self-healing supervisor
+eklendi.
+
+### Bitenler
+
+- **Multi-tenant cüzdan (Seçenek B — custodial demo).** Yeni
+  `qv-wallet::session` modülü: TTL'li `SessionStore<token, SessionEntry>`,
+  256-bit random session token, username validasyonu (a-z 0-9 _ -, 3-32
+  char, path traversal koruması), per-user `wallets/<username>/wallet.json`
+  layout. `AppState` `Backend::{Single, Multi}` enum'una refactor edildi;
+  `Bearer` axum extractor `Authorization: Bearer <token>` (alternatif
+  `X-QV-Session`) header'ından session'ı çekiyor; tüm mevcut handler'lar
+  `state.require_active(&bearer)` üzerinden session-scoped. Yeni route'lar
+  `/api/auth/{register,login,logout,me}`. CLI: `serve --wallets-dir <path>
+  --session-ttl-secs N`. UI: register/login paneli, localStorage token,
+  "Lock"→"Logout" dinamik label, status bar'da kullanıcı adı.
+- **LAN bind.** `--wallets-dir` set'liyse non-loopback bind izinli
+  (`0.0.0.0:7777`). Single-user mod'da hâlâ loopback zorunlu —
+  unlocked view key tek-token koruma yokken LAN'da bırakılmaz.
+- **HTTP'de UX kırılmalarının onarımı.** `navigator.clipboard` API'si sadece
+  secure context'te (HTTPS/localhost) çalıştığı için telefon LAN
+  erişiminde "Copy" butonları sessizce başarısız oluyordu. `copyText()`
+  yardımcısı `document.execCommand('copy')` fallback'iyle hem güvensiz
+  hem güvenli context'te çalışır. `<img src=...>` `Authorization` header'ı
+  taşımadığından multi-tenant'ta fingerprint QR 401'liyordu; `loadFingerprintQr()`
+  `authFetch` + blob URL pattern'iyle yeniden yazıldı. `.qvaddr` / `.qvview`
+  download butonları da `authFetch`'e geçti.
+- **node-monitor — işlem geçmişi büyütüldü.** Hızlı confirmation'larda
+  (~0.5sn slot) 2sn'lik mempool poll'u tx'leri kaçırıyordu. Yeni
+  `recordBlockTxs()` taranan bloklardaki her tx'i `confirmed` statüsüyle
+  `txHistoryMap`'e işliyor. Varsayılan blok pencere'si 60→600 (~5 dk
+  geriye), max 300→5000 (~40 dk), `txHistoryMap` cap 600→10000 girdi,
+  trim batch 150→2000, döndürülen geçmiş 300→2000. UI'a "300/600/1200/2400/5000
+  blok" buton seçici ve "~X dakika geriye bakıyor" göstergesi eklendi.
+- **Lag-restart watchdog (Seçenek B).** `devnet/watchdog.ps1` ayrı
+  PowerShell process'i: `nodeN.cmd` JSON metadata'sından her node'un
+  launch komutunu okur (`run-devnet.ps1` start'ta bu dosyaları yazar);
+  30sn'de bir tüm node'ların `qv_getTip`'ini sorgular, cluster max
+  tip'i hesaplar; ardışık 2 kontrol >1000 blok geride kalan node'u
+  `Stop-Process` + aynı argümanlarla yeniden başlatır; `pids` dosyasını
+  günceller. `QV_LAG_RESTART=1000` env değişkeniyle aktive olur; threshold,
+  interval, ardışık-sayım ayarlanabilir. Memory storage backend ile
+  restart = peer'lerden ADR-010 SyncManager üzerinden full re-sync.
+
+### Doğrulama durumu
+
+Bu seansın tüm Rust değişiklikleri lokalde derlendi + tüm `qv-wallet`
+unit test'leri yeşil + `cargo clippy -p qv-wallet --all-targets -- -D
+warnings` temiz. Geçirilen düzeltmeler: `into()` ambiguity (faucet
+test'lerinde), `needless_lifetimes` (require_single/multi), `len_without_is_empty`
+(SessionStore), `username_validation_happy_paths` (üç-karakter alt sınırı).
+node-monitor (Node.js) ve PowerShell script'leri derleme gerektirmez —
+kullanıcı manuel start/stop akışıyla denedi.
+
+### Açık kalan (sonraki seansın B-grubu)
+
+- **HTTPS** — multi-tenant LAN demo'sunda login parolası açık gider.
+  Self-signed sertifika + `--tls-cert <path>` flag'i ekleyince clipboard +
+  kamera (BarcodeDetector) telefon LAN'ında da HTTPS context'inde çalışır.
+- **Faucet rate limit** — kullanıcı başına günlük max + global throttle yok.
+- **Session TTL background sweep** — `SessionStore::gc()` mevcut ama
+  background tokio task'a sokulmadı; idle session'lar şu an sadece touch
+  sırasında expire ediliyor.
+- **Watchdog crash-loop koruması** — yeniden başlatılan node anında
+  düşüyorsa watchdog sınırsız tekrar dener.
 
 ---
 

@@ -34,6 +34,16 @@ pub struct StealthMatch {
     pub shared_secret_hex: String,
     /// One-time PK hash commitment from the locking script (hex).
     pub onetime_pk_hash_hex: String,
+    /// Hybrid-KEM ciphertext from the on-chain `StealthInfo` (hex).
+    /// Needed when producing selective-disclosure proofs.
+    #[serde(default)]
+    pub kem_ciphertext_hex: String,
+    /// 1-byte view tag from the on-chain `StealthInfo` (2-char hex).
+    #[serde(default)]
+    pub view_tag_hex: String,
+    /// Kyber parameter set baked into the on-chain `StealthInfo`.
+    #[serde(default)]
+    pub kyber_level: u8,
 }
 
 /// One match returned by `qv_scanP2pkh` — a plain `p2pkh_pqc` UTXO
@@ -110,12 +120,22 @@ impl RpcClient {
     /// **Important.** This exposes the recipient's view secret keys — never
     /// send it to anyone but your own trusted node.
     fn view_key_payload(keys: &StealthKeys) -> Value {
-        let kyber_level = match keys.view_kp.public.level {
+        Self::view_key_payload_from_parts(&keys.view_kp, &keys.spend_kp.public)
+    }
+
+    /// Same as [`Self::view_key_payload`] but takes the components
+    /// individually — used by the audit-mode scan path that never has a
+    /// full `StealthKeys` (the spend secret is intentionally absent).
+    fn view_key_payload_from_parts(
+        view_kp: &qv_crypto::HybridKeyPair,
+        spend_pk: &qv_crypto::PqcPublicKey,
+    ) -> Value {
+        let kyber_level = match view_kp.public.level {
             qv_crypto::KyberLevel::Level1 => 1,
             qv_crypto::KyberLevel::Level3 => 3,
             qv_crypto::KyberLevel::Level5 => 5,
         };
-        let dilithium_level = match keys.spend_kp.public.level() {
+        let dilithium_level = match spend_pk.level() {
             qv_crypto::DilithiumLevel::Level2 => 2,
             qv_crypto::DilithiumLevel::Level3 => 3,
             qv_crypto::DilithiumLevel::Level5 => 5,
@@ -123,11 +143,11 @@ impl RpcClient {
         json!({
             "kyber_level": kyber_level,
             "dilithium_level": dilithium_level,
-            "x25519_pk_hex": hex::encode(keys.view_kp.public.x25519),
-            "x25519_sk_hex": hex::encode(keys.view_kp.x25519_secret_bytes()),
-            "kyber_pk_hex": hex::encode(&keys.view_kp.public.kyber),
-            "kyber_sk_hex": hex::encode(keys.view_kp.kyber_secret_bytes()),
-            "spend_pk_hex": hex::encode(keys.spend_kp.public.as_bytes()),
+            "x25519_pk_hex": hex::encode(view_kp.public.x25519),
+            "x25519_sk_hex": hex::encode(view_kp.x25519_secret_bytes()),
+            "kyber_pk_hex": hex::encode(&view_kp.public.kyber),
+            "kyber_sk_hex": hex::encode(view_kp.kyber_secret_bytes()),
+            "spend_pk_hex": hex::encode(spend_pk.as_bytes()),
         })
     }
 
@@ -139,6 +159,24 @@ impl RpcClient {
         result
             .as_u64()
             .ok_or_else(|| WalletError::Rpc(format!("expected u64 balance, got {result}")))
+    }
+
+    /// **Audit-mode** scan — call `qv_scanStealth` with a view keypair +
+    /// spend **public** key only (no spend secret needed). Used by
+    /// auditors holding a `.qvview` export.
+    pub async fn scan_stealth_with_view_key(
+        &self,
+        view_kp: &qv_crypto::HybridKeyPair,
+        spend_pk: &qv_crypto::PqcPublicKey,
+        from_height: u64,
+        to_height: u64,
+    ) -> WalletResult<Vec<StealthMatch>> {
+        let payload = Self::view_key_payload_from_parts(view_kp, spend_pk);
+        let result = self
+            .call("qv_scanStealth", json!([payload, from_height, to_height]))
+            .await?;
+        serde_json::from_value::<Vec<StealthMatch>>(result)
+            .map_err(|e| WalletError::Rpc(format!("scan response parse: {e}")))
     }
 
     /// Scan the live UTXO set for stealth outputs that `keys` can detect

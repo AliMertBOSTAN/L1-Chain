@@ -61,8 +61,10 @@ pub type MempoolResult<T> = Result<T, MempoolError>;
 pub use batcher::{BatchResult, OrderIntent, PoolState, SlashingEvidence, SwapDirection};
 pub use clear::{ClearPool, ClearPoolConfig, MempoolEntry};
 pub use encrypted::{
-    DecryptionShare, EncryptedPool, EncryptedPoolConfig, EncryptedTx, MockThresholdDecryptor,
-    ThresholdDecryptor,
+    create_envelope_share, encrypt_envelope, encrypt_envelope_random, DecryptionShare,
+    DkgEnvelopeDecryptor, EncryptedPool, EncryptedPoolConfig, EncryptedTx,
+    MockThresholdDecryptor, ThresholdDecryptor, AES_KEY_BYTES, AES_NONCE_BYTES,
+    ENVELOPE_CIPHERTEXT_BYTES,
 };
 pub use ordering::{deterministic_sort, verify_order, OrderKey};
 

@@ -1,0 +1,5 @@
+qv-wallet UI listening at http://0.0.0.0:7777
+  mode      : multi-tenant (CUSTODIAL — devnet/demo only)
+  wallets   : C:\Users\mbostan\Desktop\L1\L1 Blockchain\devnet\work4\wallets
+  ttl       : 3600s per session
+  node RPC  : http://127.0.0.1:8545

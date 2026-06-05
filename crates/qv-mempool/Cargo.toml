@@ -19,6 +19,8 @@ qv-core    = { path = "../qv-core" }
 qv-crypto  = { path = "../qv-crypto" }
 dashmap    = { workspace = true }
 parking_lot = { workspace = true }
+aes-gcm    = { workspace = true }
+rand       = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

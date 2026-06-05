@@ -13,8 +13,8 @@ use qv_crypto::{DilithiumLevel, PqcPublicKey, SharedSecret};
 use qv_privacy::StealthKeys;
 use qv_script::templates::{p2pkh_pqc, pubkey_hash};
 use qv_wallet::address::{decode_address, encode_address, fingerprint};
-use qv_wallet::cli::{Cli, Commands};
-use qv_wallet::hd::{DefaultSeedDeriver, SeedDeriver, DEVNET_TEST_MNEMONIC};
+use qv_wallet::cli::{Cli, Commands, ContactsCmd};
+use qv_wallet::hd::{DefaultSeedDeriver, DEVNET_TEST_MNEMONIC};
 use qv_wallet::keystore::{
     PersistedViewKey, WalletKeystore, WalletMetadata, WalletSecret,
 };
@@ -22,6 +22,8 @@ use qv_wallet::qvaddr::{address_to_qr_parts, render_qr_unicode, Qvaddr};
 use qv_wallet::rpc_client::{P2pkhMatch, RpcClient, StealthMatch};
 use qv_wallet::server::{serve as serve_ui, AppState};
 use qv_wallet::tx_builder::TxBuilder;
+use qv_wallet::disclose::{create_disclosure, DisclosureFile};
+use qv_wallet::view_export::ViewKeyExport;
 use qv_wallet::Mnemonic;
 
 #[tokio::main]
@@ -72,15 +74,53 @@ async fn main() -> anyhow::Result<()> {
         Commands::SendStealth {
             to_address,
             to_qvaddr,
+            to_contact,
             amount,
             fee,
             account,
         } => {
-            let recipient = resolve_recipient_address(to_address, to_qvaddr.as_deref())?;
+            let recipient = resolve_recipient_address(
+                &cli.keystore,
+                to_address,
+                to_qvaddr.as_deref(),
+                to_contact.as_deref(),
+            )?;
             cmd_send_stealth(&cli.keystore, &cli.rpc, &recipient, amount, fee, account).await?;
         }
-        Commands::Serve { bind } => {
-            cmd_serve(&cli.keystore, &cli.rpc, &bind).await?;
+        Commands::Contacts(cmd) => {
+            cmd_contacts(&cli.keystore, cmd).await?;
+        }
+        Commands::ExportViewKey { out, account, label } => {
+            cmd_export_view_key(&cli.keystore, &out, account, label).await?;
+        }
+        Commands::AuditScan { view_key, from, to } => {
+            cmd_audit_scan(&view_key, &cli.rpc, from, to).await?;
+        }
+        Commands::Disclose {
+            utxo,
+            out,
+            label,
+            account,
+            amount,
+        } => {
+            cmd_disclose(&cli.keystore, &cli.rpc, &utxo, &out, label, account, amount).await?;
+        }
+        Commands::VerifyDisclosure { proof } => {
+            cmd_verify_disclosure(&proof).await?;
+        }
+        Commands::Serve {
+            bind,
+            wallets_dir,
+            session_ttl_secs,
+        } => {
+            cmd_serve(
+                &cli.keystore,
+                &cli.rpc,
+                &bind,
+                wallets_dir.as_deref(),
+                session_ttl_secs,
+            )
+            .await?;
         }
         Commands::Send {
             to_pubkey,
@@ -286,22 +326,93 @@ async fn cmd_address(
 }
 
 /// Decide which recipient address `send-stealth` should use, given the
-/// CLI's `(to_address, to_qvaddr)` pair. Clap already rejects supplying
-/// both at once; this only enforces that *at least one* was provided.
+/// CLI's `(to_address, to_qvaddr, to_contact)` triple. Clap already
+/// rejects supplying more than one at once; this only enforces that
+/// *at least one* was provided.
 fn resolve_recipient_address(
+    keystore_path: &Path,
     to_address: Option<String>,
     to_qvaddr: Option<&Path>,
+    to_contact: Option<&str>,
 ) -> anyhow::Result<String> {
-    match (to_address, to_qvaddr) {
-        (Some(s), _) => Ok(s),
-        (None, Some(path)) => {
-            let q = Qvaddr::load(path)?;
-            Ok(q.address)
+    if let Some(s) = to_address {
+        return Ok(s);
+    }
+    if let Some(path) = to_qvaddr {
+        return Ok(Qvaddr::load(path)?.address);
+    }
+    if let Some(label) = to_contact {
+        let password = prompt_password("Wallet password")?;
+        let book_path = qv_wallet::address_book::contacts_path_for(keystore_path);
+        let book = qv_wallet::address_book::load_or_empty(&book_path, &password)?;
+        let contact = book.get(label).ok_or_else(|| {
+            anyhow::anyhow!("no contact named `{label}` — check `qv-wallet contacts list`")
+        })?;
+        return Ok(contact.address.clone());
+    }
+    anyhow::bail!(
+        "send-stealth: one of --to-address / --to-qvaddr / --to-contact is required"
+    )
+}
+
+async fn cmd_contacts(keystore_path: &Path, cmd: ContactsCmd) -> anyhow::Result<()> {
+    use qv_wallet::address_book::{contacts_path_for, load_or_empty, save};
+
+    let book_path = contacts_path_for(keystore_path);
+    let password = prompt_password("Wallet password")?;
+    let mut book = load_or_empty(&book_path, &password)?;
+
+    match cmd {
+        ContactsCmd::Add { label, address, notes } => {
+            book.add(&label, &address, notes)?;
+            save(&book_path, &book, &password)?;
+            println!("Contact `{label}` added.");
+            if let Some(c) = book.get(&label) {
+                print_contact(&label, c);
+            }
         }
-        (None, None) => {
-            anyhow::bail!("send-stealth: either --to-address or --to-qvaddr is required")
+        ContactsCmd::List => {
+            if book.is_empty() {
+                println!("No contacts yet. Add one with:");
+                println!("  qv-wallet contacts add --label alice --address qvst1...");
+                return Ok(());
+            }
+            println!("Contacts ({}):", book.len());
+            println!();
+            for (label, c) in book.iter() {
+                print_contact(label, c);
+                println!();
+            }
+        }
+        ContactsCmd::Remove { label } => {
+            let removed = book.remove(&label)?;
+            save(&book_path, &book, &password)?;
+            println!("Removed contact `{label}` (fingerprint {}).", removed.fingerprint);
+        }
+        ContactsCmd::Show { label } => {
+            let c = book.get(&label).ok_or_else(|| {
+                anyhow::anyhow!("no contact named `{label}`")
+            })?;
+            print_contact(&label, c);
         }
     }
+    Ok(())
+}
+
+fn print_contact(label: &str, c: &qv_wallet::address_book::Contact) {
+    let _: &qv_wallet::address_book::Contact = c; // keep type explicit
+    println!("  label       : {label}");
+    println!("  fingerprint : {}", c.fingerprint);
+    if let Some(notes) = &c.notes {
+        println!("  notes       : {notes}");
+    }
+    println!("  added_at    : {}", c.added_at);
+    let short = if c.address.len() > 24 {
+        format!("{}…{}", &c.address[..16], &c.address[c.address.len() - 8..])
+    } else {
+        c.address.clone()
+    };
+    println!("  address     : {short}  ({} chars)", c.address.len());
 }
 
 async fn cmd_balance(
@@ -312,7 +423,7 @@ async fn cmd_balance(
     let stealth = unlock_and_derive(keystore_path, account)?;
     let rpc = RpcClient::new(rpc_url);
     let stealth_bal = rpc.get_balance_for(&stealth).await?;
-    let pk_hash = qv_script::templates::pubkey_hash(stealth.spend_kp.public.as_bytes());
+    let pk_hash = pubkey_hash(stealth.spend_kp.public.as_bytes());
     let plain_utxos = rpc.scan_p2pkh(&pk_hash).await?;
     let plain_bal: u64 = plain_utxos.iter().map(|u| u.value).sum();
     println!("Account {account} balance:");
@@ -335,7 +446,7 @@ async fn cmd_scan(
     let stealth = unlock_and_derive(keystore_path, account)?;
     let rpc = RpcClient::new(rpc_url);
     let stealth_utxos = rpc.scan_stealth(&stealth, from, to).await?;
-    let pk_hash = qv_script::templates::pubkey_hash(stealth.spend_kp.public.as_bytes());
+    let pk_hash = pubkey_hash(stealth.spend_kp.public.as_bytes());
     let plain_utxos = rpc.scan_p2pkh(&pk_hash).await?;
 
     if stealth_utxos.is_empty() && plain_utxos.is_empty() {
@@ -379,7 +490,7 @@ async fn cmd_send_stealth(
 
     // Fetch both pools: stealth + plain (p2pkh_pqc to our spend pk hash).
     let stealth_utxos = rpc.scan_stealth(&stealth, 0, u64::MAX).await?;
-    let pk_hash = qv_script::templates::pubkey_hash(stealth.spend_kp.public.as_bytes());
+    let pk_hash = pubkey_hash(stealth.spend_kp.public.as_bytes());
     let plain_utxos = rpc.scan_p2pkh(&pk_hash).await?;
 
     let available: u64 = stealth_utxos.iter().map(|u| u.value).sum::<u64>()
@@ -502,19 +613,262 @@ async fn cmd_send_stealth(
     Ok(())
 }
 
-async fn cmd_serve(keystore_path: &Path, rpc_url: &str, bind: &str) -> anyhow::Result<()> {
-    let addr = std::net::SocketAddr::from_str(bind)
-        .map_err(|e| anyhow::anyhow!("invalid bind address {bind}: {e}"))?;
-    if !addr.ip().is_loopback() {
-        // Refuse to expose the unlocked view key on any non-loopback iface.
+async fn cmd_export_view_key(
+    keystore_path: &Path,
+    out: &Path,
+    account: u32,
+    label: Option<String>,
+) -> anyhow::Result<()> {
+    if out.exists() {
         anyhow::bail!(
-            "refusing to bind to {addr} — only 127.0.0.1 / ::1 are permitted (the unlocked view key would otherwise be exposed)"
+            "view-key export already exists at {} — refusing to overwrite",
+            out.display()
         );
     }
-    let state = AppState::new(keystore_path.to_path_buf(), rpc_url.to_string());
+    let stealth = unlock_and_derive(keystore_path, account)?;
+    let export = ViewKeyExport::from_keys(&stealth.view_kp, &stealth.spend_kp.public, label);
+    export.save(out)?;
+
+    println!();
+    println!("==============================================================");
+    println!("  VIEW KEY EXPORT — AUDIT-ONLY (no spend authority)");
+    println!("==============================================================");
+    println!("  account     : {account}");
+    println!("  written to  : {}", out.display());
+    println!("  fingerprint : {}", fingerprint(&stealth.address()));
+    println!();
+    println!("  Bu dosya alici tarafa GELEN tum stealth odemeleri tarayabilir.");
+    println!("  Harcama yetkisi VERMEZ — spend secret bu dosyada yok.");
+    println!("==============================================================");
+    Ok(())
+}
+
+async fn cmd_audit_scan(
+    view_key_path: &Path,
+    rpc_url: &str,
+    from: u64,
+    to: u64,
+) -> anyhow::Result<()> {
+    let export = ViewKeyExport::load(view_key_path)?;
+    let label = export.label.clone();
+    let (view_kp, spend_pk) = export.into_keys()?;
+    let rpc = RpcClient::new(rpc_url);
+    let matches = rpc
+        .scan_stealth_with_view_key(&view_kp, &spend_pk, from, to)
+        .await?;
+
+    if matches.is_empty() {
+        println!("Audit scan: no stealth UTXOs detected.");
+        return Ok(());
+    }
+
+    let total: u64 = matches.iter().map(|m| m.value).sum();
+    println!();
+    if let Some(label) = label {
+        println!("Audit scan for `{label}`");
+    } else {
+        println!("Audit scan");
+    }
+    println!(
+        "  {} stealth UTXO(s) detected, total {} units (audit-only — cannot spend):",
+        matches.len(),
+        total
+    );
+    for m in &matches {
+        println!("  {}:{}  value={}", m.tx_id, m.output_index, m.value);
+    }
+    Ok(())
+}
+
+async fn cmd_disclose(
+    keystore_path: &Path,
+    rpc_url: &str,
+    utxo: &str,
+    out: &Path,
+    label: Option<String>,
+    account: u32,
+    amount: Option<u64>,
+) -> anyhow::Result<()> {
+    use qv_crypto::{DilithiumLevel, KyberLevel, SharedSecret};
+
+    if out.exists() {
+        anyhow::bail!(
+            "disclosure file already exists at {} — refusing to overwrite",
+            out.display()
+        );
+    }
+    let (tx_id_hex, idx_str) = utxo
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("--utxo must be `<tx_id_hex>:<idx>`, got {utxo:?}"))?;
+    let target_idx: u32 = idx_str
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid output index: {e}"))?;
+
+    // Unlock the wallet and ask the node for the stealth UTXO set — we
+    // need the per-output `shared_secret`, `kem_ciphertext`, `view_tag`,
+    // and `onetime_pk_hash` that only `scan_stealth` returns. Pure
+    // RPC: we don't need any local stealth scanning logic here.
+    let stealth = unlock_and_derive(keystore_path, account)?;
+    let rpc = RpcClient::new(rpc_url);
+    let matches = rpc.scan_stealth(&stealth, 0, u64::MAX).await?;
+    let m = matches
+        .iter()
+        .find(|m| m.tx_id == tx_id_hex && m.output_index == target_idx)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "outpoint {tx_id_hex}:{target_idx} is not in this wallet's stealth UTXO set"
+            )
+        })?;
+
+    // The on-chain `StealthInfo` (kem_ciphertext + view_tag + kyber_level)
+    // is now embedded directly in `StealthMatch` so we don't need a
+    // second RPC round-trip.
+    let kyber_level = match m.kyber_level {
+        1 => KyberLevel::Level1,
+        3 => KyberLevel::Level3,
+        5 => KyberLevel::Level5,
+        other => anyhow::bail!("unknown Kyber level on chain: {other}"),
+    };
+    let view_tag_bytes = hex::decode(&m.view_tag_hex)?;
+    if view_tag_bytes.len() != 1 {
+        anyhow::bail!("view_tag must be 1 byte, got {}", view_tag_bytes.len());
+    }
+    let view_tag = view_tag_bytes[0];
+    let ephemeral_pubkey = hex::decode(&m.kem_ciphertext_hex)?;
+
+    // Decode shared_secret + onetime_pk_hash from the scan response.
+    let ss_bytes = hex::decode(&m.shared_secret_hex)?;
+    let ss_arr: [u8; 32] = ss_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("shared_secret must be 32 bytes"))?;
+    let shared_secret = SharedSecret(ss_arr);
+    let opk_bytes = hex::decode(&m.onetime_pk_hash_hex)?;
+    let opk: [u8; 32] = opk_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("onetime_pk_hash must be 32 bytes"))?;
+
+    let file = create_disclosure(
+        tx_id_hex,
+        target_idx,
+        kyber_level,
+        DilithiumLevel::Level3,
+        &hex::encode(&ephemeral_pubkey),
+        view_tag,
+        &opk,
+        &stealth.spend_kp.public,
+        &shared_secret,
+        amount,
+        label,
+    )?;
+    file.save(out)?;
+
+    println!();
+    println!("==============================================================");
+    println!("  SELECTIVE DISCLOSURE");
+    println!("==============================================================");
+    println!("  outpoint    : {tx_id_hex}:{target_idx}");
+    println!("  on-chain    : {} units", m.value);
+    match amount {
+        Some(a) => println!("  disclosed   : {a} units (amount revealed)"),
+        None => println!("  disclosed   : amount kept private (binding-hash-only)"),
+    }
+    println!("  written to  : {}", out.display());
+    println!();
+    println!("  Verifier needs ONLY this file + their crypto code:");
+    println!("    qv-wallet verify-disclosure --proof {}", out.display());
+    println!("==============================================================");
+    Ok(())
+}
+
+async fn cmd_verify_disclosure(proof: &Path) -> anyhow::Result<()> {
+    let file = DisclosureFile::load(proof)?;
+    let ok = file.verify_self_contained()?;
+    println!();
+    println!("Disclosure file       : {}", proof.display());
+    if let Some(label) = &file.label {
+        println!("Label                 : {label}");
+    }
+    println!("Outpoint              : {}:{}", file.tx_id_hex, file.output_index);
+    println!("Spend pk fingerprint  : sha3-{}", short_hex(&file.spend_pk_hex));
+    match file.disclosed_amount {
+        Some(a) => println!("Disclosed amount      : {a} units"),
+        None => println!("Disclosed amount      : (none — only proves ownership)"),
+    }
+    println!();
+    if ok {
+        println!("✅ VALID — every check passed (view tag, one-time PK hash, binding hash).");
+        println!("           The owner of {} truly received this output.", short_hex(&file.spend_pk_hex));
+    } else {
+        println!("❌ INVALID — the file does not pass self-contained verification.");
+    }
+    println!();
+    println!("Note: this verifier only proves the proof is consistent with itself.");
+    println!("To confirm the outpoint is on-chain, query the node:");
+    println!("  qv_getUtxo {}:{}", file.tx_id_hex, file.output_index);
+    Ok(())
+}
+
+fn short_hex(s: &str) -> String {
+    if s.len() <= 16 {
+        s.to_string()
+    } else {
+        format!("{}…{}", &s[..8], &s[s.len() - 8..])
+    }
+}
+
+async fn cmd_serve(
+    keystore_path: &Path,
+    rpc_url: &str,
+    bind: &str,
+    wallets_dir: Option<&Path>,
+    session_ttl_secs: u64,
+) -> anyhow::Result<()> {
+    let addr = std::net::SocketAddr::from_str(bind)
+        .map_err(|e| anyhow::anyhow!("invalid bind address {bind}: {e}"))?;
+    let loopback = addr.ip().is_loopback();
+    if !loopback {
+        match wallets_dir {
+            None => {
+                // Single-user + non-loopback bind = unlocked view key
+                // would be exposed to LAN. Refuse.
+                anyhow::bail!(
+                    "refusing to bind single-user mode to {addr} — pass --wallets-dir to enable multi-tenant + per-user session tokens, or bind to 127.0.0.1 / ::1"
+                );
+            }
+            Some(_) => {
+                eprintln!(
+                    "WARN: binding multi-tenant wallet to {addr}. Custodial mode is acceptable for devnet/demo only — every logged-in user's spend secret lives in this process's RAM."
+                );
+            }
+        }
+    }
+
+    let state = if let Some(dir) = wallets_dir {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| anyhow::anyhow!("create wallets dir {}: {e}", dir.display()))?;
+        AppState::new_multi(
+            dir.to_path_buf(),
+            rpc_url.to_string(),
+            std::time::Duration::from_secs(session_ttl_secs),
+        )
+    } else {
+        AppState::new(keystore_path.to_path_buf(), rpc_url.to_string())
+    };
+
     println!("qv-wallet UI listening at http://{addr}");
-    println!("  keystore: {}", keystore_path.display());
-    println!("  node RPC: {rpc_url}");
+    if let Some(dir) = wallets_dir {
+        println!(
+            "  mode      : multi-tenant (CUSTODIAL — devnet/demo only)"
+        );
+        println!("  wallets   : {}", dir.display());
+        println!("  ttl       : {session_ttl_secs}s per session");
+    } else {
+        println!("  mode      : single-user");
+        println!("  keystore  : {}", keystore_path.display());
+    }
+    println!("  node RPC  : {rpc_url}");
     serve_ui(state, addr).await
 }
 

@@ -747,9 +747,43 @@ async function updateTxHistory(pendingByNode) {
     }
     e.resolvedAt = nowTs;
   }
-  if (state.txHistoryMap.size > 600) {       // bellek sınırı
+  if (state.txHistoryMap.size > 10000) {     // bellek sınırı (artırıldı)
     const arr = [...state.txHistoryMap.entries()].sort((a, b) => a[1].firstSeen - b[1].firstSeen);
-    for (let i = 0; i < 150; i++) state.txHistoryMap.delete(arr[i][0]);
+    for (let i = 0; i < 2000; i++) state.txHistoryMap.delete(arr[i][0]);
+  }
+}
+
+// Blok zincirindeki txleri kalıcı geçmişe yazar — pollarda atlanan
+// (mempoola hiç girmemiş gibi görünen) hızlı tx'leri yakalamak için.
+// `confirmed` statüsüyle kaydedilirler; mempoolda görülmüş olanlar
+// dokunulmaz (durumları zaten doğru).
+function recordBlockTxs(blocks) {
+  const nowTs = Date.now();
+  for (const [h, blk] of blocks.entries()) {
+    if (!blk || !blk.transactions) continue;
+    const slot = num(blk.header && blk.header.slot);
+    for (const tx of blk.transactions) {
+      const txId = tx && (tx.tx_id || tx.id);
+      // qv-core tx'leri tx_id alanı bincode/JSON'da sıkça atlandığı
+      // için hash hesaplamayı doğru yapamayız; bu yüzden detail içinde
+      // outputs/inputs ile eşleme zor. Bunun yerine her tx'i kendi
+      // outpoint'i (input[0]) üzerinden yaklaşık benzersiz key'le
+      // saklarız. Sadece detail (içerik) yakalamak istiyoruz.
+      const inp0 = (tx.inputs || [])[0];
+      const op = inp0 && inp0.prev_output;
+      const key = op
+        ? 'blk:' + h + ':' + hashHex(op.tx_id) + ':' + num(op.index)
+        : 'blk:' + h + ':#' + Math.random().toString(36).slice(2, 10);
+      if (state.txHistoryMap.has(key)) continue;
+      state.txHistoryMap.set(key, {
+        txId: key,
+        status: 'confirmed',
+        firstSeen: nowTs, lastSeen: nowTs, resolvedAt: nowTs,
+        height: h, slot,
+        nodes: [],
+        detail: txDetail(tx),
+      });
+    }
   }
 }
 
@@ -765,6 +799,10 @@ async function buildTransactions(count) {
     const g = await rpc(node, 'qv_getBlockByHeight', [0]);
     if (g) blocks.set(0, g);
   }
+  // Bu pencerede görülen tüm tx'leri kalıcı geçmişe kopyala — pollarda
+  // mempool'a düşmeden zincire giren tx'leri yakalamak için.
+  recordBlockTxs(blocks);
+
   const out = [];
   for (const [h, blk] of [...blocks.entries()].sort((a, b) => b[0] - a[0])) {
     const txs = blk.transactions || [];
@@ -783,7 +821,7 @@ async function buildTransactions(count) {
   const pending = await buildPending();
   const txHistory = [...state.txHistoryMap.values()]
     .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0))
-    .slice(0, 300);
+    .slice(0, 2000);
   return { ok: true, blocks: out, pending, txHistory, tip, scannedFrom: from };
 }
 
@@ -942,7 +980,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (p === '/api/forks') return sendJSON(res, await buildForks(Math.min(+q.count || CFG.forkWindow, 200)));
-    if (p === '/api/transactions') return sendJSON(res, await buildTransactions(Math.min(+q.count || 60, 300)));
+    if (p === '/api/transactions') return sendJSON(res, await buildTransactions(Math.min(+q.count || 600, 5000)));
     if (p === '/api/logs') return sendJSON(res, await readLogs(q));
     if (p === '/api/block') {
       const h = +q.height;

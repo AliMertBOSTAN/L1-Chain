@@ -9,9 +9,13 @@
 // will be re-tightened in Faz 9 (audit-ready).
 
 pub mod address;
+pub mod address_book;
 pub mod cli;
 pub mod coin_select;
+pub mod disclose;
+pub mod faucet;
 pub mod hd;
+pub mod history;
 pub mod keystore;
 pub mod mnemonic;
 pub mod qvaddr;
@@ -19,7 +23,9 @@ pub mod rpc_client;
 pub mod scanner;
 pub mod server;
 pub mod server_ui;
+pub mod session;
 pub mod tx_builder;
+pub mod view_export;
 
 /// Wallet-layer error type.
 #[derive(Debug, thiserror::Error)]

@@ -96,8 +96,15 @@ pub async fn produce_block(
     // 5. Compute merkle root over the txid leaves.
     let merkle_root: MerkleRoot = qv_core::merkle_root_of(&tx_ids);
 
-    // 6. UTXO commitment placeholder. In production this snapshots the UTXO
-    //    set *after* applying this block and commits to its root.
+    // 6. UTXO commitment.
+    //
+    // This reference helper does not have direct access to the node's UTXO
+    // state, so it stamps `ZERO`. The **production** producer (the closure
+    // in `qv-miner::main::cmd_run`) calls `qv_getPostApplyCommitment` RPC
+    // and uses the returned root — that path is what closes envanter K-05.
+    // Callers of this helper (mostly the in-crate tests) don't care about
+    // the commitment value, since the verifier currently treats the field
+    // as opaque.
     let utxo_commitment = UtxoCommitment::ZERO;
 
     // 7. Assemble the block header.
@@ -235,7 +242,10 @@ pub async fn produce_block_with_decryption<D: ThresholdDecryptor>(
 
     // 6. Merkle root + UTXO commitment placeholder.
     let merkle_root: MerkleRoot = qv_core::merkle_root_of(&tx_ids);
-    let utxo_commitment = UtxoCommitment::ZERO; // K-03/K-05 — placeholder
+    // Same caveat as `produce_block` above: this reference helper stamps
+    // `ZERO`; the production closure in `main::cmd_run` fetches the real
+    // commitment via `qv_getPostApplyCommitment` RPC (K-05).
+    let utxo_commitment = UtxoCommitment::ZERO;
 
     // 7. Header.
     let header = BlockHeader {

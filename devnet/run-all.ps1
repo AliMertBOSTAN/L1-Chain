@@ -1,4 +1,4 @@
-# QuantumVault — TAM PAKET: 4 node + cüzdan UI + node-monitor (PowerShell)
+# QuantumVault - TAM PAKET: 4 node + cuzdan UI + node-monitor (PowerShell)
 #
 # Bir komutla bütün local geliştirme yığınını ayağa kaldırır. Mevcut
 # `run-devnet.ps1` 4 node'u açar, bu wrapper üzerine cüzdan UI ve
@@ -11,19 +11,29 @@
 #   .\run-all.ps1 clean     # tüm state'i sıfırla
 #
 # Çevre değişkenleri (opsiyonel):
-#   QV_DEVNET_WORK   varsayılan: devnet\work4   (run-devnet.ps1 ile aynı)
-#   QV_WALLET_PW     varsayılan: devnetpw
-#   QV_MONITOR_PORT  varsayılan: 7070
+#   QV_DEVNET_WORK    varsayılan: devnet\work4   (run-devnet.ps1 ile aynı)
+#   QV_WALLET_PW      varsayılan: devnetpw       (single-user modunda kullanılır)
+#   QV_MONITOR_PORT   varsayılan: 7070
+#   QV_WALLET_BIND    varsayılan: 127.0.0.1:7777
+#                     LAN için: "0.0.0.0:7777"
+#   QV_WALLET_MULTI   varsayılan: 0 (single-user)
+#                     "1" → multi-tenant mod: her kullanıcı kayıt+login eder
+#                          (devnet/demo için custodial)
+#   QV_WALLET_TTL     multi-tenant idle session TTL (saniye). Varsayılan 3600.
 
 param([string]$cmd = "start")
 $ErrorActionPreference = "Stop"
 
-$ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Split-Path -Parent $ScriptDir
-$Work        = if ($env:QV_DEVNET_WORK) { $env:QV_DEVNET_WORK } else { Join-Path $ScriptDir "work4" }
-$WalletPort  = 7777
-$MonitorPort = if ($env:QV_MONITOR_PORT) { [int]$env:QV_MONITOR_PORT } else { 7070 }
-$WalletPw    = if ($env:QV_WALLET_PW) { $env:QV_WALLET_PW } else { "devnetpw" }
+$ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot  = Split-Path -Parent $ScriptDir
+$Work         = if ($env:QV_DEVNET_WORK) { $env:QV_DEVNET_WORK } else { Join-Path $ScriptDir "work4" }
+$WalletPort   = 7777
+$WalletBind   = if ($env:QV_WALLET_BIND)  { $env:QV_WALLET_BIND }  else { "127.0.0.1:$WalletPort" }
+$MonitorPort  = if ($env:QV_MONITOR_PORT) { [int]$env:QV_MONITOR_PORT } else { 7070 }
+$WalletPw     = if ($env:QV_WALLET_PW)    { $env:QV_WALLET_PW }    else { "devnetpw" }
+$WalletMulti  = if ($env:QV_WALLET_MULTI) { $env:QV_WALLET_MULTI }  else { "0" }
+$WalletTtl    = if ($env:QV_WALLET_TTL)   { [int]$env:QV_WALLET_TTL } else { 3600 }
+$WalletsDir   = Join-Path $Work "wallets"
 
 function Stop-Extras {
   $pidFile = Join-Path $Work "extras-pids"
@@ -108,9 +118,16 @@ Pop-Location
 $WalletBin = Join-Path $TargetDir "debug\qv-wallet.exe"
 if (-not (Test-Path $WalletBin)) { throw "qv-wallet binary not found at $WalletBin" }
 
-# Cuzdan keystore yoksa devnet test mnemonic ile kur
+# Cuzdan keystore'u - single-user modunda yoksa devnet test mnemonic ile kur.
+# Multi-tenant modunda her kullanici kendi cuzdanini kayit ederken yaratir.
 $WalletKeystore = Join-Path $Work "wallet.json"
-if (Test-Path $WalletKeystore) {
+if ($WalletMulti -eq "1") {
+  if (-not (Test-Path $WalletsDir)) {
+    New-Item -ItemType Directory -Path $WalletsDir | Out-Null
+  }
+  Write-Host "  multi-tenant mod aktif. Kullanicilar UI'dan kayit olur."
+  Write-Host "  wallets dir: $WalletsDir"
+} elseif (Test-Path $WalletKeystore) {
   Write-Host "  cuzdan keystore zaten var: $WalletKeystore"
 } else {
   Write-Host "  cuzdan devnet-import (parola: $WalletPw) ..."
@@ -127,7 +144,11 @@ if (Test-Path $WalletKeystore) {
 
 # Cuzdan UI baslat
 $Extras = @()
-$walletArgs = "--keystore `"$WalletKeystore`" --rpc http://127.0.0.1:8545 serve --bind 127.0.0.1:$WalletPort"
+if ($WalletMulti -eq "1") {
+  $walletArgs = "--keystore `"$WalletKeystore`" --rpc http://127.0.0.1:8545 serve --bind $WalletBind --wallets-dir `"$WalletsDir`" --session-ttl-secs $WalletTtl"
+} else {
+  $walletArgs = "--keystore `"$WalletKeystore`" --rpc http://127.0.0.1:8545 serve --bind $WalletBind"
+}
 $walletProc = Start-Process -FilePath $WalletBin -ArgumentList $walletArgs `
   -WorkingDirectory $ProjectRoot `
   -RedirectStandardOutput (Join-Path $Work "wallet.log") `
@@ -165,10 +186,23 @@ $Extras | Set-Content -Path (Join-Path $Work "extras-pids")
 Start-Sleep -Seconds 2
 Write-Host ""
 Write-Host "[ok] TAM PAKET calisiyor."
-Write-Host "     wallet UI : http://127.0.0.1:$WalletPort   (parola: $WalletPw)"
-Write-Host "     monitor   : http://127.0.0.1:$MonitorPort"
+$displayHost = if ($WalletBind -like "0.0.0.0*") { "127.0.0.1" } else { ($WalletBind -split ":")[0] }
+if ($WalletMulti -eq "1") {
+  Write-Host "     wallet UI : http://$($displayHost):$WalletPort   (multi-tenant - kayit/login)"
+  Write-Host "     wallets   : $WalletsDir   (kullanici basina alt-dizin)"
+} else {
+  Write-Host "     wallet UI : http://$($displayHost):$WalletPort   (parola: $WalletPw)"
+}
+Write-Host "     bind      : $WalletBind"
+Write-Host "     monitor   : http://$($displayHost):$MonitorPort"
 Write-Host "     4 node RPC: 127.0.0.1:8545..8548"
 Write-Host "     loglar    : $Work"
 Write-Host "     durdur    : .\run-all.ps1 stop"
-Start-Process "http://127.0.0.1:$WalletPort"
-Start-Process "http://127.0.0.1:$MonitorPort"
+if ($WalletBind -like "0.0.0.0*") {
+  Write-Host ""
+  Write-Host "  LAN ICIN ipucu: ipconfig | Select-String 'IPv4'  ile kendi IP'ni bul, telefondan:" -ForegroundColor Cyan
+  Write-Host "                 http://<bilgisayar-ip>:$WalletPort" -ForegroundColor Cyan
+  Write-Host "                 Windows Firewall a TCP $WalletPort izni vermeyi unutma." -ForegroundColor Cyan
+}
+Start-Process "http://$($displayHost):$WalletPort"
+Start-Process "http://$($displayHost):$MonitorPort"
