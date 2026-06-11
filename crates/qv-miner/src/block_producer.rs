@@ -6,8 +6,8 @@
 
 use crate::{MinerError, MinerResult};
 use qv_core::{
-    Block, BlockHash, BlockHeader, MerkleRoot, ProtocolParams, Slot, Timestamp, Transaction, TxId,
-    UtxoCommitment, BLOCK_VERSION,
+    Amount, Block, BlockHash, BlockHeader, MerkleRoot, ProtocolParams, Script, Slot, Timestamp,
+    Transaction, TxId, TxOutput, UtxoCommitment, BLOCK_VERSION,
 };
 use qv_mempool::encrypted::{DecryptionShare, ThresholdDecryptor};
 use qv_mempool::{ClearPool, ClearPoolConfig, EncryptedPool, EncryptedPoolConfig};
@@ -29,6 +29,35 @@ pub struct BlockProductionContext {
 
     /// Protocol parameters.
     pub protocol_params: ProtocolParams,
+
+    /// 32-byte public-key hash the block reward is paid to. When `Some`,
+    /// the producer prepends a coinbase transaction claiming
+    /// `block_subsidy(height) + known_fees` locked with
+    /// `p2pkh_pqc(reward_pubkey_hash)`. When `None`, no coinbase is built
+    /// (the reward is forfeited — consensus allows underclaiming).
+    pub reward_pubkey_hash: Option<[u8; 32]>,
+}
+
+/// Build the coinbase transaction for a block at `ctx.height` claiming
+/// `subsidy + fees` to `ctx.reward_pubkey_hash`, or `None` when no reward
+/// address is configured or there is nothing to claim (subsidy exhausted
+/// and zero fees).
+///
+/// `fees` is the sum of the fees the producer *knows about* — entries whose
+/// fee is unknown (e.g. just-decrypted encrypted-mempool txs) should simply
+/// be excluded: underclaiming is always consensus-valid, overclaiming never.
+fn build_coinbase(ctx: &BlockProductionContext, fees: Amount) -> Option<Transaction> {
+    let pkh = ctx.reward_pubkey_hash?;
+    let reward =
+        qv_consensus::total_block_reward(ctx.height, fees, &ctx.protocol_params.monetary);
+    if reward == Amount::ZERO {
+        return None;
+    }
+    let locking_script = Script::new(qv_script::p2pkh_pqc(&pkh));
+    Some(Transaction::new_coinbase(
+        ctx.height,
+        vec![TxOutput::new(reward, locking_script)],
+    ))
 }
 
 /// Produce a block as the slot leader.
@@ -93,7 +122,20 @@ pub async fn produce_block(
     // 4. AMM batch logic (covered in qv-defi) is not yet wired in; we ship
     //    transactions in their merged order. See qv-defi::batcher.
 
-    // 5. Compute merkle root over the txid leaves.
+    // 4b. Coinbase: claim `subsidy + fees` to the configured reward address.
+    //     Mempool entries carry their pre-computed fee (resolved at
+    //     validation time), so the claim is exact for the clear pool.
+    let fees = Amount::checked_sum(clear_entries.iter().map(|e| e.fee))
+        .ok_or_else(|| MinerError::BlockProduction("fee sum overflow".to_string()))?;
+    if let Some(coinbase) = build_coinbase(ctx, fees) {
+        let coinbase_id = coinbase
+            .id()
+            .map_err(|e| MinerError::BlockProduction(format!("coinbase id failed: {e}")))?;
+        tx_ids.insert(0, coinbase_id);
+        batched_txs.insert(0, coinbase);
+    }
+
+    // 5. Compute merkle root over the txid leaves (coinbase included).
     let merkle_root: MerkleRoot = qv_core::merkle_root_of(&tx_ids);
 
     // 6. UTXO commitment.
@@ -240,7 +282,21 @@ pub async fn produce_block_with_decryption<D: ThresholdDecryptor>(
         batched_txs.push(tx);
     }
 
-    // 6. Merkle root + UTXO commitment placeholder.
+    // 5b. Coinbase: clear-pool fees are known exactly; decrypted txs'
+    //     fees are unknown without UTXO resolution, so they are excluded
+    //     from the claim (underclaiming is consensus-valid, overclaiming
+    //     would get the block rejected).
+    let fees = Amount::checked_sum(clear_entries.iter().map(|e| e.fee))
+        .ok_or_else(|| MinerError::BlockProduction("fee sum overflow".to_string()))?;
+    if let Some(coinbase) = build_coinbase(ctx, fees) {
+        let coinbase_id = coinbase
+            .id()
+            .map_err(|e| MinerError::BlockProduction(format!("coinbase id failed: {e}")))?;
+        tx_ids.insert(0, coinbase_id);
+        batched_txs.insert(0, coinbase);
+    }
+
+    // 6. Merkle root (coinbase included) + UTXO commitment placeholder.
     let merkle_root: MerkleRoot = qv_core::merkle_root_of(&tx_ids);
     // Same caveat as `produce_block` above: this reference helper stamps
     // `ZERO`; the production closure in `main::cmd_run` fetches the real
@@ -344,7 +400,97 @@ mod tests {
             height: qv_core::Height::from(1),
             timestamp: Timestamp::from(1_000_000),
             protocol_params: ProtocolParams::mainnet(),
+            reward_pubkey_hash: None,
         }
+    }
+
+    #[tokio::test]
+    async fn produce_block_with_reward_address_prepends_coinbase() {
+        use qv_core::{OutPoint, Script, TxInput, TxOutput};
+        use qv_mempool::clear::MempoolEntry;
+
+        let mut ctx = sample_context();
+        let reward_pkh = [0xCC; 32];
+        ctx.reward_pubkey_hash = Some(reward_pkh);
+
+        // Clear pool with one entry carrying a pre-computed fee of 10.
+        let mut clear_pool = ClearPool::new(ClearPoolConfig::ephemeral());
+        let tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1u8; 32]), 0))],
+            vec![TxOutput::new(
+                Amount::from_smallest_units(490),
+                Script::new(vec![0x01]),
+            )],
+        );
+        let tx_id = tx.id().unwrap();
+        clear_pool
+            .add(MempoolEntry::new(
+                tx,
+                tx_id,
+                Amount::from_smallest_units(10),
+                100,
+            ))
+            .unwrap();
+
+        let cfg = EncryptedPoolConfig {
+            max_tx_count: 16,
+            max_pool_bytes: 1024,
+            max_age_secs: 60,
+        };
+        let encrypted_pool = EncryptedPool::new(cfg, qv_core::Epoch::from(0));
+
+        let block = produce_block(&ctx, &clear_pool, &encrypted_pool, &[1], &[2])
+            .await
+            .unwrap();
+
+        assert_eq!(block.transactions.len(), 2, "coinbase + mempool tx");
+        let coinbase = &block.transactions[0];
+        assert!(coinbase.is_coinbase());
+        assert_eq!(coinbase.coinbase_height(), Some(qv_core::Height::from(1)));
+        // Mainnet subsidy at height 1 (5_000_000_000) + fee (10).
+        assert_eq!(
+            coinbase.outputs[0].value,
+            Amount::from_smallest_units(5_000_000_010)
+        );
+        assert_eq!(
+            coinbase.outputs[0].locking_script.as_bytes(),
+            qv_script::p2pkh_pqc(&reward_pkh).as_slice()
+        );
+
+        // Merkle root commits to the coinbase-inclusive body. The header's
+        // height is 1 (non-genesis), so the positional coinbase rule applies.
+        block.validate_structure().unwrap();
+    }
+
+    #[tokio::test]
+    async fn produce_block_without_reward_address_has_no_coinbase() {
+        let ctx = sample_context();
+        let clear_pool = ClearPool::new(ClearPoolConfig::ephemeral());
+        let cfg = EncryptedPoolConfig {
+            max_tx_count: 16,
+            max_pool_bytes: 1024,
+            max_age_secs: 60,
+        };
+        let encrypted_pool = EncryptedPool::new(cfg, qv_core::Epoch::from(0));
+
+        let block = produce_block(&ctx, &clear_pool, &encrypted_pool, &[1], &[2])
+            .await
+            .unwrap();
+        assert!(block.transactions.is_empty());
+    }
+
+    #[test]
+    fn build_coinbase_skips_zero_reward() {
+        // Exhausted subsidy + zero fees → no coinbase.
+        let mut ctx = sample_context();
+        ctx.reward_pubkey_hash = Some([0xCC; 32]);
+        // 64 halvings beyond any subsidy.
+        ctx.height = qv_core::Height::from(u64::MAX);
+        assert!(build_coinbase(&ctx, Amount::ZERO).is_none());
+
+        // No reward address → no coinbase even with fees.
+        let ctx2 = sample_context();
+        assert!(build_coinbase(&ctx2, Amount::from_smallest_units(1_000)).is_none());
     }
 
     #[tokio::test]

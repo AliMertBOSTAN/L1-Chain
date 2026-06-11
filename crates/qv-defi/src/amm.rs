@@ -15,6 +15,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use qv_core::Hash256;
+use qv_script::templates::{
+    POOL_DATUM_FEE_BPS_OFFSET, POOL_DATUM_LEN, POOL_DATUM_LP_TOTAL_OFFSET,
+    POOL_DATUM_RESERVE_A_OFFSET, POOL_DATUM_RESERVE_B_OFFSET, POOL_DATUM_TOKEN_A_OFFSET,
+    POOL_DATUM_TOKEN_B_OFFSET,
+};
 
 // ============================================================================
 // Errors
@@ -126,6 +131,11 @@ impl PoolDatum {
     }
 
     /// Encode datum to bincode bytes.
+    ///
+    /// **Off-chain / storage use only.** The on-chain pool UTXO datum must
+    /// use [`Self::to_canonical_bytes`] instead: the `amm_pool_lock` script
+    /// slices fields at fixed offsets and must not depend on a serializer's
+    /// internal layout.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         bincode::serialize(self).map_err(|e| AmmError::DatumError(e.to_string()))
     }
@@ -133,6 +143,80 @@ impl PoolDatum {
     /// Decode datum from bincode bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         bincode::deserialize(bytes).map_err(|e| AmmError::DatumError(e.to_string()))
+    }
+
+    /// Length in bytes of the canonical (script-friendly) encoding.
+    ///
+    /// Defined by `qv-script` (the consumer of the layout) as
+    /// [`POOL_DATUM_LEN`] so the two crates cannot drift.
+    pub const CANONICAL_LEN: usize = POOL_DATUM_LEN;
+
+    /// Encode the datum into its **canonical fixed-width layout** — the
+    /// exact byte sequence the `amm_pool_lock` covenant script slices:
+    ///
+    /// | Bytes   | Field        | Type         |
+    /// |---------|--------------|--------------|
+    /// | 0..32   | `token_a_id` | 32 raw bytes |
+    /// | 32..64  | `token_b_id` | 32 raw bytes |
+    /// | 64..72  | `reserve_a`  | `u64` LE     |
+    /// | 72..80  | `reserve_b`  | `u64` LE     |
+    /// | 80..88  | `lp_total`   | `u64` LE     |
+    /// | 88..90  | `fee_bps`    | `u16` LE     |
+    ///
+    /// This — not bincode — is what must be attached to the pool UTXO as
+    /// its on-chain datum.
+    #[must_use]
+    pub fn to_canonical_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(Self::CANONICAL_LEN);
+        out.extend_from_slice(self.token_a_id.as_bytes());
+        out.extend_from_slice(self.token_b_id.as_bytes());
+        out.extend_from_slice(&self.reserve_a.to_le_bytes());
+        out.extend_from_slice(&self.reserve_b.to_le_bytes());
+        out.extend_from_slice(&self.lp_total.to_le_bytes());
+        out.extend_from_slice(&self.fee_bps.to_le_bytes());
+        out
+    }
+
+    /// Decode a datum from its canonical fixed-width layout (the inverse
+    /// of [`Self::to_canonical_bytes`]).
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != Self::CANONICAL_LEN {
+            return Err(AmmError::DatumError(format!(
+                "canonical pool datum must be {} bytes, got {}",
+                Self::CANONICAL_LEN,
+                bytes.len()
+            )));
+        }
+
+        fn read_32(bytes: &[u8], offset: usize) -> Result<[u8; 32]> {
+            bytes
+                .get(offset..offset.wrapping_add(32))
+                .and_then(|s| s.try_into().ok())
+                .ok_or_else(|| AmmError::DatumError("token id slice out of range".into()))
+        }
+        fn read_u64(bytes: &[u8], offset: usize) -> Result<u64> {
+            bytes
+                .get(offset..offset.wrapping_add(8))
+                .and_then(|s| <[u8; 8]>::try_from(s).ok())
+                .map(u64::from_le_bytes)
+                .ok_or_else(|| AmmError::DatumError("u64 slice out of range".into()))
+        }
+        fn read_u16(bytes: &[u8], offset: usize) -> Result<u16> {
+            bytes
+                .get(offset..offset.wrapping_add(2))
+                .and_then(|s| <[u8; 2]>::try_from(s).ok())
+                .map(u16::from_le_bytes)
+                .ok_or_else(|| AmmError::DatumError("u16 slice out of range".into()))
+        }
+
+        Ok(Self {
+            token_a_id: Hash256::from_bytes(read_32(bytes, POOL_DATUM_TOKEN_A_OFFSET)?),
+            token_b_id: Hash256::from_bytes(read_32(bytes, POOL_DATUM_TOKEN_B_OFFSET)?),
+            reserve_a: read_u64(bytes, POOL_DATUM_RESERVE_A_OFFSET)?,
+            reserve_b: read_u64(bytes, POOL_DATUM_RESERVE_B_OFFSET)?,
+            lp_total: read_u64(bytes, POOL_DATUM_LP_TOTAL_OFFSET)?,
+            fee_bps: read_u16(bytes, POOL_DATUM_FEE_BPS_OFFSET)?,
+        })
     }
 }
 
@@ -489,6 +573,69 @@ mod tests {
         let bytes = datum.to_bytes().unwrap();
         let decoded = PoolDatum::from_bytes(&bytes).unwrap();
         assert_eq!(datum, decoded);
+    }
+
+    #[test]
+    fn pool_datum_canonical_roundtrip() {
+        let mut datum = make_pool_datum();
+        datum.reserve_a = u64::MAX; // exercise full-width values
+        datum.fee_bps = 9_999;
+        let bytes = datum.to_canonical_bytes();
+        assert_eq!(bytes.len(), PoolDatum::CANONICAL_LEN);
+        let decoded = PoolDatum::from_canonical_bytes(&bytes).unwrap();
+        assert_eq!(datum, decoded);
+    }
+
+    #[test]
+    fn pool_datum_canonical_layout_matches_script_offsets() {
+        // The amm_pool_lock covenant slices these exact offsets; if this
+        // test breaks, on-chain pools become unspendable. Field order:
+        // token_a(32) | token_b(32) | reserve_a(8) | reserve_b(8)
+        // | lp_total(8) | fee_bps(2).
+        let datum = PoolDatum {
+            token_a_id: Hash256::from_bytes([0xA1; 32]),
+            token_b_id: Hash256::from_bytes([0xB2; 32]),
+            reserve_a: 0x0102_0304_0506_0708,
+            reserve_b: 0x1112_1314_1516_1718,
+            lp_total: 0x2122_2324_2526_2728,
+            fee_bps: 30,
+        };
+        let bytes = datum.to_canonical_bytes();
+
+        assert_eq!(&bytes[POOL_DATUM_TOKEN_A_OFFSET..POOL_DATUM_TOKEN_A_OFFSET + 32], &[0xA1; 32]);
+        assert_eq!(&bytes[POOL_DATUM_TOKEN_B_OFFSET..POOL_DATUM_TOKEN_B_OFFSET + 32], &[0xB2; 32]);
+        assert_eq!(
+            &bytes[POOL_DATUM_RESERVE_A_OFFSET..POOL_DATUM_RESERVE_A_OFFSET + 8],
+            &0x0102_0304_0506_0708_u64.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[POOL_DATUM_RESERVE_B_OFFSET..POOL_DATUM_RESERVE_B_OFFSET + 8],
+            &0x1112_1314_1516_1718_u64.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[POOL_DATUM_LP_TOTAL_OFFSET..POOL_DATUM_LP_TOTAL_OFFSET + 8],
+            &0x2122_2324_2526_2728_u64.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[POOL_DATUM_FEE_BPS_OFFSET..],
+            &30_u16.to_le_bytes() // [0x1E, 0x00]
+        );
+    }
+
+    #[test]
+    fn pool_datum_canonical_rejects_wrong_length() {
+        let datum = make_pool_datum();
+        let mut bytes = datum.to_canonical_bytes();
+        bytes.pop();
+        assert!(matches!(
+            PoolDatum::from_canonical_bytes(&bytes),
+            Err(AmmError::DatumError(_))
+        ));
+        bytes.extend_from_slice(&[0, 0]); // now 91 bytes
+        assert!(matches!(
+            PoolDatum::from_canonical_bytes(&bytes),
+            Err(AmmError::DatumError(_))
+        ));
     }
 
     #[test]

@@ -14,12 +14,31 @@ use crate::{decode, encode, StorageError, StorageResult};
 const UTXO_ENTRY_PREFIX: &[u8] = b"utxo:entry:";
 const UTXO_UNDO_PREFIX: &[u8] = b"utxo:undo:";
 const UTXO_SNAPSHOT_PREFIX: &[u8] = b"utxo:snapshot:";
+/// Coinbase creation-height records: `utxo:cbh:<outpoint> -> u64 height`.
+///
+/// One record per *live* coinbase output. Written by [`UtxoStore::apply_block`]
+/// when a block carries a coinbase (no-input tx at position 0, height > 0),
+/// deleted when the output is spent, and restored / removed symmetrically by
+/// [`UtxoStore::revert_block`]. The node's block validator reads these via
+/// [`UtxoStore::coinbase_height`] to enforce coinbase maturity (spendable only
+/// `k` blocks after creation). Maturity itself is **not** enforced here —
+/// storage does not know the consensus `k`; keeping the policy in `qv-node`
+/// keeps this layer mechanism-only.
+const UTXO_COINBASE_HEIGHT_PREFIX: &[u8] = b"utxo:cbh:";
 
 /// Undo information required to revert one applied block.
+///
+/// Note: adding `spent_coinbase_heights` changed the bincode layout of new
+/// undo logs. All current deployments run the in-memory KV backend (undo logs
+/// never survive a restart), so there is no on-disk migration concern; a
+/// persistent backend rollout would version this record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct UndoLog {
     /// Outputs consumed from the prior UTXO set.
     spent: Vec<(OutPoint, TxOutput)>,
+    /// Coinbase creation-height records that were deleted because their
+    /// outputs were spent by this block; restored on revert.
+    spent_coinbase_heights: Vec<(OutPoint, u64)>,
 }
 
 /// Persistent UTXO storage facade.
@@ -103,34 +122,83 @@ impl<S: KvStore> UtxoStore<S> {
         Ok(commitment_root_of_sorted_entries(sorted.iter()))
     }
 
+    /// Creation height of a coinbase output, or `None` if `outpoint` was not
+    /// created by a coinbase (or is no longer live).
+    ///
+    /// Used by the node's block/mempool validators to enforce coinbase
+    /// maturity: a coinbase output is spendable in a block at height `h`
+    /// only when `h >= creation_height + k`.
+    pub fn coinbase_height(&self, outpoint: &OutPoint) -> StorageResult<Option<u64>> {
+        let key = Self::key_coinbase_height(outpoint);
+        let Some(bytes) = self.kv.get(&key)? else {
+            return Ok(None);
+        };
+        Ok(Some(decode::<u64>(&bytes)?))
+    }
+
     /// Apply all transaction effects in `block` to the persistent UTXO set.
     ///
     /// Stores an undo log under `block.hash()` so [`Self::revert_block`] can restore
-    /// the prior state.
+    /// the prior state. Coinbase outputs (no-input tx at position 0 of a
+    /// non-genesis block) additionally get a creation-height record so the
+    /// node can enforce coinbase maturity on later spends (see
+    /// [`Self::coinbase_height`]). Genesis allocations (height 0) are *not*
+    /// recorded — they are spendable immediately.
     pub fn apply_block(&self, block: &Block) -> StorageResult<()> {
         block.validate_structure()?;
 
         let mut spent: Vec<(OutPoint, TxOutput)> = Vec::new();
         let mut consumed: BTreeSet<OutPoint> = BTreeSet::new();
         let mut staged_new: BTreeMap<OutPoint, TxOutput> = BTreeMap::new();
+        let mut coinbase_outpoints: Vec<OutPoint> = Vec::new();
 
-        for tx in &block.transactions {
+        let block_height = block.header.height.as_u64();
+        for (tx_index, tx) in block.transactions.iter().enumerate() {
             self.consume_inputs(tx, &mut spent, &mut consumed, &mut staged_new)?;
             self.produce_outputs(tx, &consumed, &mut staged_new)?;
+
+            if tx_index == 0 && block_height > 0 && tx.inputs.is_empty() {
+                let tx_id = tx.id()?;
+                for (idx, _) in tx.outputs.iter().enumerate() {
+                    let output_index = u32::try_from(idx)
+                        .map_err(|_| StorageError::InvalidInput("output index overflow"))?;
+                    coinbase_outpoints.push(OutPoint::new(tx_id, output_index));
+                }
+            }
         }
 
         let mut batch = self.kv.new_batch();
+        let mut spent_coinbase_heights: Vec<(OutPoint, u64)> = Vec::new();
 
         for (outpoint, _) in &spent {
             batch.delete(Self::key_outpoint(outpoint));
+            // If a coinbase output is being spent, drop its creation-height
+            // record and remember it in the undo log for revert.
+            let cbh_key = Self::key_coinbase_height(outpoint);
+            if let Some(bytes) = self.kv.get(&cbh_key)? {
+                spent_coinbase_heights.push((*outpoint, decode::<u64>(&bytes)?));
+                batch.delete(cbh_key);
+            }
         }
 
-        for (outpoint, output) in staged_new {
-            batch.put(Self::key_outpoint(&outpoint), encode(&output)?);
+        for (outpoint, output) in &staged_new {
+            batch.put(Self::key_outpoint(outpoint), encode(output)?);
+        }
+
+        // Record creation heights only for coinbase outputs that survive the
+        // block (a same-block spend would have removed them from staging;
+        // the node rejects such blocks anyway, this keeps storage coherent).
+        for outpoint in &coinbase_outpoints {
+            if staged_new.contains_key(outpoint) {
+                batch.put(Self::key_coinbase_height(outpoint), encode(&block_height)?);
+            }
         }
 
         let block_hash = block.hash()?;
-        let undo = UndoLog { spent };
+        let undo = UndoLog {
+            spent,
+            spent_coinbase_heights,
+        };
         batch.put(Self::key_undo(&block_hash), encode(&undo)?);
 
         self.kv.write_batch(batch)
@@ -148,18 +216,30 @@ impl<S: KvStore> UtxoStore<S> {
 
         let mut batch = self.kv.new_batch();
 
-        for tx in &block.transactions {
+        let block_height = block.header.height.as_u64();
+        for (tx_index, tx) in block.transactions.iter().enumerate() {
             let tx_id = tx.id()?;
+            let is_coinbase = tx_index == 0 && block_height > 0 && tx.inputs.is_empty();
             for (idx, _) in tx.outputs.iter().enumerate() {
                 let output_index = u32::try_from(idx)
                     .map_err(|_| StorageError::InvalidInput("output index overflow"))?;
                 let outpoint = OutPoint::new(tx_id, output_index);
                 batch.delete(Self::key_outpoint(&outpoint));
+                if is_coinbase {
+                    // Remove the creation-height record written by apply_block.
+                    batch.delete(Self::key_coinbase_height(&outpoint));
+                }
             }
         }
 
         for (outpoint, output) in undo.spent {
             batch.put(Self::key_outpoint(&outpoint), encode(&output)?);
+        }
+
+        // Restore creation-height records of coinbase outputs that this
+        // block had spent.
+        for (outpoint, height) in undo.spent_coinbase_heights {
+            batch.put(Self::key_coinbase_height(&outpoint), encode(&height)?);
         }
 
         batch.delete(undo_key);
@@ -281,6 +361,13 @@ impl<S: KvStore> UtxoStore<S> {
         key
     }
 
+    fn key_coinbase_height(outpoint: &OutPoint) -> Vec<u8> {
+        let mut key = Vec::with_capacity(UTXO_COINBASE_HEIGHT_PREFIX.len() + 36);
+        key.extend_from_slice(UTXO_COINBASE_HEIGHT_PREFIX);
+        key.extend_from_slice(&outpoint.canonical_bytes());
+        key
+    }
+
     fn key_snapshot(snapshot_id: &[u8]) -> Vec<u8> {
         let mut key = Vec::with_capacity(UTXO_SNAPSHOT_PREFIX.len() + snapshot_id.len());
         key.extend_from_slice(UTXO_SNAPSHOT_PREFIX);
@@ -396,6 +483,98 @@ mod tests {
         assert!(store.contains(&op1).unwrap());
         assert!(store.contains(&op2).unwrap());
         assert!(!store.contains(&op3).unwrap());
+    }
+
+    fn coinbase_block(height: u64, value: u64, extra_txs: Vec<Transaction>) -> Block {
+        let coinbase = Transaction::new_coinbase(
+            Height::from(height),
+            vec![tx_output(value, 0xC0)],
+        );
+        let mut txs = vec![coinbase];
+        txs.extend(extra_txs);
+
+        let mut header = BlockHeader::genesis_template();
+        header.height = Height::from(height);
+        header.prev_hash = BlockHash::from_bytes([0xEE; 32]);
+
+        let mut block = Block::new(header, txs);
+        block.header.merkle_root = block.compute_merkle_root().unwrap();
+        block
+    }
+
+    #[test]
+    fn apply_block_records_coinbase_height() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+        let block = coinbase_block(3, 5_000, vec![]);
+        store.apply_block(&block).unwrap();
+
+        let cb_op = OutPoint::new(block.transactions[0].id().unwrap(), 0);
+        assert!(store.contains(&cb_op).unwrap());
+        assert_eq!(store.coinbase_height(&cb_op).unwrap(), Some(3));
+
+        // Reverting removes both the output and the height record.
+        store.revert_block(&block).unwrap();
+        assert!(!store.contains(&cb_op).unwrap());
+        assert_eq!(store.coinbase_height(&cb_op).unwrap(), None);
+    }
+
+    #[test]
+    fn non_coinbase_outputs_have_no_coinbase_height() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+
+        let genesis_op = OutPoint::new(TxId::from_bytes([1u8; 32]), 0);
+        store.insert(genesis_op, tx_output(100, 1)).unwrap();
+        assert_eq!(store.coinbase_height(&genesis_op).unwrap(), None);
+
+        let block = transfer_block(genesis_op, 9, 95, 1);
+        store.apply_block(&block).unwrap();
+
+        let new_op = OutPoint::new(block.transactions[0].id().unwrap(), 0);
+        assert_eq!(store.coinbase_height(&new_op).unwrap(), None);
+    }
+
+    #[test]
+    fn spending_coinbase_clears_record_and_revert_restores_it() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+
+        // Block 1 creates a coinbase output.
+        let block1 = coinbase_block(1, 5_000, vec![]);
+        store.apply_block(&block1).unwrap();
+        let cb_op = OutPoint::new(block1.transactions[0].id().unwrap(), 0);
+        assert_eq!(store.coinbase_height(&cb_op).unwrap(), Some(1));
+
+        // Block 2 spends it.
+        let block2 = transfer_block(cb_op, 7, 4_999, 2);
+        store.apply_block(&block2).unwrap();
+        assert!(!store.contains(&cb_op).unwrap());
+        assert_eq!(
+            store.coinbase_height(&cb_op).unwrap(),
+            None,
+            "spent coinbase output must lose its height record"
+        );
+
+        // Reverting block 2 restores the output AND its height record.
+        store.revert_block(&block2).unwrap();
+        assert!(store.contains(&cb_op).unwrap());
+        assert_eq!(store.coinbase_height(&cb_op).unwrap(), Some(1));
+    }
+
+    #[test]
+    fn genesis_allocations_are_not_height_tracked() {
+        // A height-0 block with a no-input tx is a genesis allocation, not a
+        // coinbase: its outputs must not get maturity records.
+        let store = UtxoStore::new(MemoryKvStore::new());
+
+        let alloc = Transaction::genesis(vec![tx_output(1_000, 0x11)]);
+        let mut header = BlockHeader::genesis_template();
+        header.height = Height::from(0);
+        let mut block = Block::new(header, vec![alloc]);
+        block.header.merkle_root = block.compute_merkle_root().unwrap();
+
+        store.apply_block(&block).unwrap();
+        let op = OutPoint::new(block.transactions[0].id().unwrap(), 0);
+        assert!(store.contains(&op).unwrap());
+        assert_eq!(store.coinbase_height(&op).unwrap(), None);
     }
 
     #[test]

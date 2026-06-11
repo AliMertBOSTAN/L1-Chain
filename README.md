@@ -71,7 +71,7 @@ archive/cpp-v1/    the original C++ implementation, kept for reference
 
 - [`docs/ABSTRACT.md`](docs/ABSTRACT.md) — project overview, audience, rationale
 - [`docs/ARCHITECTURE_V2.md`](docs/ARCHITECTURE_V2.md) — current architecture
-- [`docs/MASTER_PLAN.md`](docs/MASTER_PLAN.md) — sequenced execution plan
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — production roadmap & open-work inventory (historical MASTER_PLAN archived under `archive/docs-v1/`)
 - [`docs/ADR/`](docs/ADR/) — architecture decision records
 
 ## Contributing

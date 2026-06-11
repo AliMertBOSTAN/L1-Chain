@@ -1,9 +1,27 @@
 # QuantumVault L1 — Validator & Stake Pool Operator Guide
 
 **Audience**: Stake pool operators, node validators  
-**Target Deployment**: QuantumVault mainnet (post-testnet hardening)  
-**Status**: Production-ready  
-**Version**: 2.0 (Updated 2026-04)
+**Target Deployment**: Devnet / iç-testnet (mainnet HENÜZ YOK — mainnet'e özgü bölümler "gelecek" işaretli)  
+**Status**: Devnet/iç-testnet rehberi — proje mainnet-ready DEĞİL; açık işler `docs/ROADMAP.md` envanterinde  
+**Version**: 2.1 (Updated 2026-06-10)
+
+> **Gerçeklik notu (2026-06-10).** Bu rehberin bir kısmı hedef-mimariyi anlatır;
+> `qv-miner`'ın bugünkü fiili durumu şudur:
+>
+> - **Çalışan:** Operatör keystore'u gerçek — tek dosya, Argon2id + AES-256-GCM
+>   (`OperatorConfig.keystore_path`, envanter M-04). `qv-miner run` keystore'u
+>   yükler (parola `QV_KEYSTORE_PASS` env'i veya interaktif prompt), node'dan
+>   RPC ile gerçek stake distribution + epoch nonce çeker (M-09b, kapatıldı
+>   2026-05-15), `SlotLoop`'u çalıştırır ve lider seçildiğinde bloğu üretip
+>   `qv_submitBlock` ile node'a gönderir (M-09c, kapatıldı 2026-05-15).
+>   Bu akış yalnızca devnet ölçeğinde denendi.
+> - **Açık:** `qv-miner init` şu an yalnızca `operator.toml` yazar — keystore
+>   dosyasını CLI'dan üretmez. `register-pool` zinciri placeholder'dır
+>   (M-06/M-07/M-08: boş locking script, dummy input, `submit_via_rpc`
+>   `"txid_placeholder"` döner). Dashboard/metrics stub'dır (M-10/M-11;
+>   `--metrics-addr` flag'i henüz bağlı değil). Encrypted mempool threshold
+>   komitesi (T-01 Pedersen DKG) uygulanmadı. On-chain delegation ve ödül
+>   dağıtımı protokol seviyesinde henüz zorlanmıyor.
 
 ---
 
@@ -11,10 +29,10 @@
 
 A validator on QuantumVault L1 is a network participant who:
 - **Runs a full node** (downloads and verifies all blocks)
-- **Operates a stake pool** (receives delegated stake from users)
+- **Operates a stake pool** (receives delegated stake from users — on-chain delegation *gelecek*)
 - **Produces blocks** (elected by VRF lottery proportional to stake)
-- **Participates in committee** (decrypts threshold-encrypted mempool as 2/3+ required)
-- **Earns rewards** (block rewards + transaction fees, shared with delegators)
+- **Participates in committee** (decrypts threshold-encrypted mempool as 2/3+ required — *gelecek*, T-01 Pedersen DKG açık)
+- **Earns rewards** (block rewards + transaction fees, shared with delegators — protokol dağıtımı *gelecek*)
 
 ### Why Run a Validator?
 
@@ -152,23 +170,25 @@ Operatör anahtarları **tek bir 32-byte master seed**'den deterministik olarak
 türetilir (`OperatorKeys::from_seed`); master seed Argon2id+AES-256-GCM ile
 **tek bir keystore dosyasında** şifrelenir (envanter M-04, 2026-05-12).
 
+Fiili CLI (2026-06-10):
+
 ```bash
-# Generate all three keys (VRF + KES + cold) from one master seed
+# Operatör config'ini üret (operator.toml). Pool adı + ekonomik parametreler.
 qv-miner init \
   --pool-name "MyValidator" \
-  --keystore /secure/vault/operator.keystore \
-  --password-file /tmp/keypass.txt
-
-# Output:
-# Master seed generated (zeroize after backup)
-# VRF public key: vrf1...
-# KES public key:  kes1...  (period 0)
-# Cold public key: cold1...
-# Keystore saved to /secure/vault/operator.keystore (Argon2id + AES-256-GCM)
-
-# Securely delete password file
-shred -u /tmp/keypass.txt
+  --pledge 1000000000 \
+  --margin-bps 300 \
+  --fixed-cost 10000000 \
+  --output operator.toml
 ```
+
+> **Sınır (açık iş):** `init` şu an yalnızca `operator.toml` yazar;
+> `keystore_path` alanına işaret edilen keystore **dosyasını üretmez**.
+> Keystore, `OperatorKeys::save_encrypted(path, password)` API'siyle
+> oluşturulur (5 unit test + roundtrip testi mevcut); bunun CLI'a
+> bağlanması (`init --keystore --password-file` benzeri bir akış) gelecek
+> iş. Keystore formatı: JSON envelope `{ version: 1, master_seed,
+> kes_period }`, Argon2id + AES-256-GCM ile şifreli, tek dosya.
 
 Anahtar türetme şeması:
 ```
@@ -193,6 +213,13 @@ keystore parolası güçlü olmalı (Argon2id-64MiB-3-1) ve yedek master seed
 # - Loads into memory (old key zeroed & deleted)
 # - Blocks signed with new key for remainder of epoch
 ```
+
+> **Fiili durum:** `kes_evolve` primitifi gerçek (leaf zeroize + period
+> advance) ve keystore load sırasında kayıtlı `kes_period`'a kadar evolve
+> edilir. Ancak çalışan daemon'ın epoch sınırında otomatik evolve edip
+> yeni period'u keystore'a **geri yazması** henüz bağlanmadı (`cmd_run`
+> içinde "future work" olarak işaretli). Uzun süreli çalıştırmada bunu
+> göz önünde bulundurun.
 
 **Cold**: Quarterly manual ceremony (requires 3+ operators)
 ```bash
@@ -231,22 +258,23 @@ qv-miner --cold-key-file /path/to/cold_key.pem run  # DANGER!
 
 ### 5.1 Registration Transaction
 
+Fiili CLI (2026-06-10) — pool parametreleri `operator.toml`'dan okunur:
+
 ```bash
 # Register stake pool on-chain
 qv-miner register-pool \
-  --cold-key /offline/vault/cold_key.pem \
-  --vrf-pubkey vrf1... \
-  --pool-name "MyValidator Inc" \
-  --operator-address addr1... \
-  --pledge 100000  # Amount operator stakes (in satoshis) \
-  --margin 0.05    # Pool fee (5% of rewards) \
-  --cost 340       # Fixed cost per epoch (in satoshis) \
-  --network testnet  # Use 'mainnet' for production
-
-# Output: transaction hash
-# TX: <txhash>
-# Status: Pending (awaits 1 confirmation)
+  --config operator.toml \
+  --node-rpc http://localhost:8080 \
+  --wait-blocks 10
 ```
+
+> **Açık iş (M-06/M-07/M-08):** Registration zinciri henüz placeholder.
+> Locking script boş (`Script::standard_registration_lock()` TODO), UTXO
+> seçimi/change/cold-key imzalama yok (tek dummy input) ve `submit_via_rpc`
+> gerçek RPC çağırmayıp `"txid_placeholder"` döner. Devnet'te pool'lar
+> bunun yerine node'un genesis stake-pool config'i ile pre-seed edilir;
+> `qv-miner run` pool'u node'un stake distribution'ında bulamazsa net hata
+> ile çıkar. Gerçek on-chain registration *gelecek* (Faz 1/6).
 
 ### 5.2 Pool Parameters
 
@@ -262,12 +290,13 @@ qv-miner register-pool \
 - Margin 2–5% = competitive
 - Cost 200–500 satoshis = covers infrastructure
 
-### 5.3 Delegators
+### 5.3 Delegators (gelecek)
 
-Once registered, delegators can stake to your pool:
+Once registered, delegators can stake to your pool (*hedef tasarım —
+`qv-wallet delegate` komutu henüz yok*):
 
 ```bash
-# Delegator action (not operator):
+# Delegator action (not operator) — GELECEK:
 qv-wallet delegate \
   --pool-id <pool_id> \
   --amount 50000 \
@@ -277,7 +306,9 @@ qv-wallet delegate \
 # Rewards flow to delegator address each epoch
 ```
 
-**Operator does NOT touch delegator keys** — rewards are automatic via protocol.
+**Operator does NOT touch delegator keys** — rewards are automatic via
+protocol (*tasarım hedefi; on-chain delegation + ödül dağıtımı henüz
+uygulanmadı, sadece `qv-consensus::rewards` matematiği ve testleri var*).
 
 ---
 
@@ -285,67 +316,59 @@ qv-wallet delegate \
 
 ### 6.1 Configuration
 
-Create `~/.quantumvault/config.toml`:
+Fiili operatör config'i `operator.toml`'dur (`OperatorConfig`, `qv-miner
+init` üretir). Gerçek alanlar (2026-06-10):
 
 ```toml
-[node]
-network = "mainnet"
-listen_addr = "0.0.0.0:30333"
-public_addr = "validator.example.com:30333"
-max_peers = 50
-sync_threads = 4
+pool_id = "pool_a1b2c3d4"
+pool_name = "MyValidator"
 
-[consensus]
-epoch_length = 21600  # 12 hours in slots
-slot_duration_ms = 2000
-k_deep_finality = 50  # ~100 seconds
-
-[storage]
-data_dir = "/var/quantumvault/data"
-rocksdb_cache_mb = 2048
-prune_after_epochs = 10
-
-[mempool]
-max_mempool_size = 100000
-encrypted_mempool = true
-committee_threshold = 2  # 2-of-3 shares
-
-[monitoring]
-metrics_port = 9090
-tracing_level = "info"
-
-[keys]
-# Single encrypted master keystore (envanter M-04, ADR-006 sonrası).
+# Single encrypted master keystore (envanter M-04).
 # Argon2id (64 MiB / 3 iter / 1 lane) + AES-256-GCM. Contains:
 #   - 32-byte master seed (vrf/kes/cold deterministic derivation)
 #   - kes_period: u32 (forward-secure rotation pointer)
-keystore_path = "/etc/quantumvault/secrets/operator.keystore"
+keystore_path = "keys/operator.keystore"
 
-[hsm]
-enabled = false  # Set to true if HSM available
-device = "Luna Network 7"
-slot = 1
-pin = "${QV_HSM_PIN}"  # Read from environment
+pledge = 1000000000
+margin_bps = 300        # 3%
+fixed_cost = 10000000
+reward_account = "qvaddr_reward"
+network = "testnet"     # devnet | testnet | mainnet (mainnet GELECEK)
+node_rpc_url = "http://localhost:8080"
+
+# Opsiyonel alanlar:
+# node_gossip_addr = "/ip4/127.0.0.1/tcp/30333"
+# clear_mempool_capacity = 10000
+# encrypted_mempool_capacity = 5000
+# decryption_committee_share_path = "..."   # T-01 sonrası anlamlı (gelecek)
+# genesis_time = 1780000000
+# kes_rotation_period_epochs = 1
 ```
+
+Node tarafı (`qv-node`) ayrı bir config kullanır; bu rehberin önceki
+sürümündeki `[node]/[consensus]/[storage]/[mempool]/[monitoring]/[hsm]`
+blokları **hedef-mimari** idi — mainnet operasyon config'i olarak
+*gelecek* işaretlidir.
 
 ### 6.2 Start Validator
 
 ```bash
-# Foreground (development/testing)
-qv-miner run --config ~/.quantumvault/config.toml
+# Foreground (development/testing) — parola QV_KEYSTORE_PASS env'inden
+# (devnet kolaylığı) ya da interaktif prompt'tan okunur.
+qv-miner run --config operator.toml --node-rpc http://localhost:8080
 
-# Background (systemd service for production)
+# Background (systemd service — mainnet/production akışı GELECEK)
 sudo systemctl start quantumvault-miner
 sudo systemctl enable quantumvault-miner
 
 # Check status
 sudo journalctl -u quantumvault-miner -f
 
-# Stop gracefully
+# Stop gracefully (daemon Ctrl+C / SIGINT ile graceful kapanır)
 sudo systemctl stop quantumvault-miner
 ```
 
-### 6.3 Systemd Unit File
+### 6.3 Systemd Unit File (gelecek — mainnet/production)
 
 Create `/etc/systemd/system/quantumvault-miner.service`:
 
@@ -357,7 +380,7 @@ After=network-online.target
 [Service]
 Type=simple
 User=quantumvault
-ExecStart=/opt/quantumvault/qv-miner run --config /etc/quantumvault/config.toml
+ExecStart=/opt/quantumvault/qv-miner run --config /etc/quantumvault/operator.toml --node-rpc http://localhost:8080
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -386,14 +409,18 @@ sudo systemctl start quantumvault-miner
 
 ---
 
-## 7. Delegation
+## 7. Delegation (gelecek — hedef tasarım)
+
+> On-chain delegation henüz uygulanmadı. `qv-miner delegate` bugün yalnızca
+> bilgilendirme metni basan bir yardımcıdır; `qv-wallet delegate` komutu yok.
+> Aşağıdaki akış hedef tasarımdır.
 
 ### 7.1 How Delegators Stake
 
 Delegators **do not** interact with the operator; they stake directly on-chain:
 
 ```bash
-# Delegator's wallet:
+# Delegator's wallet (GELECEK):
 qv-wallet delegate \
   --pool <pool_id> \
   --amount <satoshis> \
@@ -453,7 +480,12 @@ fn check_leadership(vrf_key: &VRFKey, pool_stake: u64, total_stake: u64) -> bool
 }
 ```
 
-If elected:
+> Yukarıdaki pseudo-code kavramsaldır; fiili implementasyon **float
+> kullanmaz** — lider eşiği ADR-009 uyarınca deterministik sabit-nokta
+> aritmetiğiyle hesaplanır (`T = 1 − (1−f)^σ`).
+
+If elected (2-4. adımlar bugün `qv-miner::cmd_run` block producer'ında
+gerçek; encrypted-mempool komite adımı *gelecek*, T-01):
 
 ```rust
 fn produce_block(kes_key: &KESKey, vrf_proof: &VRFProof) -> Block {
@@ -528,7 +560,11 @@ Scenario: Validator crashes before epoch boundary, KES not rotated.
 4. Resumes block production
 5. **No slashing** — but blocks from previous epoch won't be accepted (already finalized)
 
-### 9.3 Manual Rotation (Emergency)
+### 9.3 Manual Rotation (Emergency) — gelecek
+
+> `qv-miner keys rotate-kes` alt komutu henüz CLI'da yok (mevcut tek key
+> alt komutu `keys-show`). Aşağıdaki akış hedef tasarımdır; bugün manuel
+> evolve `OperatorKeys` API'si üzerinden yapılabilir.
 
 ```bash
 # Only if automatic rotation failed or suspected compromise.
@@ -541,7 +577,12 @@ qv-miner keys rotate-kes \
 
 ---
 
-## 10. Monitoring & Alerting
+## 10. Monitoring & Alerting (gelecek — hedef tasarım)
+
+> `qv-miner run`'daki `--metrics-addr` flag'i parse edilir ama henüz bir
+> exporter'a bağlanmaz; `qv-miner dashboard` da stub'dır (M-10/M-11).
+> Aşağıdaki metrik adları ve Grafana/Alertmanager kurulumları hedef
+> tasarımdır. (Not: `qv-node` tarafında Prometheus exporter mevcuttur.)
 
 ### 10.1 Metrics Endpoint
 
@@ -633,11 +674,11 @@ groups:
 **Causes**:
 1. **No peers**: Cannot download blocks
    - Fix: Check firewall rules; ensure port 30333 open
-   - `qv-miner dashboard` → peers section shows connections
+   - `qv-miner dashboard` → peers section shows connections (*gelecek* — dashboard şu an stub, M-10/M-11)
 2. **Bad blocks in chain**: Node rejects due to signature failure
    - Fix: Check logs for `PQC signature verification failed`; restart from last-known-good block
 3. **Disk full**: Cannot write blocks to storage
-   - Fix: Increase SSD; run `qv-miner prune-state`
+   - Fix: Increase SSD; run `qv-miner prune-state` (*gelecek* — komut henüz yok)
 
 ### 11.3 Key Errors
 
@@ -655,7 +696,9 @@ groups:
 
 ### 11.4 Double-Sign Protection
 
-**Symptom**: Pool slashed; two blocks found for same slot.
+**Symptom**: Two blocks found for same slot from the same pool.
+(Not: Ouroboros Praos tasarımında **slashing yok** — bkz. 8.2; double-sign
+çatallanma/itibar sorunu yaratır, otomatik stake cezası uygulamaz.)
 
 **Causes**:
 1. **Bug in slot loop**: Running two validators for same pool
@@ -785,6 +828,6 @@ curl http://localhost:9090/metrics | grep qv_sync_height
 
 ---
 
-**Last Updated**: 2026-04  
+**Last Updated**: 2026-06-10  
 **Maintained By**: QuantumVault Core Team  
-**Next Review**: 2026-10 (after mainnet launch)
+**Next Review**: Mainnet hazırlık fazı başlarken (mainnet tarihi henüz yok; açık işler `docs/ROADMAP.md`)

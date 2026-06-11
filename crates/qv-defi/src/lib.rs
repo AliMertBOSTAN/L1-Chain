@@ -2,12 +2,13 @@
 //!
 //! This crate bundles all DeFi protocols for QuantumVault L1:
 //!
-//! | Module        | Purpose                                      |
-//! |---------------|----------------------------------------------|
-//! | [`amm`]       | Constant-product AMM (Uniswap v2 style)      |
-//! | [`lending`]   | Single-pool lending with interest accrual    |
-//! | [`oracle`]    | Validator-median price oracle with TWAP      |
-//! | [`intents`]   | Intent-based order encoding for batching      |
+//! | Module          | Purpose                                      |
+//! |-----------------|----------------------------------------------|
+//! | [`amm`]         | Constant-product AMM (Uniswap v2 style)      |
+//! | [`lending`]     | Single-pool lending with interest accrual    |
+//! | [`oracle`]      | Validator-median price oracle with TWAP      |
+//! | [`intents`]     | Intent-based order encoding for batching     |
+//! | [`tx_helpers`]  | Wallet-side unsigned-tx builders (swap, lending) |
 //!
 //! # Architecture
 //!
@@ -24,6 +25,7 @@ pub mod amm;
 pub mod intents;
 pub mod lending;
 pub mod oracle;
+pub mod tx_helpers;
 
 use thiserror::Error;
 
@@ -52,6 +54,10 @@ pub enum DefiError {
     /// Intent encoding/validation error.
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
+
+    /// Off-chain transaction building error.
+    #[error("tx build error: {0}")]
+    TxBuild(#[from] TxBuildError),
 }
 
 /// Crate-level result alias.
@@ -78,6 +84,14 @@ pub use oracle::{aggregate_median, compute_twap, OracleError, OracleWindow, Pric
 
 // Intents
 pub use intents::{IntentBundle, IntentError, OrderIntent, OrderKind, SwapIntentBuilder};
+
+// Tx helpers (wallet-side, off-chain)
+pub use tx_helpers::{
+    build_create_pool_tx, build_lending_borrow_tx, build_lending_deposit_tx,
+    build_lending_repay_tx, build_lending_withdraw_tx, build_swap_tx, oracle_price_message,
+    sign_oracle_price, CreatePoolRequest, CreatePoolTxBundle, LendingRequestCore, LendingTxBundle,
+    OracleSignedPrice, SwapRequest, SwapTxBundle, TxBuildError,
+};
 
 // ============================================================================
 // Tests
@@ -115,6 +129,13 @@ mod tests {
         let intent_err = IntentError::InvalidAmount(0);
         let defi_err: DefiError = intent_err.into();
         assert!(matches!(defi_err, DefiError::Intent(_)));
+    }
+
+    #[test]
+    fn error_aggregation_tx_build() {
+        let build_err = TxBuildError::SwapComputation;
+        let defi_err: DefiError = build_err.into();
+        assert!(matches!(defi_err, DefiError::TxBuild(_)));
     }
 
     #[test]

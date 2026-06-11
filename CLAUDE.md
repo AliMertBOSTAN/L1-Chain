@@ -95,7 +95,7 @@ crates/
   qv-node/         # Full node binary
   qv-wallet/       # CLI wallet binary
   qv-miner/        # Stake pool operator binary
-docs/              # Mimari belgeler, ADR'ler, MASTER_PLAN
+docs/              # Mimari belgeler, ADR'ler, ROADMAP
 archive/cpp-v1/    # Önceki C++ implementasyon (referans)
 config/            # genesis.toml, ağ parametreleri (gelecek)
 .github/workflows/ # CI pipeline
@@ -134,7 +134,7 @@ config/            # genesis.toml, ağ parametreleri (gelecek)
 - [MEMORY.md](MEMORY.md) — proje hafızası, crate durumları, açık kararlar
 - [PROJECT_STATUS.md](PROJECT_STATUS.md) — güncel durum ve aşama detayları
 - [ARCHITECTURE_V2.md](docs/ARCHITECTURE_V2.md) — üst düzey tasarım
-- [MASTER_PLAN.md](docs/MASTER_PLAN.md) — sıralı görev listesi (Aşama 0-3 ✅, Aşama 4 sırada)
+- [ROADMAP.md](docs/ROADMAP.md) — açık işler için tek doğru kaynak (Placeholder ve Mock Envanteri; eski MASTER_PLAN `archive/docs-v1/` altında)
 - [ADR-001](docs/ADR/001-testing-framework.md) — test framework kararı (v1)
 - [ADR-002](docs/ADR/002-defi-architecture.md) — DeFi mimarisi (Cardano eUTXO tercihi)
 - [ADR-003](docs/ADR/003-mev-encrypted-mempool.md) — MEV stratejisi
@@ -143,5 +143,6 @@ config/            # genesis.toml, ağ parametreleri (gelecek)
 - [ADR-010](docs/ADR/010-bootstrap-sync.md) — bootstrap senkronizasyon altyapısı (çekirdek uygulandı)
 - [ADR-011](docs/ADR/011-stealth-address-integration.md) — stealth adres uçtan uca entegrasyonu (Faz 1-5 uygulandı)
 - [ADR-012](docs/ADR/012-transaction-sighash.md) — işlem sighash'i; imzayı işleme bağlama (uygulandı)
+- [ADR-013](docs/ADR/013-lending-covenant-oracle.md) — lending kovenantı + imzalı oracle fiyat doğrulama (uygulandı)
 - [Çatallanma & Finalite Denetimi](docs/security/qv-consensus-fork-finality-audit.md) — fork/finalite güvenlik denetimi
 - [ABSTRACT.md](docs/ABSTRACT.md) — proje felsefesi ve kime hitap ediyor

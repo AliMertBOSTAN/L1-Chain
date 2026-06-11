@@ -3,11 +3,21 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Tek satırlık `--version` çıktısı (build.rs damgaları).
+pub const VERSION_STRING: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("QV_BUILD_TAG"),
+    ", git ",
+    env!("QV_GIT_HASH"),
+    ")",
+);
+
 /// Stake pool operator CLI.
 #[derive(Parser, Debug)]
 #[command(
     name = "qv-miner",
-    version,
+    version = VERSION_STRING,
     about = "Stake pool operator: VRF slot leader, block production, encrypted-mempool committee."
 )]
 pub struct Cli {

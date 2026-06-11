@@ -147,6 +147,7 @@ mod tests {
             height: qv_core::Height::from(1),
             timestamp: qv_core::Timestamp::from(1_000_000),
             protocol_params: ProtocolParams::mainnet(),
+            reward_pubkey_hash: None,
         };
 
         let clear_pool = ClearPool::new(qv_mempool::clear::ClearPoolConfig::ephemeral());

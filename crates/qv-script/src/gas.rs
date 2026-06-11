@@ -63,6 +63,12 @@ pub const fn gas_cost(op: OpCode) -> u64 {
         | OpCode::Min
         | OpCode::Max => 5,
 
+        // ---- Wide arithmetic / wide comparison (15) ----
+        // u128 product + 16-byte LE encode, or 16-byte LE compare —
+        // each does a bit more work than 64-bit arithmetic but is still
+        // far cheaper than a hash.
+        OpCode::MulU128 | OpCode::GeU128 => 15,
+
         // ---- Data / push / introspection (10) ----
         OpCode::Push1
         | OpCode::Push2
@@ -71,10 +77,13 @@ pub const fn gas_cost(op: OpCode) -> u64 {
         | OpCode::Cat
         | OpCode::Slice
         | OpCode::Len
+        | OpCode::BytesToInt
         | OpCode::ReadInputValue
         | OpCode::ReadOutputValue
         | OpCode::ReadOutputScript
         | OpCode::ReadOutputDatum
+        | OpCode::ReadInputDatum
+        | OpCode::SelfScriptHash
         | OpCode::TxHash
         | OpCode::SlotNumber
         | OpCode::InputCount

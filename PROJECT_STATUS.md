@@ -1,6 +1,271 @@
 ﻿# QuantumVault — Proje Durumu
 
-_Son güncelleme: 2026-06-03 (multi-tenant cüzdan + LAN bind + monitör tx geçmişi + lag-watchdog)_
+_Son güncelleme: 2026-06-10 (coinbase ödül akışı + Faz 6 D-2..D-6 + ADR-013 + doc temizliği)_
+
+---
+
+## Coinbase Ödül Akışı + AMM Kovenantı (D-2/D-3) + Doc Temizliği (2026-06-10)
+
+Üç paralel iş tek oturumda: (1) miner artık blok ödülünü **zincir üstünde
+gerçekten kazanıyor** (coinbase tx + fee + maturity + gerçek utxo_commitment),
+(2) Faz 6 D-2 (`amm_pool_lock` kovenantı) ve D-3 (`build_swap_tx` helper)
+kapandı, (3) dokümantasyon güncel mimariye senkronize edildi.
+
+### 1. Coinbase + ödül akışı (qv-core, qv-storage, qv-node, qv-miner)
+
+- **`Transaction::new_coinbase(height, outputs)`** — input'suz özel işlem,
+  height `lock_time = Slot(height)` ile işleme bağlanır (BIP34 muadili,
+  wire format değişmedi). `is_coinbase()`, `coinbase_height()`,
+  `validate_coinbase_structure(height)`.
+- **Blok kuralları** (`Block::validate_structure` + `qv-node/validation.rs`):
+  height>0'da input'suz tx yalnızca index 0'da (en fazla 1 coinbase);
+  `sum(coinbase outputs) ≤ block_subsidy(height) + toplam_fee` (eksik talep
+  serbest, Bitcoin kuralı); fee = resolved inputs − outputs, negatifse red.
+- **Maturity**: coinbase çıktısı `k=50` blok olgunlaşmadan harcanamaz.
+  `UtxoStore`'a `utxo:cbh:<outpoint> → height` anahtar ailesi; `UndoLog`
+  genişletildi (in-memory, migrasyon gerekmez). Mempool ön kapısında
+  `check_coinbase_maturity`.
+- **utxo_commitment placeholder'ı kaldırıldı**: üretilen blok header'ı artık
+  gerçek post-apply commitment taşır (`speculative_apply` ile); doğrulamada
+  apply-sonrası eşitlik kontrolü (uyuşmazsa revert+reject).
+  `NodeConfig.enforce_utxo_commitment` (default **true**; mevcut
+  `devnet/work4/*.toml`'larda geriye uyumluluk için false).
+- **Wiring**: `SlotTicker::with_coinbase(CoinbaseConfig)`,
+  `NodeConfig.reward_pubkey_hash_hex` (`#[serde(default)]` — yoksa coinbase
+  üretilmez, geriye uyumlu); `qv-miner` `BlockProductionContext.reward_pubkey_hash`
+  + `cmd_run` subsidy-only coinbase (RPC'den fee bilinmediği için underclaim).
+- Yeni testler: ~33 (qv-core 5+5, qv-storage 4, qv-node 9+4+3, qv-miner 3).
+- **Bilinçli sınır**: coinbase tek output ile operatöre öder;
+  operator/delegator bölüşümü (`distribute_reward`) zincir üstü epoch-sonu
+  dağıtım wiring'i ayrı iş (çoklu-output desteği hazır).
+
+### 2. Faz 6 D-2 + D-3 (qv-script, qv-defi)
+
+- **D-1 denetimi**: D-1 oturumunun kodu derlenmeden bekliyordu — denetlendi,
+  hata bulunamadı. Bonus: `MulU128 (0x29)`, `GeU128 (0x39)`,
+  `SelfScriptHash (0x6B)`, `BytesToInt (0x83)` opcode'ları zaten ekliymiş
+  (COUNT=63), yeni opcode gerekmedi.
+- **`PoolDatum::to_canonical_bytes()`** — 90 bayt sabit-genişlik LE encoding
+  (script `Slice` offset'leri serializer'dan bağımsız); offset sabitleri
+  qv-script'te tek yerde tanımlı, qv-defi import ediyor (drift imkânsız).
+- **D-2 — `amm_pool_lock(token_a_id, token_b_id, fee_bps)`**: gerçek kovenant —
+  datum uzunluk + token id pinleme + fee pinleme + `new_a·new_b ≥ old_a·old_b`
+  (u128, taşmasız) + `SelfScriptHash`+`AssertOutputScriptHash` script
+  sürekliliği. Witness gerekmez. Fee, x·y≥k tarafından örtük zorlanır
+  (fee havuzda kalır → çarpım büyür). Bilinen sınır: liquidity-remove ayrı
+  harcama yolu ister (D-6).
+- **D-3 — `qv-defi::tx_helpers::build_swap_tx`**: pool+user input →
+  yeni-datum'lu pool output + user output; slippage/yetersiz-input/sıfır-reserve
+  hataları; `SwapTxBundle.inputs_to_sign` ile imzalama cüzdana bırakıldı
+  (sighash witness-bağımsız → sonradan imza kovenantı bozmaz).
+- Yeni testler: 26 (kovenant e2e: geçerli swap ✅, reserve hırsızlığı/token
+  değişimi/fee değişimi/script değişimi/taşma hilesi ❌).
+
+### 2b. Faz 6 D-4 — `qv-wallet swap` CLI (aynı oturum, devamı)
+
+- **CLI**: `qv-wallet swap --pool <txid#idx> --direction <a-to-b|b-to-a>
+  --amount N --min-receive N [--input <txid:idx>] [--input-value N]
+  [--account N] [--fee N] [--broadcast]` — `send` flag konvansiyonları.
+- **RPC genişletmesi**: `qv_getUtxo` yanıtına `script_hex` + `datum_hex`
+  (`Option` + `serde(default)` — geriye uyumlu; eski node + yeni cüzdan
+  kombinasyonu sessiz bozulma yerine açık hata verir).
+- **`qv-wallet/src/swap.rs`** (yeni): outpoint parse, datum çözme,
+  on-chain script'in datum'dan yeniden üretilen `amm_pool_lock` ile bayt-bayt
+  eşitlik doğrulaması, en-küçük-yeterli coin selection, ADR-012 sighash ile
+  user input imzalama. `cmd_swap` funding'i `--input` yoksa `qv_scanP2pkh`'tan
+  seçer; özet çıktı (amount out, yeni reserve'ler, tx_id).
+- Yeni testler: 13 (uçtan uca: imzalı swap tx'i hem pool kovenantını hem
+  p2pkh prevout'u `validate_script` ile geçiyor).
+- Doc: USER_GUIDE §7 "Swap (devnet)" + RPC_REFERENCE qv_getUtxo güncellendi.
+
+### 2c. Faz 6 D-5 + pool bootstrap (aynı oturum, devamı)
+
+- **`qv-wallet create-pool`** — zincire ilk pool UTXO'sunu koyan gerçek yol:
+  `qv-defi::build_create_pool_tx` (genesis `lp_total = ⌊sqrt(a·b)⌋`,
+  `compute_add_liquidity` boş-pool yoluyla tutarlı). Dürüst sınır: LP payları
+  datum-`lp_total` muhasebesi, zincir üstü LP token yok; kovenant
+  add-liquidity'yi geçirir, remove'u geçirmez (D-6+ yolu) — CLI çıktısında
+  ve doc'ta belirtildi.
+- **`qv_listPools` RPC** — UTXO set taraması: 90-bayt datum çöz + script'i
+  datum'dan yeniden üret + bayt-bayt karşılaştır (sahte-pool filtresi).
+  O(UTXO set); devnet ölçeği için kabul, indeks ileride. qv-node'a qv-defi
+  dep eklendi (döngü yok).
+- **HTTP API + UI**: `GET /api/defi/pools`, `POST /api/defi/swap`,
+  `POST /api/defi/create-pool` (CLI ile ortak çekirdek: `execute_swap` /
+  `execute_create_pool`; broadcast kararı çağıranda). Gömülü UI'a Swap
+  paneli (pool dropdown + yön + amount/min-receive + sonuç). Her iki
+  backend modunda (single/multi-tenant) çalışır.
+- Yeni testler: ~20 (create→swap uçtan uca kovenant doğrulaması dahil).
+
+### 2d. Faz 6 D-6 — Lending kovenantı + ADR-013 (aynı oturum, devamı)
+
+- **ADR-013** (`docs/ADR/013-lending-covenant-oracle.md`): kanonik 146-bayt
+  LendingPoolDatum; iki harcama yolu (yol 0: deposit/repay fiyatsız —
+  `collateral↑, debt↓` monotonisi; yol 1: borrow/withdraw — witness'ta
+  taşınan **gerçek ML-DSA imzalı oracle fiyatı**: mesaj
+  `TAG‖pool_id‖price‖slot` script içinde CAT ile yeniden kurulur,
+  CHECKSIG_PQC + gömülü oracle pk-hash + SlotNumber tazelik penceresi).
+  Teminat kontrolü bölmesiz: `debt·K ≤ collateral·price` (K script
+  üretiminde katlanır; taşma analizi ADR'de). Yeni opcode gerekmedi.
+- **Faiz tahakkuku**: in-script u128×u128 doğrulama 256-bit ara değer
+  istediğinden v1'de faiz bölgesi **dondurma** kuralı (bayt-bayt sabit,
+  kurcalanamaz — gerçek ve zorlanır); zincir üstü tahakkuk v2 (ADR'de
+  seçenek analizi). Likidasyon v2 (pozisyon UTXO'ları gerektirir, gerekçeli).
+- **Implementasyon**: `qv-script::lending_pool_lock` (+havuz value korunumu
+  `out ≥ in`), `LendingPoolDatum::to/from_canonical_bytes`,
+  `qv-defi::tx_helpers`: `sign_oracle_price`, `build_lending_{deposit,
+  repay,borrow,withdraw}_tx`. CLI/HTTP yüzeyi D-6 kapsamı DIŞI (tx_helpers
+  katmanı; `qv-wallet lend` sonraki iş).
+- Yeni testler: 33 (her yol uçtan uca; teminatsız borrow / bayat fiyat /
+  yanlış anahtar / replay / tamper / drenaj reddi; gas+boyut sınır assert'leri).
+- Dürüst sınırlar: tek oracle anahtarı (t-of-n v2 — witness boyutu),
+  havuz-agregat LTV (pozisyon-bazlı değil), faiz dondurulmuş.
+
+### 3. Doc temizliği (ayrıntı MEMORY.md oturum girdisinde)
+
+MASTER_PLAN, TESTING_INDEX, TESTING_QUICK_REFERENCE, AŞAMA_11_DELIVERY,
+RPC_REWRITE_SUMMARY → `archive/docs-v1/`. USER_GUIDE gerçek CLI'a göre yeniden
+yazıldı; SYSTEM_OVERVIEW/ARCHITECTURE_V2/RPC_REFERENCE (15 metod)/DEVNET/
+VALIDATOR_GUIDE/TESTING_STRATEGY/OTURUM-DEVAM-PROMPTU güncellendi; ADR-006
+durumu "Uygulandı" yapıldı; book/SUMMARY.md ADR-007..012 eklendi.
+
+### Doğrulama durumu
+
+**Hiçbiri lokalde derlenmedi** (sandbox'ta cargo yok). Sıradaki oturumda
+zorunlu:
+
+```
+cargo build --workspace
+cargo nextest run -p qv-core -p qv-storage -p qv-script -p qv-defi -p qv-node -p qv-miner
+cargo clippy --all-targets -- -D warnings
+cargo fmt
+```
+
+D-1'in bekleyen doğrulaması da bu koşuma dahil. VALIDATOR_GUIDE denetiminde
+not: ROADMAP satır ~23'teki "M-09b/c eksik" özeti kodla çelişiyor (ikisi de
+2026-05-15'te kapanmış) — ROADMAP iç tutarsızlığı, düzeltilmedi.
+
+### Açık kalan
+
+- Faz 6 D-1..D-6 ✅ tamamı bu oturumda kapandı (tamamı lokal doğrulama bekliyor)
+- Lending CLI/HTTP yüzeyi (`qv-wallet lend` + `/api/defi/lend`) — tx_helpers hazır
+- Add/remove-liquidity harcama yolları + zincir üstü LP token temsili
+- Lending v2: zincir üstü faiz tahakkuku (128-bit opcode ailesi veya crank), likidasyon (pozisyon UTXO'ları), t-of-n oracle
+- Epoch-sonu delegator ödül dağıtımı (çoklu-output coinbase wiring)
+- T-01 (Pedersen DKG — encrypted mempool gerçek komite), P-01 (Bulletproofs)
+- B-grubu: HTTPS, faucet rate limit, session sweep, watchdog crash-loop
+
+---
+
+## D-1: ReadInputDatum opcode — AMM/lending kovenant'larının önkoşulu (2026-06-05)
+
+Faz 6'nın (Script VM + DeFi temelleri) ilk küçük dilimi: script VM artık
+input'ların datum'unu okuyabilir. Bu, AMM ve lending locking script'lerinin
+kendi pre-transition state'lerini doğrulayabilmesi için gerekli temel
+yetenek.
+
+### Bitenler
+
+- **`OpCode::ReadInputDatum (0x6A)`** — `0x60-0x6F` introspection
+  bloğuna eklendi. Stack semantiği: pop index `i` → push resolved input
+  #i'nin datum bayt vektörü (datum yoksa boş Vec). `ReadOutputDatum`'a
+  paralel.
+- **Interpreter implementasyonu** — `ctx.resolved_inputs[i].datum`
+  erişimi, `IndexOutOfRange` hatası index bounds aşınca.
+- **Gas tablosu** — 10 birim (diğer introspection opcode'larıyla aynı).
+- **`from_byte` + `Display` arm'ları** — 0x6A ↔ "READ_INPUT_DATUM".
+- **3 unit test** — datum yokken boş bytes, attached datum'ları
+  bayt-bayt doğru push, out-of-range index reddi.
+- **`all_opcodes_have_mnemonics` ve byte-roundtrip testlerine satır
+  eklendi.**
+
+### Doğrulama durumu
+
+Henüz lokalde derlenmedi (kullanıcı bu seansın ilk değişikliği). Sıradaki
+oturumda `cargo build -p qv-script` + `cargo nextest run -p qv-script`
+ile doğrula.
+
+### Faz 6'nın D haritası (kalan)
+
+- **D-2 (sıradaki):** `qv-script::templates::amm_pool_lock(token_a_id,
+  token_b_id, fee_bps)` — AMM swap kovenant'ı:
+  1. `ReadInputDatum 0` → eski `PoolDatum` baytları
+  2. `ReadOutputDatum 0` → yeni `PoolDatum` baytları
+  3. `Slice` ile her ikisinden `reserve_a` ve `reserve_b` çıkar
+  4. `Mul` ile `new_a*new_b ≥ old_a*old_b` invariant'ını doğrula
+  5. `AssertOutputScriptHash 0 <self_hash>` ile pool UTXO'sunun
+     AMM template'inde kaldığını garanti et
+  6. `token_a_id`/`token_b_id` baytlarını eski-yeni karşılaştır.
+- **D-3:** `qv-defi::tx_helpers::build_swap_tx` — cüzdan tarafı off-chain
+  helper.
+- **D-4:** CLI: `qv-wallet swap` (`qv-defi::amm`'in `compute_swap_output`
+  matematiği zaten yazılı; sadece pipe'lamak gerek).
+- **D-5:** HTTP + UI: `/api/defi/swap`, `/api/defi/pools`, UI'da Swap
+  paneli.
+- **D-6:** Lending (qv-defi::lending zaten matematik tarafı tamam) +
+  oracle entegrasyonu.
+
+---
+
+## Binary Dağıtımı: Release Workflow + Sürüm Damgası + Kullanıcı/Operatör Kılavuzları (2026-06-05)
+
+QuantumVault L1 artık **non-developer kullanıcılar** için hazır binary
+dağıtımı yapabilir. Cüzdan kullanıcıları zip/tar.gz indirip Rust
+toolchain yüklemeden çalıştırabilir; sunucu operatörleri Caddy + Let's
+Encrypt + rate limit ile public devnet RPC açabilir.
+
+### Bitenler
+
+- **C-1 — GitHub Actions release workflow.** `.github/workflows/release.yml`
+  tag push'ta (`v*.*.*`) Windows x64 + macOS arm64 runner'larında
+  `qv-wallet`, `qv-node`, `qv-miner` üçünü `--release` modunda derler;
+  Windows için `zip`, macOS için `tar.gz` arşivi oluşturur; `sha256`
+  manifest'i + `BUILD-INFO.txt` (tag, git_sha, build_time) ekler;
+  `softprops/action-gh-release@v2` ile GitHub Release'e attach eder.
+  Pre-release tag'leri (`-rc`, `-beta`, `-alpha`) otomatik olarak
+  prerelease işaretlenir. Manuel tetik (`workflow_dispatch`) da destekli.
+- **C-2 — Version stamping.** Üç binary crate'inde `build.rs` —
+  `QV_BUILD_GIT_HASH` env değişkenini (CI) veya `git rev-parse --short=12 HEAD`
+  (lokal) okur, `QV_GIT_HASH`/`QV_BUILD_TAG`/`QV_BUILT_AT` rustc-env'lerini
+  set eder. CLI yapıları `VERSION_STRING` const'unu (`<cargo_pkg_version>
+  (<tag>, git <hash>)`) `#[command(version = ...)]`'a bağladı. Çıktı
+  örneği: `qv-wallet 0.1.0 (v0.1.0, git a1b2c3d4e5f6)`.
+- **C-3 — `docs/INSTALL.md` kullanıcı kılavuzu.** Windows x64 +
+  macOS arm64 için adım adım: indirme + checksum doğrulama + Defender
+  exclusion / Gatekeeper quarantine kaldırma + ilk cüzdan oluşturma +
+  public devnet'e bağlanma + faucet kullanımı + kendi node'unu
+  çalıştırma + 6 maddelik troubleshooting tablosu.
+- **C-4 — `docs/PUBLIC-DEVNET-RPC.md` operatör kılavuzu.** Bir sunucu
+  operatörünün public devnet RPC açması için tam paket: sistem
+  gereksinimi, systemd unit (sertleştirme uygulanmış: `NoNewPrivileges`,
+  `ProtectSystem=strict`, `MemoryDenyWriteExecute`), Caddy reverse
+  proxy + Let's Encrypt + `caddy-ratelimit` modülü, fail2ban anti-abuse,
+  Prometheus monitoring, logrotate, upgrade akışı, troubleshooting.
+- **C-5 — Cüzdan bootstrap mode.** `qv-wallet --network <devnet|local>`
+  iyi-bilinen RPC URL'lerine alias. `PUBLIC_DEVNET_RPC_URL` ve
+  `LOCAL_DEVNET_RPC_URL` sabit, `effective_rpc_url()` `--network`'i
+  `--rpc`'e tercih eder. INSTALL.md `--network devnet` kullanacak şekilde
+  güncellendi.
+
+### Doğrulama durumu
+
+Rust değişiklikleri (build.rs × 3 + cli.rs × 3 + main.rs) henüz lokalde
+derlenmedi — bu seansın son ekleri. Sıradaki oturumda kullanıcı
+`cargo build -p qv-wallet -p qv-node -p qv-miner` ile doğrulamalı.
+GitHub Actions workflow ilk gerçek tag push'ta validate olur (henüz
+tag yok).
+
+Beklenen ihtimal: `build.rs`'lerde `..` rüstem `../../.git/HEAD` yol
+çözümlemesi workspace alt-crate konumuna (crate dir → workspace root)
+bağlı. Çalıştırma dizini cargo varsayılan olarak crate dizini olduğu
+için `../../.git/HEAD` doğru. Yine de bir kontrol şart.
+
+### Açık kalan (sonraki seansın B-grubu ve daha sonrası)
+
+- **D — Faz 6: Script VM + DeFi temelleri** (sıradaki büyük iş).
+- **E — Faz 7: Encrypted mempool tam wiring (T-01 Pedersen DKG).**
+- **B — Demo sağlamlaştırma**: HTTPS, faucet rate-limit, session TTL
+  background sweep, watchdog crash-loop koruması.
 
 ---
 
@@ -301,7 +566,7 @@ Referans dokümanlar:
 - [ARCHITECTURE_V2.md](docs/ARCHITECTURE_V2.md)
 - [ADR-002: DeFi Architecture](docs/ADR/002-defi-architecture.md)
 - [ADR-003: MEV Encrypted Mempool](docs/ADR/003-mev-encrypted-mempool.md)
-- [MASTER_PLAN.md](docs/MASTER_PLAN.md) — sıralı tüm görevler
+- [ROADMAP.md](docs/ROADMAP.md) — açık işler envanteri (eski MASTER_PLAN: `archive/docs-v1/`)
 - [ABSTRACT.md](docs/ABSTRACT.md) — felsefe (v1'den aynen)
 
 ---

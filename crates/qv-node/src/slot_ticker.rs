@@ -13,7 +13,10 @@ use qv_consensus::epoch::EpochNonce;
 use qv_consensus::leader_schedule::{check_leadership, VrfEvaluator, VrfOutput, VrfProof};
 use qv_consensus::slot::SlotClock;
 use qv_consensus::stake::{PoolId, StakeDistribution};
-use qv_core::{Block, BlockHeader, Hash256, Height, MerkleRoot, Slot, Timestamp};
+use qv_core::{
+    Amount, Block, BlockHeader, Hash256, Height, MerkleRoot, MonetaryParams, Script, Slot,
+    Timestamp, Transaction, TxOutput,
+};
 use qv_crypto::sha3_256;
 use qv_storage::block_store::BlockStore;
 use qv_storage::kv::MemoryKvStore;
@@ -79,6 +82,19 @@ pub struct SlotTicker<V: VrfEvaluator> {
     /// Seconds to sleep before the production loop begins, so every peer
     /// can connect and the gossip mesh can form first.
     warmup_secs: u64,
+    /// Coinbase configuration. When set, every produced block carries a
+    /// coinbase transaction at position 0 claiming `subsidy + fees` to the
+    /// configured reward script. `None` → reward-less blocks (legacy).
+    coinbase: Option<CoinbaseConfig>,
+}
+
+/// Everything the producer needs to mint its block reward.
+#[derive(Clone, Debug)]
+pub struct CoinbaseConfig {
+    /// 32-byte public-key hash the reward is locked to (`p2pkh_pqc`).
+    pub reward_pubkey_hash: [u8; 32],
+    /// Monetary parameters (subsidy schedule + supply cap).
+    pub monetary: MonetaryParams,
 }
 
 impl<V: VrfEvaluator> SlotTicker<V> {
@@ -125,7 +141,20 @@ impl<V: VrfEvaluator> SlotTicker<V> {
             event_tx,
             round_robin: None,
             warmup_secs: 0,
+            coinbase: None,
         }
+    }
+
+    /// Enable coinbase production: every produced block will claim
+    /// `block_subsidy(height) + total_fees` (supply-cap adjusted) to a
+    /// `p2pkh_pqc(reward_pubkey_hash)` output at transaction position 0.
+    #[must_use]
+    pub fn with_coinbase(mut self, reward_pubkey_hash: [u8; 32], monetary: MonetaryParams) -> Self {
+        self.coinbase = Some(CoinbaseConfig {
+            reward_pubkey_hash,
+            monetary,
+        });
+        self
     }
 
     /// Attach a deterministic round-robin leader schedule (devnet).
@@ -286,10 +315,35 @@ impl<V: VrfEvaluator> SlotTicker<V> {
         // Step 2: Drain transactions from mempool (up to 100 for now).
         let clear_pool_lock = self.clear_pool.lock().await;
         let batch = clear_pool_lock.get_batch(100);
-        let transactions: Vec<_> = batch.iter().map(|e| e.tx.clone()).collect();
+        let mut transactions: Vec<_> = batch.iter().map(|e| e.tx.clone()).collect();
         drop(clear_pool_lock); // Release lock early.
 
-        // Step 3: Compute the Merkle root from transactions.
+        // Step 2b: Coinbase — claim the block reward on-chain. Fees are
+        // computed by speculatively resolving every mempool tx's inputs
+        // against the live UTXO set (fee = inputs − outputs per tx), then
+        // the reward is `block_subsidy(height) + fees`, capped by the
+        // remaining supply (qv_consensus::total_block_reward). The coinbase
+        // binds to `new_height` via its lock_time (see
+        // `Transaction::new_coinbase`) and must sit at position 0
+        // (`Block::validate_structure` rule).
+        if let Some(cb) = &self.coinbase {
+            let outcome = speculative_apply(&self.utxo_store, &transactions)?;
+            let reward =
+                qv_consensus::total_block_reward(new_height, outcome.total_fees, &cb.monetary);
+            if reward > Amount::ZERO {
+                let locking_script = Script::new(qv_script::p2pkh_pqc(&cb.reward_pubkey_hash));
+                let coinbase_tx = Transaction::new_coinbase(
+                    new_height,
+                    vec![TxOutput::new(reward, locking_script)],
+                );
+                transactions.insert(0, coinbase_tx);
+            }
+            // Subsidy exhausted and no fees → nothing to claim; produce a
+            // coinbase-less block rather than a zero-value output.
+        }
+
+        // Step 3: Compute the Merkle root from transactions (coinbase
+        // included — it is part of the committed body).
         let mut tx_ids = Vec::with_capacity(transactions.len());
         for tx in &transactions {
             let tx_id = tx.id().map_err(|_| SlotTickerError::TransactionError)?;
@@ -297,10 +351,10 @@ impl<V: VrfEvaluator> SlotTicker<V> {
         }
         let merkle_root = merkle_root_of(&tx_ids);
 
-        // Step 4: Speculatively apply this block's transactions to a
-        // snapshot of the live UTXO set and stamp the resulting
-        // commitment in the header (envanter K-03 / K-05). The real
-        // apply happens later in the node's `handle_block`; if any
+        // Step 4: Speculatively apply this block's transactions (coinbase
+        // included) to a snapshot of the live UTXO set and stamp the
+        // resulting commitment in the header (envanter K-03 / K-05). The
+        // real apply happens later in the node's `handle_block`; if any
         // transaction here turns out invalid, that downstream apply
         // will refuse the block and the slot is lost cleanly.
         let utxo_commitment = self.compute_post_apply_commitment(&transactions)?;
@@ -385,7 +439,7 @@ impl<V: VrfEvaluator> SlotTicker<V> {
     /// arithmetic.
     fn compute_post_apply_commitment(
         &self,
-        transactions: &[qv_core::Transaction],
+        transactions: &[Transaction],
     ) -> Result<qv_core::UtxoCommitment, SlotTickerError> {
         speculative_utxo_commitment(&self.utxo_store, transactions)
     }
@@ -395,29 +449,43 @@ impl<V: VrfEvaluator> SlotTicker<V> {
 // Shared speculative UTXO commitment helper (envanter K-03 / K-05)
 // ---------------------------------------------------------------------------
 
-/// Compute the UTXO commitment that *would* result from applying
-/// `transactions` to `utxo_store` — without actually mutating storage.
+/// Result of speculatively applying a candidate transaction list to a
+/// snapshot of the live UTXO set (see [`speculative_apply`]).
+#[derive(Debug)]
+pub struct SpeculativeApplyOutcome {
+    /// The post-apply UTXO set (in-memory snapshot + candidate effects).
+    pub set: qv_core::InMemoryUtxoSet,
+    /// Sum of per-transaction fees (`inputs − outputs`). No-input
+    /// transactions (coinbase / genesis allocations) contribute zero.
+    pub total_fees: Amount,
+}
+
+/// Speculatively apply `transactions` to a snapshot of `utxo_store` —
+/// without mutating storage — returning the resulting set and the total
+/// transaction fees.
 ///
 /// Used by:
-/// - the in-process block producer ([`SlotTicker::compute_post_apply_commitment`])
-/// - the `qv_getPostApplyCommitment` RPC handler (`qv-node::rpc`), which
-///   lets out-of-process miners stamp the correct value into their
-///   block headers without needing a full local UTXO snapshot.
+/// - the in-process block producer ([`SlotTicker`]) to compute coinbase
+///   fees and the header's post-apply UTXO commitment,
+/// - the `qv_getPostApplyCommitment` RPC handler (`qv-node::rpc`) via
+///   [`speculative_utxo_commitment`], which lets out-of-process miners
+///   stamp the correct commitment without a full local UTXO replica.
 ///
 /// Algorithm: snapshot the live persistent set into an in-memory
-/// [`qv_core::InMemoryUtxoSet`], speculatively apply each transaction
-/// in order (remove inputs, insert outputs), then return its
-/// `commitment_root()`. Chained transactions (later tx consuming an
-/// output produced by an earlier tx in the same block) work because
-/// inserts precede removes in the next iteration.
+/// [`qv_core::InMemoryUtxoSet`], apply each transaction in order
+/// (remove inputs, insert outputs), accumulating `inputs − outputs` as
+/// the fee. Chained transactions (later tx consuming an output produced
+/// by an earlier tx in the same list) work because inserts precede
+/// removes in the next iteration. A transaction whose outputs exceed
+/// its resolved inputs is rejected.
 ///
 /// Mainnet will eventually want an incremental commitment (sparse
 /// Merkle tree) so we don't pay O(N) on every block. For devnet sizes
 /// the full snapshot is fine and keeps the logic obviously correct.
-pub fn speculative_utxo_commitment<S: qv_storage::kv::KvStore>(
-    utxo_store: &qv_storage::utxo_store::UtxoStore<S>,
-    transactions: &[qv_core::Transaction],
-) -> Result<qv_core::UtxoCommitment, SlotTickerError> {
+pub fn speculative_apply<S: qv_storage::kv::KvStore>(
+    utxo_store: &UtxoStore<S>,
+    transactions: &[Transaction],
+) -> Result<SpeculativeApplyOutcome, SlotTickerError> {
     use qv_core::{InMemoryUtxoSet, OutPoint, UtxoSet};
 
     let entries = utxo_store
@@ -429,10 +497,16 @@ pub fn speculative_utxo_commitment<S: qv_storage::kv::KvStore>(
             .map_err(|_| SlotTickerError::Storage)?;
     }
 
+    let mut total_fees = Amount::ZERO;
     for tx in transactions {
+        let mut input_sum = Amount::ZERO;
         for input in &tx.inputs {
-            set.remove(&input.prev_output)
+            let prev = set
+                .remove(&input.prev_output)
                 .map_err(|_| SlotTickerError::TransactionError)?;
+            input_sum = input_sum
+                .checked_add(prev.value)
+                .ok_or(SlotTickerError::TransactionError)?;
         }
         let tx_id = tx.id().map_err(|_| SlotTickerError::TransactionError)?;
         for (idx, output) in tx.outputs.iter().enumerate() {
@@ -442,9 +516,33 @@ pub fn speculative_utxo_commitment<S: qv_storage::kv::KvStore>(
             set.insert(op, output.clone())
                 .map_err(|_| SlotTickerError::TransactionError)?;
         }
+
+        // Fee accounting only applies to input-bearing transactions; a
+        // no-input tx (coinbase) mints value and pays no fee.
+        if !tx.inputs.is_empty() {
+            let output_sum = Amount::checked_sum(tx.outputs.iter().map(|o| o.value))
+                .ok_or(SlotTickerError::TransactionError)?;
+            let fee = input_sum
+                .checked_sub(output_sum)
+                .ok_or(SlotTickerError::TransactionError)?;
+            total_fees = total_fees
+                .checked_add(fee)
+                .ok_or(SlotTickerError::TransactionError)?;
+        }
     }
 
-    Ok(set.commitment_root())
+    Ok(SpeculativeApplyOutcome { set, total_fees })
+}
+
+/// Compute the UTXO commitment that *would* result from applying
+/// `transactions` to `utxo_store` — without actually mutating storage.
+/// Thin wrapper over [`speculative_apply`]; see its docs.
+pub fn speculative_utxo_commitment<S: qv_storage::kv::KvStore>(
+    utxo_store: &UtxoStore<S>,
+    transactions: &[Transaction],
+) -> Result<qv_core::UtxoCommitment, SlotTickerError> {
+    use qv_core::UtxoSet;
+    Ok(speculative_apply(utxo_store, transactions)?.set.commitment_root())
 }
 
 /// Errors that can occur during slot ticking or block production.
@@ -661,6 +759,200 @@ mod tests {
         let root_a = merkle_root_of(&[tx1, tx2]);
         let root_b = merkle_root_of(&[tx1, tx2]);
         assert_eq!(root_a, root_b);
+    }
+
+    #[tokio::test]
+    async fn speculative_apply_computes_fees_and_skips_coinbase() {
+        use qv_core::{OutPoint, Script, Transaction, TxId, TxInput, TxOutput};
+        use qv_storage::utxo_store::UtxoStore as Store;
+
+        let utxo_store = Store::new(MemoryKvStore::new());
+        let funding_op = OutPoint::new(TxId::from_bytes([0x44; 32]), 0);
+        utxo_store
+            .insert(funding_op, TxOutput::new(Amount::from(500), Script::default()))
+            .unwrap();
+
+        // Regular tx: 500 in, 480 out → fee 20.
+        let tx = Transaction::new(
+            vec![TxInput::new(funding_op)],
+            vec![TxOutput::new(Amount::from(480), Script::new(vec![0xAA]))],
+        );
+        // Coinbase: no inputs — must not contribute (negative) fees.
+        let cb = Transaction::new_coinbase(
+            Height::from(1),
+            vec![TxOutput::new(Amount::from(120), Script::new(vec![0xC0]))],
+        );
+
+        let outcome = speculative_apply(&utxo_store, &[cb, tx]).unwrap();
+        assert_eq!(outcome.total_fees, Amount::from(20));
+        // Post-state: coinbase output + spend output = 2 entries.
+        use qv_core::UtxoSet;
+        assert_eq!(outcome.set.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn speculative_apply_rejects_overspending_tx() {
+        use qv_core::{OutPoint, Script, Transaction, TxId, TxInput, TxOutput};
+        use qv_storage::utxo_store::UtxoStore as Store;
+
+        let utxo_store = Store::new(MemoryKvStore::new());
+        let funding_op = OutPoint::new(TxId::from_bytes([0x55; 32]), 0);
+        utxo_store
+            .insert(funding_op, TxOutput::new(Amount::from(100), Script::default()))
+            .unwrap();
+
+        // Outputs (150) exceed resolved inputs (100) → negative fee → error.
+        let tx = Transaction::new(
+            vec![TxInput::new(funding_op)],
+            vec![TxOutput::new(Amount::from(150), Script::default())],
+        );
+        let err = speculative_apply(&utxo_store, std::slice::from_ref(&tx)).unwrap_err();
+        assert!(matches!(err, SlotTickerError::TransactionError));
+    }
+
+    #[tokio::test]
+    async fn produce_block_with_coinbase_claims_subsidy_plus_fees() {
+        use qv_core::{
+            MonetaryParams, OutPoint, Script, Transaction, TxId, TxInput, TxOutput,
+        };
+        use qv_mempool::clear::MempoolEntry;
+        use qv_storage::utxo_store::UtxoStore as Store;
+
+        let clock = test_slot_clock();
+        let (dist, pool_id) = test_stake_distribution();
+        let vrf = test_vrf();
+
+        let block_store = Arc::new(BlockStore::new(MemoryKvStore::new()));
+        let utxo_store = Arc::new(Store::new(MemoryKvStore::new()));
+
+        // Seed one spendable UTXO and put a tx spending it (fee 10) in the pool.
+        let funding_op = OutPoint::new(TxId::from_bytes([0x66; 32]), 0);
+        utxo_store
+            .insert(funding_op, TxOutput::new(Amount::from(500), Script::default()))
+            .unwrap();
+        let tx = Transaction::new(
+            vec![TxInput::new(funding_op)],
+            vec![TxOutput::new(Amount::from(490), Script::new(vec![0xAB]))],
+        );
+        let tx_id = tx.id().unwrap();
+        let entry = MempoolEntry::new(tx, tx_id, Amount::from(10), 100);
+
+        let chain_state =
+            Arc::new(Mutex::new(ChainState::genesis(&ConsensusParams::mainnet())));
+        let clear_pool = Arc::new(Mutex::new(ClearPool::new(
+            qv_mempool::clear::ClearPoolConfig::ephemeral(),
+        )));
+        clear_pool.lock().await.add(entry).unwrap();
+
+        let (event_tx, mut event_rx) = mpsc::channel::<NodeEvent>(16);
+
+        let monetary = MonetaryParams {
+            total_supply: Amount::from(1_000_000),
+            initial_block_reward: Amount::from(100),
+            halving_interval_blocks: 10,
+            min_fee_per_byte: 0,
+        };
+        let reward_pkh = [0xCC; 32];
+        let ticker = SlotTicker::new(
+            clock,
+            pool_id,
+            Arc::new(dist),
+            EpochNonce::GENESIS,
+            vrf,
+            block_store,
+            utxo_store.clone(),
+            chain_state,
+            clear_pool,
+            0.05,
+            event_tx,
+        )
+        .with_coinbase(reward_pkh, monetary);
+
+        ticker
+            .produce_block(
+                Slot::from(7),
+                VrfOutput([0u8; 32]),
+                VrfProof(Vec::new()),
+            )
+            .await
+            .unwrap();
+
+        // The produced block flows through the node event channel.
+        let event = event_rx.recv().await.expect("block event");
+        let NodeEvent::BlockReceived(block) = event else {
+            panic!("expected BlockReceived, got {event:?}");
+        };
+
+        assert_eq!(block.header.height, Height::from(1));
+        assert_eq!(block.transactions.len(), 2, "coinbase + mempool tx");
+
+        let coinbase = &block.transactions[0];
+        assert!(coinbase.is_coinbase());
+        assert_eq!(coinbase.coinbase_height(), Some(Height::from(1)));
+        // Subsidy (100 at height 1) + fee (500 − 490 = 10) = 110.
+        assert_eq!(coinbase.outputs[0].value, Amount::from(110));
+        // Reward locked to p2pkh_pqc(reward_pkh).
+        assert_eq!(
+            coinbase.outputs[0].locking_script.as_bytes(),
+            qv_script::p2pkh_pqc(&reward_pkh).as_slice()
+        );
+
+        // Block must be structurally valid (coinbase position + height binding
+        // + merkle root recomputed over the coinbase-inclusive body).
+        block.validate_structure().unwrap();
+
+        // Header commitment equals the post-apply commitment of the full body.
+        let expected = speculative_utxo_commitment(&utxo_store, &block.transactions).unwrap();
+        assert_eq!(block.header.utxo_commitment, expected);
+        assert_ne!(block.header.utxo_commitment, qv_core::UtxoCommitment::ZERO);
+    }
+
+    #[tokio::test]
+    async fn produce_block_without_reward_address_has_no_coinbase() {
+        let clock = test_slot_clock();
+        let (dist, pool_id) = test_stake_distribution();
+        let vrf = test_vrf();
+
+        let block_store = Arc::new(BlockStore::new(MemoryKvStore::new()));
+        let utxo_store = Arc::new(UtxoStore::new(MemoryKvStore::new()));
+        let chain_state =
+            Arc::new(Mutex::new(ChainState::genesis(&ConsensusParams::mainnet())));
+        let clear_pool = Arc::new(Mutex::new(ClearPool::new(
+            qv_mempool::clear::ClearPoolConfig::ephemeral(),
+        )));
+        let (event_tx, mut event_rx) = mpsc::channel::<NodeEvent>(16);
+
+        let ticker = SlotTicker::new(
+            clock,
+            pool_id,
+            Arc::new(dist),
+            EpochNonce::GENESIS,
+            vrf,
+            block_store,
+            utxo_store,
+            chain_state,
+            clear_pool,
+            0.05,
+            event_tx,
+        );
+
+        ticker
+            .produce_block(
+                Slot::from(3),
+                VrfOutput([0u8; 32]),
+                VrfProof(Vec::new()),
+            )
+            .await
+            .unwrap();
+
+        let event = event_rx.recv().await.expect("block event");
+        let NodeEvent::BlockReceived(block) = event else {
+            panic!("expected BlockReceived, got {event:?}");
+        };
+        assert!(
+            block.transactions.is_empty(),
+            "no reward address configured → no coinbase"
+        );
     }
 
     #[tokio::test]

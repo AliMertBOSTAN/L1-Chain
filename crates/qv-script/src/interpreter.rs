@@ -114,6 +114,14 @@ pub struct Context {
     /// input witnesses cleared. Witness-independent, so it is the message a
     /// signature commits to (ADR-012). Used by the `SIG_HASH` opcode.
     pub sighash: [u8; 32],
+    /// SHA3-256 of the locking script being executed.
+    ///
+    /// Set by [`Context::with_locking_script`]; defaults to `[0; 32]` when
+    /// the context is built via [`Context::new`] without script bytes.
+    /// Used by the `SELF_SCRIPT_HASH` opcode so covenant scripts can
+    /// embed their own identity (e.g. AMM pools enforcing that the
+    /// continuation output uses the same script).
+    pub locking_script_hash: [u8; 32],
 }
 
 impl Context {
@@ -121,6 +129,9 @@ impl Context {
     ///
     /// The caller must ensure `resolved_inputs` has the same length and
     /// order as `tx.inputs`. The transaction hash is computed eagerly.
+    /// `locking_script_hash` defaults to all-zero — call
+    /// [`Self::with_locking_script`] to populate it before passing the
+    /// context to a script that uses the `SELF_SCRIPT_HASH` opcode.
     pub fn new(tx: Transaction, resolved_inputs: Vec<TxOutput>, current_slot: Slot) -> Self {
         let tx_hash = tx
             .canonical_bytes()
@@ -133,7 +144,17 @@ impl Context {
             current_slot,
             tx_hash,
             sighash,
+            locking_script_hash: [0u8; 32],
         }
+    }
+
+    /// Pre-compute the SHA3-256 of the locking script being executed and
+    /// stash it on the context so the `SELF_SCRIPT_HASH` opcode can push
+    /// it without rehashing. Fluent builder — chain after `new`.
+    #[must_use]
+    pub fn with_locking_script(mut self, locking_script_bytes: &[u8]) -> Self {
+        self.locking_script_hash = sha3_256(locking_script_bytes);
+        self
     }
 }
 
@@ -348,6 +369,17 @@ pub fn execute_instructions(
             }
             OpCode::Min => bin_int_op(&mut stack, core::cmp::min)?,
             OpCode::Max => bin_int_op(&mut stack, core::cmp::max)?,
+            OpCode::MulU128 => {
+                // Pops two integers, treats them as `u64`
+                // (bit-reinterpret of i64), computes the u128 product
+                // (cannot overflow) and pushes its 16-byte little-endian
+                // encoding as Bytes. AMM covenants use this to compute
+                // pool constant-product invariants.
+                let b = pop_int(&mut stack)?;
+                let a = pop_int(&mut stack)?;
+                let product: u128 = (a as u64 as u128).wrapping_mul(b as u64 as u128);
+                push(&mut stack, Value::Bytes(product.to_le_bytes().to_vec()))?;
+            }
 
             // -- Comparison --
             OpCode::Eq => {
@@ -364,6 +396,27 @@ pub fn execute_instructions(
             OpCode::Gt => cmp_int_op(&mut stack, |a, b| a > b)?,
             OpCode::Le => cmp_int_op(&mut stack, |a, b| a <= b)?,
             OpCode::Ge => cmp_int_op(&mut stack, |a, b| a >= b)?,
+            OpCode::GeU128 => {
+                // Pops two 16-byte LE byte strings, reads them as
+                // unsigned 128-bit integers, pushes 1 if `a >= b`
+                // else 0. Companion of [`OpCode::MulU128`].
+                let b_bytes = pop_bytes(&mut stack)?;
+                let a_bytes = pop_bytes(&mut stack)?;
+                if a_bytes.len() != 16 || b_bytes.len() != 16 {
+                    return Err(ScriptError::TypeError);
+                }
+                let a_arr: [u8; 16] = a_bytes
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| ScriptError::TypeError)?;
+                let b_arr: [u8; 16] = b_bytes
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| ScriptError::TypeError)?;
+                let a = u128::from_le_bytes(a_arr);
+                let b = u128::from_le_bytes(b_arr);
+                push(&mut stack, Value::from(a >= b))?;
+            }
             OpCode::Not => {
                 let a = pop(&mut stack)?;
                 push(&mut stack, Value::from(!a.is_truthy()))?;
@@ -475,6 +528,34 @@ pub fn execute_instructions(
                     .map_or_else(Vec::new, |d| d.as_bytes().to_vec());
                 push(&mut stack, Value::Bytes(datum_bytes))?;
             }
+            OpCode::ReadInputDatum => {
+                // Symmetric to ReadOutputDatum but reads from the
+                // pre-resolved input (i.e. the prev-output the input
+                // consumes). Lets a covenant-style locking script read
+                // its own state (datum) so it can validate a state
+                // transition — e.g. AMM `new_a*new_b ≥ old_a*old_b`.
+                let i = pop_int(&mut stack)? as usize;
+                let count = ctx.resolved_inputs.len();
+                if i >= count {
+                    return Err(ScriptError::IndexOutOfRange { index: i, count });
+                }
+                let datum_bytes = ctx.resolved_inputs[i]
+                    .datum
+                    .as_ref()
+                    .map_or_else(Vec::new, |d| d.as_bytes().to_vec());
+                push(&mut stack, Value::Bytes(datum_bytes))?;
+            }
+            OpCode::SelfScriptHash => {
+                // Push the SHA3-256 of this locking script. The
+                // validator pre-computes it from the script bytes it is
+                // about to execute and stores in
+                // `Context.locking_script_hash`. AMM covenants combine
+                // this with `AssertOutputScriptHash` to enforce that
+                // the new pool UTXO is locked under the same script —
+                // preventing a swap from draining the pool into a
+                // non-AMM output.
+                push(&mut stack, Value::Bytes(ctx.locking_script_hash.to_vec()))?;
+            }
             OpCode::TxHash => {
                 push(&mut stack, Value::Bytes(ctx.tx_hash.to_vec()))?;
             }
@@ -565,6 +646,27 @@ pub fn execute_instructions(
                     Value::Bytes(b) => b.len() as i64,
                 };
                 push(&mut stack, Value::Int(l))?;
+            }
+            OpCode::BytesToInt => {
+                // Pops `n` (1..=8) and a Bytes of length exactly `n`.
+                // Reads as little-endian unsigned, zero-extends to u64,
+                // pushes as `Int` (bit-reinterpret into i64). AMM
+                // covenants use this to extract `u64`-encoded reserves
+                // from datum byte sequences.
+                let n = pop_int(&mut stack)?;
+                let data = pop_bytes(&mut stack)?;
+                if !(1..=8).contains(&n) {
+                    return Err(ScriptError::TypeError);
+                }
+                let n_usize = n as usize;
+                if data.len() != n_usize {
+                    return Err(ScriptError::TypeError);
+                }
+                let mut buf = [0u8; 8];
+                buf[..n_usize].copy_from_slice(&data);
+                let v = u64::from_le_bytes(buf);
+                #[allow(clippy::cast_possible_wrap)]
+                push(&mut stack, Value::Int(v as i64))?;
             }
 
             // -- Meta --
@@ -893,6 +995,245 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(r.final_stack, vec![Value::Int(200)]);
+    }
+
+    #[test]
+    fn read_input_datum_empty_when_prev_has_no_datum() {
+        // dummy_ctx()'s sole resolved input has no datum attached.
+        // ReadInputDatum on it must yield an empty byte vector.
+        let r = run(&[
+            Instruction::push_int(0),
+            Instruction::simple(OpCode::ReadInputDatum),
+        ])
+        .unwrap();
+        assert_eq!(r.final_stack, vec![Value::Bytes(vec![])]);
+    }
+
+    #[test]
+    fn read_input_datum_returns_attached_bytes() {
+        // Build a context whose resolved input carries a real datum.
+        // The opcode must push exactly those bytes onto the stack.
+        let payload: Vec<u8> = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![TxOutput::new(Amount::from(100), CoreScript::new(vec![0xAA]))],
+        );
+        let resolved = vec![TxOutput::new(Amount::from(110), CoreScript::new(vec![0xCC]))
+            .with_datum(Datum::new(payload.clone()))];
+        let ctx = Context::new(tx, resolved, Slot::from(0));
+
+        let bytes = encode_instructions(&[
+            Instruction::push_int(0),
+            Instruction::simple(OpCode::ReadInputDatum),
+        ]);
+        let mut gas = GasMeter::new(100_000);
+        let r = execute(&bytes, &ctx, &mut gas).unwrap();
+        assert_eq!(r.final_stack, vec![Value::Bytes(payload)]);
+    }
+
+    // -- u128 arithmetic / 16-byte LE compare / bytes→int --
+
+    #[test]
+    fn mul_u128_basic_product_pushes_16_byte_le() {
+        // 100 * 200 = 20_000 → 16-byte LE = [0x20, 0x4E, 0, 0, ...]
+        let r = run(&[
+            Instruction::push_int(100),
+            Instruction::push_int(200),
+            Instruction::simple(OpCode::MulU128),
+        ])
+        .unwrap();
+        let mut expected = [0u8; 16];
+        expected[..16].copy_from_slice(&20_000_u128.to_le_bytes());
+        assert_eq!(r.final_stack, vec![Value::Bytes(expected.to_vec())]);
+    }
+
+    #[test]
+    fn mul_u128_cannot_overflow_for_u64_inputs() {
+        // u64::MAX * u64::MAX < u128::MAX → still fits in 16 bytes.
+        let r = run(&[
+            Instruction::push_int(u64::MAX as i64), // bit-reinterpret = u64::MAX
+            Instruction::push_int(u64::MAX as i64),
+            Instruction::simple(OpCode::MulU128),
+        ])
+        .unwrap();
+        let expected = (u64::MAX as u128).wrapping_mul(u64::MAX as u128);
+        assert_eq!(r.final_stack, vec![Value::Bytes(expected.to_le_bytes().to_vec())]);
+    }
+
+    #[test]
+    fn ge_u128_compares_le_bytes_unsigned() {
+        // 100_000_000 ≥ 100_000_000 → 1.
+        let a = 100_000_000_u128.to_le_bytes().to_vec();
+        let b = 100_000_000_u128.to_le_bytes().to_vec();
+        let r = run(&[
+            Instruction::push_bytes(a),
+            Instruction::push_bytes(b),
+            Instruction::simple(OpCode::GeU128),
+        ])
+        .unwrap();
+        assert_eq!(r.final_stack, vec![Value::Int(1)]);
+    }
+
+    #[test]
+    fn ge_u128_returns_zero_when_first_smaller() {
+        let a = 50_u128.to_le_bytes().to_vec();
+        let b = 100_u128.to_le_bytes().to_vec();
+        let r = run(&[
+            Instruction::push_bytes(a),
+            Instruction::push_bytes(b),
+            Instruction::simple(OpCode::GeU128),
+        ])
+        .unwrap();
+        assert_eq!(r.final_stack, vec![Value::Int(0)]);
+    }
+
+    #[test]
+    fn ge_u128_rejects_non_16_byte_inputs() {
+        let err = run(&[
+            Instruction::push_bytes(vec![0; 8]),  // wrong size
+            Instruction::push_bytes(vec![0; 16]),
+            Instruction::simple(OpCode::GeU128),
+        ])
+        .unwrap_err();
+        assert!(matches!(err, ScriptError::TypeError));
+    }
+
+    #[test]
+    fn bytes_to_int_reads_u64_le_8_bytes() {
+        // 0xCAFEBABE_DEADBEEF as 8-byte LE.
+        let v: u64 = 0xCAFE_BABE_DEAD_BEEF;
+        let r = run(&[
+            Instruction::push_bytes(v.to_le_bytes().to_vec()),
+            Instruction::push_int(8),
+            Instruction::simple(OpCode::BytesToInt),
+        ])
+        .unwrap();
+        #[allow(clippy::cast_possible_wrap)]
+        let expected = v as i64;
+        assert_eq!(r.final_stack, vec![Value::Int(expected)]);
+    }
+
+    #[test]
+    fn bytes_to_int_reads_u16_le_2_bytes() {
+        // fee_bps style: 30 as u16 LE → bytes [0x1E, 0x00].
+        let r = run(&[
+            Instruction::push_bytes(vec![0x1E, 0x00]),
+            Instruction::push_int(2),
+            Instruction::simple(OpCode::BytesToInt),
+        ])
+        .unwrap();
+        assert_eq!(r.final_stack, vec![Value::Int(30)]);
+    }
+
+    #[test]
+    fn bytes_to_int_rejects_length_mismatch() {
+        // Asking for 4 bytes but Bytes has 5.
+        let err = run(&[
+            Instruction::push_bytes(vec![1, 2, 3, 4, 5]),
+            Instruction::push_int(4),
+            Instruction::simple(OpCode::BytesToInt),
+        ])
+        .unwrap_err();
+        assert!(matches!(err, ScriptError::TypeError));
+    }
+
+    #[test]
+    fn bytes_to_int_rejects_zero_or_oversized_n() {
+        // n=0 is out of the documented `1..=8` range. Use a 1-byte
+        // payload so the prior `push_bytes` succeeds (zero-length
+        // pushes are rejected at encode time — see `zero_push_rejected`).
+        let err0 = run(&[
+            Instruction::push_bytes(vec![0x00]),
+            Instruction::push_int(0),
+            Instruction::simple(OpCode::BytesToInt),
+        ])
+        .unwrap_err();
+        assert!(matches!(err0, ScriptError::TypeError));
+
+        let err9 = run(&[
+            Instruction::push_bytes(vec![0; 9]),
+            Instruction::push_int(9),
+            Instruction::simple(OpCode::BytesToInt),
+        ])
+        .unwrap_err();
+        assert!(matches!(err9, ScriptError::TypeError));
+    }
+
+    // -- SelfScriptHash --
+
+    #[test]
+    fn self_script_hash_defaults_to_zero_in_dummy_context() {
+        // dummy_ctx() builds Context without with_locking_script — so
+        // SelfScriptHash returns all-zero bytes (the documented default).
+        let r = run(&[Instruction::simple(OpCode::SelfScriptHash)]).unwrap();
+        assert_eq!(r.final_stack, vec![Value::Bytes(vec![0u8; 32])]);
+    }
+
+    #[test]
+    fn self_script_hash_returns_sha3_of_locking_script_bytes() {
+        // Context::with_locking_script pre-computes SHA3-256 of the
+        // locking script bytes; SelfScriptHash pushes that result.
+        let script_bytes = vec![0x00, 0x10, 0x20, 0x30]; // arbitrary script
+        let expected = sha3_256(&script_bytes);
+
+        let tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![TxOutput::new(Amount::from(100), CoreScript::new(vec![0xAA]))],
+        );
+        let resolved = vec![TxOutput::new(Amount::from(110), CoreScript::new(vec![0xCC]))];
+        let ctx = Context::new(tx, resolved, Slot::from(0))
+            .with_locking_script(&script_bytes);
+
+        let bytes = encode_instructions(&[Instruction::simple(OpCode::SelfScriptHash)]);
+        let mut gas = GasMeter::new(100_000);
+        let r = execute(&bytes, &ctx, &mut gas).unwrap();
+        assert_eq!(r.final_stack, vec![Value::Bytes(expected.to_vec())]);
+    }
+
+    #[test]
+    fn self_script_hash_enforces_output_continuity() {
+        // Covenant pattern: SelfScriptHash + Push <output_index> +
+        // AssertOutputScriptHash. The output[0] must be locked under
+        // the SAME bytes as the current locking script.
+        let script_bytes = vec![0x06, 0x06, 0x06, 0x06];
+        let expected_hash = sha3_256(&script_bytes);
+
+        // Build a tx whose output #0 already uses a script with that hash.
+        let preimage_script = CoreScript::new(script_bytes.clone());
+        let tx = Transaction::new(
+            vec![TxInput::new(OutPoint::new(TxId::from_bytes([1; 32]), 0))],
+            vec![TxOutput::new(Amount::from(50), preimage_script)],
+        );
+        let resolved = vec![TxOutput::new(Amount::from(60), CoreScript::new(vec![0]))];
+        let ctx = Context::new(tx, resolved, Slot::from(0))
+            .with_locking_script(&script_bytes);
+
+        // Stack-equivalent: SelfScriptHash → push 0 → AssertOutputScriptHash.
+        let bytes = encode_instructions(&[
+            Instruction::simple(OpCode::SelfScriptHash),
+            Instruction::push_int(0),
+            Instruction::simple(OpCode::AssertOutputScriptHash),
+            Instruction::simple(OpCode::Op1),
+        ]);
+        let mut gas = GasMeter::new(100_000);
+        let r = execute(&bytes, &ctx, &mut gas).unwrap();
+        assert!(r.success);
+        // Sanity: the asserted hash is what we expected.
+        assert_eq!(ctx.locking_script_hash, expected_hash);
+    }
+
+    #[test]
+    fn read_input_datum_rejects_out_of_range_index() {
+        // resolved_inputs.len() == 1 in dummy_ctx → index 5 must error.
+        let err = run(&[
+            Instruction::push_int(5),
+            Instruction::simple(OpCode::ReadInputDatum),
+        ])
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ScriptError::IndexOutOfRange { index: 5, count: 1 }
+        ));
     }
 
     #[test]

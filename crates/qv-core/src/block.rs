@@ -169,29 +169,50 @@ impl Block {
     }
 
     /// Structural validation that does not require consensus state:
-    /// - every tx is structurally valid (or is the genesis transaction)
+    /// - every tx is structurally valid (or is a genesis allocation / coinbase)
+    /// - no-input transactions follow the positional rules below
     /// - no duplicate `TxId`s
     /// - `header.merkle_root` matches the recomputed Merkle root
+    ///
+    /// # No-input transaction rules
+    ///
+    /// - **Genesis block (height 0):** no-input transactions are the initial
+    ///   coin allocations; allowed at any position (they only need outputs).
+    /// - **Any other block:** a no-input transaction is a **coinbase** and is
+    ///   only valid at position 0 — which automatically caps a block at one
+    ///   coinbase. The coinbase must additionally commit to this block's
+    ///   height in its `lock_time` (see [`Transaction::new_coinbase`]) so two
+    ///   coinbases at different heights can never share a `TxId`.
     pub fn validate_structure(&self) -> Result<(), BlockError> {
+        let is_genesis_block = self.header.height == Height::GENESIS;
+
         // 1. Per-tx validation + id collection
         let mut ids = Vec::with_capacity(self.transactions.len());
         for (index, tx) in self.transactions.iter().enumerate() {
-            // Genesis transactions (empty inputs, non-empty outputs) are allowed
-            // only in genesis blocks (height=0). They bypass the normal input
-            // validation but still require non-empty outputs.
-            let is_genesis_block = self.header.height == Height::GENESIS;
-            let is_genesis_tx = tx.inputs.is_empty() && !tx.outputs.is_empty();
-
-            if is_genesis_tx && !is_genesis_block {
-                // Genesis transaction in a non-genesis block is invalid
-                return Err(BlockError::InvalidTransaction {
-                    index,
-                    source: TransactionError::NoInputs,
-                });
-            }
-
-            if !(is_genesis_tx && is_genesis_block) {
-                // Non-genesis transactions must pass normal validation
+            if tx.inputs.is_empty() {
+                if is_genesis_block {
+                    // Genesis allocation: bypasses input validation but still
+                    // requires non-empty outputs.
+                    if tx.outputs.is_empty() {
+                        return Err(BlockError::InvalidTransaction {
+                            index,
+                            source: TransactionError::NoOutputs,
+                        });
+                    }
+                } else if index == 0 {
+                    // Coinbase: only legal at position 0, and it must commit
+                    // to this block's height.
+                    tx.validate_coinbase_structure(self.header.height)
+                        .map_err(|source| BlockError::InvalidTransaction { index, source })?;
+                } else {
+                    // No-input tx at position > 0 of a non-genesis block.
+                    return Err(BlockError::InvalidTransaction {
+                        index,
+                        source: TransactionError::NoInputs,
+                    });
+                }
+            } else {
+                // Regular transactions must pass normal validation.
                 tx.validate_structure()
                     .map_err(|source| BlockError::InvalidTransaction { index, source })?;
             }
@@ -502,6 +523,79 @@ mod tests {
             matches!(err, BlockError::InvalidTransaction { index: 0, .. }),
             "non-genesis block should reject genesis tx, got {err:?}"
         );
+    }
+
+    // ---- Coinbase positional rules ----
+
+    fn coinbase_tx(height: u64, value: u64) -> Transaction {
+        Transaction::new_coinbase(
+            Height::from(height),
+            vec![TxOutput::new(Amount::from(value), Script::new(vec![0xC0]))],
+        )
+    }
+
+    fn block_at(height: u64, txs: Vec<Transaction>) -> Block {
+        let ids: Vec<TxId> = txs.iter().map(|t| t.id().unwrap()).collect();
+        let header = BlockHeader {
+            height: Height::from(height),
+            merkle_root: merkle_root_of(&ids),
+            ..BlockHeader::genesis_template()
+        };
+        Block::new(header, txs)
+    }
+
+    #[test]
+    fn block_accepts_coinbase_at_position_zero() {
+        let block = block_at(5, vec![coinbase_tx(5, 5_000), tx_with_marker(1)]);
+        block
+            .validate_structure()
+            .expect("coinbase at index 0 with matching height must validate");
+    }
+
+    #[test]
+    fn block_rejects_coinbase_at_nonzero_position() {
+        let block = block_at(5, vec![tx_with_marker(1), coinbase_tx(5, 5_000)]);
+        let err = block.validate_structure().unwrap_err();
+        assert!(
+            matches!(err, BlockError::InvalidTransaction { index: 1, .. }),
+            "coinbase at index 1 must be rejected, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn block_rejects_second_coinbase() {
+        // Two no-input txs: the second one (index 1) violates the
+        // "at most one coinbase, at position 0" rule.
+        let block = block_at(5, vec![coinbase_tx(5, 5_000), coinbase_tx(5, 7_000)]);
+        let err = block.validate_structure().unwrap_err();
+        assert!(
+            matches!(err, BlockError::InvalidTransaction { index: 1, .. }),
+            "second coinbase must be rejected, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn block_rejects_coinbase_with_wrong_height_commitment() {
+        // Coinbase committed to height 4 inside a height-5 block.
+        let block = block_at(5, vec![coinbase_tx(4, 5_000)]);
+        let err = block.validate_structure().unwrap_err();
+        assert!(
+            matches!(
+                err,
+                BlockError::InvalidTransaction {
+                    index: 0,
+                    source: TransactionError::CoinbaseHeightMismatch { expected: 5, actual: 4 },
+                }
+            ),
+            "height-binding mismatch must be rejected, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn non_genesis_block_without_coinbase_still_validates() {
+        // The coinbase is optional — a producer may decline the reward.
+        let block = block_at(3, vec![tx_with_marker(1), tx_with_marker(2)]);
+        block.validate_structure().expect("coinbase is optional");
     }
 
     #[test]

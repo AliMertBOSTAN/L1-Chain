@@ -342,6 +342,49 @@ pub const INDEX_HTML: &str = r###"<!DOCTYPE html>
     </div>
   </section>
 
+  <section class="panel span2" id="swap-panel">
+    <h2>Swap (AMM · devnet)</h2>
+    <div id="swap-empty" class="note">Unlock the wallet to swap against an on-chain AMM pool.</div>
+    <div id="swap-filled" class="hidden">
+      <div class="note" style="margin-bottom:8px">
+        Trades against a constant-product pool UTXO (<code>amm_pool_lock</code>
+        covenant). Reserves move inside the pool datum; your funding input only
+        covers the network fee. <strong>Devnet only.</strong> Pools are
+        bootstrapped via <code>qv-wallet create-pool</code> or
+        <code>POST /api/defi/create-pool</code>.
+      </div>
+      <div class="row" style="margin-bottom:4px; align-items:center">
+        <label style="margin:0; flex:0 0 auto" for="swap-pool">Pool:</label>
+        <select id="swap-pool" style="flex:1; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px 10px; font:inherit"></select>
+        <button class="ghost" id="btn-swap-refresh-pools" style="margin:0; flex:0 0 auto">Refresh pools</button>
+      </div>
+      <div class="note mono" id="swap-pool-info" style="margin-bottom:6px"></div>
+      <div class="row">
+        <div>
+          <label for="swap-direction">Direction</label>
+          <select id="swap-direction" style="width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:9px 10px; font:inherit">
+            <option value="a-to-b">Sell A &rarr; receive B</option>
+            <option value="b-to-a">Sell B &rarr; receive A</option>
+          </select>
+        </div>
+        <div>
+          <label for="swap-amount">Amount in (units)</label>
+          <input id="swap-amount" type="number" min="1">
+        </div>
+        <div>
+          <label for="swap-min-receive">Min receive (floor)</label>
+          <input id="swap-min-receive" type="number" min="0" value="0">
+        </div>
+        <div>
+          <label for="swap-fee">Network fee (units)</label>
+          <input id="swap-fee" type="number" min="0" value="1000">
+        </div>
+      </div>
+      <button id="btn-swap">Swap</button>
+      <div id="swap-result" class="note" style="margin-top:8px"></div>
+    </div>
+  </section>
+
   <section class="panel span2" id="history-panel">
     <h2>Transaction history</h2>
     <div id="history-empty" class="note">Unlock the wallet to see past sends and incoming stealth receipts.</div>
@@ -603,6 +646,8 @@ pub const INDEX_HTML: &str = r###"<!DOCTYPE html>
     show('send-filled', s.unlocked);
     show('utxos-empty', !s.unlocked);
     show('utxos-filled', s.unlocked);
+    show('swap-empty', !s.unlocked);
+    show('swap-filled', s.unlocked);
     show('contacts-empty', !s.unlocked);
     show('contacts-filled', s.unlocked);
     show('history-empty', !s.unlocked);
@@ -618,6 +663,7 @@ pub const INDEX_HTML: &str = r###"<!DOCTYPE html>
       refreshAccounts(s.account ?? 0);
       refreshBalance();
       refreshUtxos();
+      refreshPools();
       refreshContacts();
       refreshHistory();
     } else {
@@ -855,6 +901,97 @@ pub const INDEX_HTML: &str = r###"<!DOCTYPE html>
   $('btn-copy-addr').onclick = async () => {
     const ok = await copyText($('addr-full').textContent);
     toast(ok ? 'Address copied' : 'Copy failed - tarayicin secure context degil', ok ? 'ok' : 'err');
+  };
+
+  // ---- AMM swap panel (Faz 6 D-5) ----
+  let poolsCache = [];
+  function shortTokenHex(h) {
+    return (h && h.length > 12) ? (h.slice(0, 8) + '…') : (h || '');
+  }
+  function renderSwapPoolInfo() {
+    const sel = $('swap-pool');
+    const info = $('swap-pool-info');
+    const p = poolsCache.find(x => x.outpoint === sel.value);
+    if (!p) {
+      info.textContent = poolsCache.length
+        ? ''
+        : 'No pools on this node yet — bootstrap one with `qv-wallet create-pool`.';
+      return;
+    }
+    info.textContent =
+        'reserves: A=' + p.reserve_a.toLocaleString()
+      + '  B=' + p.reserve_b.toLocaleString()
+      + '  ·  fee ' + p.fee_bps + ' bps'
+      + '  ·  lp_total ' + p.lp_total.toLocaleString()
+      + '  ·  tokens A:' + shortTokenHex(p.token_a_id)
+      + ' B:' + shortTokenHex(p.token_b_id);
+  }
+  async function refreshPools() {
+    try {
+      const r = await api('GET', '/api/defi/pools');
+      poolsCache = r.pools || [];
+      const sel = $('swap-pool');
+      const prev = sel.value;
+      sel.innerHTML = '';
+      if (!poolsCache.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '(no pools found)';
+        sel.appendChild(opt);
+      } else {
+        for (const p of poolsCache) {
+          const opt = document.createElement('option');
+          opt.value = p.outpoint;
+          opt.textContent = p.outpoint.slice(0, 12) + '…' + p.outpoint.slice(-4)
+            + '  (A ' + p.reserve_a.toLocaleString()
+            + ' / B ' + p.reserve_b.toLocaleString()
+            + ', ' + p.fee_bps + ' bps)';
+          if (p.outpoint === prev) opt.selected = true;
+          sel.appendChild(opt);
+        }
+      }
+      renderSwapPoolInfo();
+    } catch (e) {
+      toast('pools: ' + e.message, 'err');
+    }
+  }
+  $('btn-swap-refresh-pools').onclick = refreshPools;
+  $('swap-pool').onchange = renderSwapPoolInfo;
+
+  $('btn-swap').onclick = async () => {
+    const pool = $('swap-pool').value;
+    const direction = $('swap-direction').value;
+    const amount = parseInt($('swap-amount').value, 10);
+    const min_receive = parseInt($('swap-min-receive').value || '0', 10);
+    const fee = parseInt($('swap-fee').value || '0', 10);
+    if (!pool) { toast('Pick a pool first (Refresh pools)', 'err'); return; }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast('Swap amount must be a positive integer', 'err');
+      return;
+    }
+    $('btn-swap').disabled = true;
+    try {
+      const r = await api('POST', '/api/defi/swap', { pool, direction, amount, min_receive, fee });
+      $('swap-result').innerHTML =
+          'Swap broadcast — tx <span class="mono">' + escapeHtml(r.tx_id.slice(0, 16)) + '…</span>'
+        + ' · received <strong>' + Number(r.amount_out).toLocaleString() + '</strong> units'
+        + ' (pool fee ' + Number(r.pool_fee_paid).toLocaleString() + ')'
+        + ' · new reserves A=' + Number(r.new_reserve_a).toLocaleString()
+        + ' B=' + Number(r.new_reserve_b).toLocaleString();
+      toast('Swap sent: received ' + Number(r.amount_out).toLocaleString() + ' units', 'ok');
+      $('swap-amount').value = '';
+      // The consumed pool outpoint changed; re-discover pools + funds
+      // after the node has had a beat to apply the tx.
+      setTimeout(() => {
+        refreshPools();
+        refreshBalance();
+        refreshUtxos();
+      }, 800);
+    } catch (e) {
+      toast('swap: ' + e.message, 'err');
+    } finally {
+      $('btn-swap').disabled = false;
+    }
   };
 
   // ---- Fingerprint QR loader (authenticated) ----

@@ -64,6 +64,29 @@ pub struct NodeConfig {
     /// form first, so no node produces a block before the network is up.
     #[serde(default)]
     pub startup_warmup_secs: u64,
+
+    /// Hex-encoded 32-byte public-key hash (SHA3-256 of the Dilithium spend
+    /// public key) that this node's block rewards are paid to. When set, the
+    /// in-process block producer prepends a coinbase transaction (subsidy +
+    /// fees, locked with `p2pkh_pqc(reward_pubkey_hash)`) to every block it
+    /// produces. When absent, no coinbase is produced (backwards-compatible
+    /// with configs that predate on-chain rewards).
+    #[serde(default)]
+    pub reward_pubkey_hash_hex: Option<String>,
+
+    /// Enforce that a received block's `header.utxo_commitment` equals the
+    /// locally recomputed post-apply UTXO-set commitment; mismatching blocks
+    /// are rejected (and their UTXO effects reverted). Defaults to `true`.
+    /// Devnet configs that interoperate with pre-commitment block producers
+    /// may explicitly set this to `false`. Locally produced blocks always
+    /// stamp the real commitment regardless of this flag.
+    #[serde(default = "default_enforce_utxo_commitment")]
+    pub enforce_utxo_commitment: bool,
+}
+
+/// Serde default for [`NodeConfig::enforce_utxo_commitment`] — enforcement on.
+fn default_enforce_utxo_commitment() -> bool {
+    true
 }
 
 /// One stake pool in the shared devnet genesis set. Every node carries
@@ -202,6 +225,8 @@ impl NodeConfig {
             genesis_pools: Vec::new(),
             round_robin_leader: false,
             startup_warmup_secs: 0,
+            reward_pubkey_hash_hex: None,
+            enforce_utxo_commitment: true,
         }
     }
 
@@ -235,6 +260,8 @@ impl NodeConfig {
             genesis_pools: Vec::new(),
             round_robin_leader: false,
             startup_warmup_secs: 0,
+            reward_pubkey_hash_hex: None,
+            enforce_utxo_commitment: true,
         }
     }
 
@@ -268,6 +295,8 @@ impl NodeConfig {
             genesis_pools: Vec::new(),
             round_robin_leader: false,
             startup_warmup_secs: 0,
+            reward_pubkey_hash_hex: None,
+            enforce_utxo_commitment: true,
         }
     }
 
@@ -346,5 +375,50 @@ mod tests {
     fn test_config_for_network() {
         let cfg = NodeConfig::for_network("mainnet", None).unwrap();
         assert_eq!(cfg.network, "mainnet");
+    }
+
+    #[test]
+    fn test_config_reward_and_commitment_defaults() {
+        // Presets: no reward address, commitment enforcement on.
+        for cfg in [
+            NodeConfig::devnet(),
+            NodeConfig::testnet(),
+            NodeConfig::mainnet(),
+        ] {
+            assert!(cfg.reward_pubkey_hash_hex.is_none());
+            assert!(cfg.enforce_utxo_commitment);
+        }
+    }
+
+    #[test]
+    fn test_config_toml_backwards_compatible_without_new_fields() {
+        // A pre-coinbase TOML (no reward_pubkey_hash_hex / enforce_utxo_commitment)
+        // must still parse, with the serde defaults applied.
+        let cfg = NodeConfig::devnet();
+        let mut toml_str = toml::to_string_pretty(&cfg).unwrap();
+        toml_str = toml_str
+            .lines()
+            .filter(|l| {
+                !l.starts_with("reward_pubkey_hash_hex") && !l.starts_with("enforce_utxo_commitment")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let parsed: NodeConfig = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.reward_pubkey_hash_hex.is_none());
+        assert!(
+            parsed.enforce_utxo_commitment,
+            "enforce_utxo_commitment must default to true"
+        );
+    }
+
+    #[test]
+    fn test_config_toml_roundtrips_new_fields() {
+        let mut cfg = NodeConfig::devnet();
+        cfg.reward_pubkey_hash_hex = Some("ab".repeat(32));
+        cfg.enforce_utxo_commitment = false;
+        let toml_str = toml::to_string_pretty(&cfg).unwrap();
+        let parsed: NodeConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.reward_pubkey_hash_hex, Some("ab".repeat(32)));
+        assert!(!parsed.enforce_utxo_commitment);
     }
 }

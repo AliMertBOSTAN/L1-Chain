@@ -15,7 +15,7 @@
 //! - [`interpreter`] — the stack-based VM core: [`execute`] /
 //!   [`execute_instructions`], [`Context`], [`ExecResult`].
 //! - [`templates`] — [`ScriptBuilder`] fluent API and standard templates
-//!   (`p2pkh_pqc`, `multisig_pqc`, `amm_swap`, `lending_repay`).
+//!   (`p2pkh_pqc`, `multisig_pqc`, `amm_pool_lock`, `lending_repay`).
 //! - [`script`] — high-level entry points: [`validate_script`] (the one
 //!   function the ledger calls), [`disassemble`], [`compile`].
 //!
@@ -57,7 +57,16 @@ pub use interpreter::{execute, execute_instructions, Context, ExecResult, Script
 
 /// Standard script templates (P2PKH, multisig, AMM, lending); see [`templates`] module.
 pub use templates::{
-    amm_swap, lending_repay, multisig_pqc, p2pkh_pqc, pubkey_hash, stealth_p2pkh, ScriptBuilder,
+    amm_pool_lock, amm_swap, lending_ltv_factor, lending_pool_lock, lending_repay, multisig_pqc,
+    p2pkh_pqc, pubkey_hash, stealth_p2pkh, LendingPoolScriptParams, ScriptBuilder, TemplateError,
+    LENDING_DATUM_INTEREST_BLOCK_LEN, LENDING_DATUM_INTEREST_BLOCK_OFFSET,
+    LENDING_DATUM_INTEREST_MULTIPLIER_OFFSET, LENDING_DATUM_LAST_ACCRUAL_SLOT_OFFSET,
+    LENDING_DATUM_LEN, LENDING_DATUM_PARAMS_LEN, LENDING_DATUM_PARAMS_OFFSET,
+    LENDING_DATUM_POOL_ID_OFFSET, LENDING_DATUM_TOTAL_COLLATERAL_OFFSET,
+    LENDING_DATUM_TOTAL_DEBT_OFFSET, LENDING_ORACLE_DOMAIN_TAG, LENDING_PRICE_SCALE,
+    POOL_DATUM_FEE_BPS_OFFSET, POOL_DATUM_LEN, POOL_DATUM_LP_TOTAL_OFFSET,
+    POOL_DATUM_RESERVE_A_OFFSET, POOL_DATUM_RESERVE_B_OFFSET, POOL_DATUM_TOKEN_A_OFFSET,
+    POOL_DATUM_TOKEN_B_OFFSET,
 };
 
 /// High-level script validation and compilation; see [`script`] module.

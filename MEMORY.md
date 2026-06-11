@@ -1,10 +1,87 @@
 ﻿# QuantumVault - Proje Hafizasi
 
-_Son guncelleme: 2026-05-22 (stealth + sighash + cüzdan UI + devnet köprüsü)_
+_Son guncelleme: 2026-06-10 (coinbase ödül akışı + Faz 6 D-2/D-3 + doc temizliği)_
 
 > **Doküman uyumu:** Bu dosya `PROJECT_STATUS.md` ve `docs/ROADMAP.md` ile birlikte
 > okunmalıdır. ROADMAP'teki **Placeholder ve Mock Envanteri** (A-J grupları) açık
 > işlerin tek doğru kaynağıdır.
+
+---
+
+## Oturum: Coinbase + AMM Kovenantı + Doc Senkronizasyonu (2026-06-10)
+
+Miner ödül akışı zincir üstüne taşındı, Faz 6 D-2/D-3 kapandı, dokümantasyon
+güncel mimariye senkronize edildi. **Hiçbir Rust değişikliği lokalde
+derlenmedi** (sandbox'ta cargo yok) — sıradaki oturumda `cargo build
+--workspace` + nextest + clippy zorunlu (D-1'in bekleyen doğrulaması dahil).
+
+### Kararlar
+
+- **Coinbase height binding**: input'suz coinbase tx'in benzersizliği
+  `lock_time = Slot(height)` ile sağlanır (BIP34 muadili; yeni alan yok,
+  wire format değişmedi). `slot >= height` değişmezi sayesinde lock_time
+  semantiğiyle çelişmez.
+- **Coinbase miktar kuralı**: `sum(outputs) ≤ subsidy + fees` — eksik talep
+  serbest (Bitcoin). Maturity: k=50 blok (`ConsensusParams.k_finality`).
+  Maturity verisi `UtxoStore`'da `utxo:cbh:<outpoint>` anahtar ailesi;
+  politika node'da, mekanizma storage'da.
+- **utxo_commitment artık gerçek**: K-03/K-05 placeholder'ı kapandı. Üretim
+  her zaman gerçek post-apply commitment yazar; doğrulama
+  `enforce_utxo_commitment` bayrağına bağlı (default true; eski
+  devnet/work4 config'lerinde false).
+- **Ödül dağıtımı sınırı**: coinbase tek output ile operatöre öder;
+  delegator bölüşümü epoch-sonu dağıtım wiring'i ayrı iş (`new_coinbase`
+  çoklu-output destekler).
+- **PoolDatum kanonik encoding**: script `Slice` offset'leri bincode'a değil
+  90-bayt sabit-genişlik LE `to_canonical_bytes()`'a dayanır; offset
+  sabitleri yalnızca qv-script'te tanımlı, qv-defi import eder.
+- **amm_pool_lock self-hash çözümü**: yeni opcode yerine mevcut
+  `SelfScriptHash (0x6B)` + `AssertOutputScriptHash` ikilisi. D-1 oturumu
+  MulU128/GeU128/SelfScriptHash/BytesToInt'i zaten eklemiş (COUNT=63).
+- **build_swap_tx imzasız döner**: `inputs_to_sign` listesiyle; ADR-012
+  sighash witness-bağımsız olduğundan sonradan imzalama kovenantı bozmaz.
+- **D-4 swap CLI**: `qv_getUtxo` yanıtı `script_hex`+`datum_hex` ile
+  genişletildi (Option+default, geriye uyumlu). Cüzdan, pool script'ini
+  datum'dan yeniden üretip on-chain baytlarla eşitliğini doğrular —
+  sahte-pool'a karşı koruma. Funding seçimi: en küçük yeterli UTXO.
+- **D-5 + bootstrap**: `create-pool` CLI (`build_create_pool_tx`, genesis
+  `lp_total=⌊sqrt(a·b)⌋`); `qv_listPools` RPC (UTXO tarama + script
+  yeniden-üretim eşitliği = sahte-pool filtresi); `/api/defi/{pools,swap,
+  create-pool}` + UI Swap paneli. CLI ve HTTP ortak çekirdek
+  (`execute_swap`/`execute_create_pool`), broadcast kararı çağıranda.
+  LP payı = datum `lp_total`, zincir üstü LP token yok (bilinçli kapsam).
+- **D-6 / ADR-013 lending**: 146-bayt kanonik LendingPoolDatum; iki yol —
+  deposit/repay fiyatsız (monotoni), borrow/withdraw witness'ta ML-DSA
+  imzalı oracle fiyatı (`TAG‖pool_id‖price‖slot` CAT ile yeniden kurulur →
+  replay imkânsız; CHECKSIG_PQC + SlotNumber tazelik). Teminat bölmesiz:
+  `debt·K ≤ coll·price`. Faiz v1'de dondurulur (in-script u128×u128
+  doğrulanamaz — 256-bit ara değer), tahakkuk + likidasyon + t-of-n
+  oracle v2 (ADR'de gerekçeli). Yeni opcode gerekmedi.
+- **Doc temizliği**: MASTER_PLAN, TESTING_INDEX, TESTING_QUICK_REFERENCE,
+  AŞAMA_11_DELIVERY, RPC_REWRITE_SUMMARY → `archive/docs-v1/` (README'li).
+  Açık işlerin tek kaynağı ROADMAP. ADR içerikleri tarihsel kayıt olarak
+  korunur, yalnızca durum başlıkları güncellenir (ADR-006 → Uygulandı).
+
+### Değişen dosyalar (kod)
+
+- `qv-core/src/{transaction,block}.rs` — new_coinbase, validate_coinbase_structure, blok pozisyon kuralı
+- `qv-storage/src/utxo_store.rs` — coinbase_height API, UndoLog genişletme
+- `qv-node/src/{validation,node,slot_ticker,config}.rs` — validate_block_rewards, maturity gate, with_coinbase, commitment enforcement
+- `qv-miner/src/{block_producer,main}.rs` + Cargo.toml (qv-script dep) — coinbase prepend
+- `qv-script/src/{templates,lib}.rs` — amm_pool_lock + layout sabitleri
+- `qv-defi/src/{amm,tx_helpers,lib}.rs` — to_canonical_bytes, build_swap_tx
+- `devnet/work4/node{0..3}.toml` — enforce_utxo_commitment = false
+- Yeni test: ~59 (coinbase ~33, AMM/defi 26)
+
+### Sonraki net adım
+
+1. Lokal doğrulama (build + nextest + clippy + fmt) — bu oturumun tamamı +
+   D-1 bekliyor.
+2. Faz 6 D-1..D-6 ✅ TAMAMI kapandı (D-4 swap CLI, D-5 HTTP/UI +
+   create-pool bootstrap, D-6 lending kovenantı + ADR-013). Sıradaki DeFi
+   işleri: `qv-wallet lend` CLI/HTTP yüzeyi, add/remove-liquidity yolları,
+   lending v2 (faiz tahakkuku, likidasyon, t-of-n oracle).
+3. Epoch-sonu delegator ödül dağıtımı; T-01 Pedersen DKG; P-01 Bulletproofs.
 
 ---
 

@@ -1,12 +1,14 @@
 # QuantumVault L1 — Sistem Genel Bakışı
 
-**Doküman tarihi:** 2026-05-12 (M-04 sonrası, devnet smoke öncesi)
-**Son senkronizasyon:** 2026-05-12 — Tier 1+2 doc çelişkileri çözüldü (ABSTRACT, ARCHITECTURE_V2, PROJECT_STATUS, MEMORY)
+**Doküman tarihi:** 2026-06-10 (Faz 6 başlangıcı: D-1 sonrası, D-2 öncesi)
+**Son senkronizasyon:** 2026-06-10 — 2026-05-12 sonrası gelişmeler işlendi (CI yeşil,
+ADR-007 hibrit handshake, 4-node devnet, ADR-011/012 stealth+sighash, multi-tenant
+cüzdan, binary dağıtımı, Faz 6 D-1)
 **Yazılım sürümü:** 0.1.0 (workspace), Rust 1.78+ stable, edition 2021
 **Hedef okuyucu:** Projeyi ilk kez inceleyenler + uzun aradan sonra dönen geliştiriciler
-**Bu doküman ne değildir:** ADR (`docs/ADR/`), faz planı (`docs/MASTER_PLAN.md`),
-veya günlük açık işler listesi (`docs/ROADMAP.md`) — bunlar ayrı doküman. Burası
-**sistemin tutarlı bir snapshot'ı**.
+**Bu doküman ne değildir:** ADR (`docs/ADR/`), faz planı ve açık işler listesi
+(`docs/ROADMAP.md`) — bunlar ayrı doküman. (Eski `MASTER_PLAN.md`
+`archive/docs-v1/` altına arşivlendi.) Burası **sistemin tutarlı bir snapshot'ı**.
 
 ---
 
@@ -21,33 +23,42 @@ sunar. v1 C++ implementasyonu 2026-04-15'te Rust'a pivot edildi; aktif geliştir
 
 ---
 
-## 1. Mevcut Olgunluk Seviyesi (2026-05-12)
+## 1. Mevcut Olgunluk Seviyesi (2026-06-10)
 
 | Metrik | Değer |
 |---|---|
-| Workspace derleme | ✅ 0 error, **0 warning**, 13/13 crate (D cilalama 2026-05-12) |
-| Test suite | ✅ **744 passed / 0 failed / 36 ignored** (2026-05-12, post B+C: M-09 core + K-06 wire) |
-| Devnet smoke test | ✅ İlk gerçek uçtan uca transfer (block height=18, tx_count=1, ~4.9s latency) |
-| Çalışan binary | qv-node (kısmen), qv-wallet (init/send/address çalışır), qv-miner (kabuk + keystore) |
-| In-memory devnet uçtan uca | ✅ `tests/transfer_e2e.rs` geçer |
-| Mainnet hazırlığı | ❌ değil; testnet'e bile değil |
+| Workspace derleme | ✅ 0 error, **0 warning**, 13/13 crate |
+| Test suite | ✅ **735 passed / 0 failed / 36 ignored** (2026-05-14, `cargo test --lib --tests`; doc-test'ler ayrı CI job'unda) |
+| GitHub Actions CI | ✅ **5 job yeşil**: clippy, rustfmt, rustdoc, cargo-audit, cargo-deny (2026-05-14) |
+| Hibrit handshake | ✅ X25519+Kyber uygulandı (ADR-007, 2026-05-15 — NET-01 kapandı) |
+| 4-node libp2p devnet | ✅ Ayrı `qv-node` process'leri bağlanıp blok gossip'liyor, aynı zincirde yakınsıyor (2026-05-21; round-robin lider) |
+| Stealth uçtan uca + sighash | ✅ ADR-011 Faz 1-5 + ADR-012 uygulandı (2026-05-22); `qvst1`/`qvfp1` adres formatı |
+| Çalışan binary | qv-node (devnet'te çalışıyor), qv-wallet (CLI + HTTP API + gömülü UI, multi-tenant), qv-miner (M-09 core: VRF + stake distribution + slot loop) |
+| Binary dağıtımı | ✅ GitHub Actions release workflow (Windows x64 + macOS arm64), version stamping (2026-06-05) |
+| Mainnet hazırlığı | ❌ değil; **iç testnet-ready çekirdek** — public testnet'e bile değil |
 
 **Üretim-seviyesinde tamam olanlar:**
 - Post-quantum imza (FIPS 204 ML-DSA via `ml-dsa = 0.0.4`)
 - Ristretto255-VRF (`schnorrkel`) ile slot leader election
 - Sum-KES (depth 11, N=2048) on Dilithium L3 — forward-secure blok imzası
+- Hibrit X25519+Kyber libp2p handshake (ADR-007, `/quantumvault/handshake/1.0.0`)
+- Witness-dışlayan `Transaction::sighash()` + `SigHash` opcode (ADR-012)
+- Stealth adres uçtan uca akışı: üretim, tarama (`qv_scanStealth`/`qv_scanP2pkh`), harcama (ADR-011)
 - Argon2id + AES-256-GCM keystore (wallet + miner)
 - BIP-39 mnemonic, HD wallet derivation, P2PKH-PQC script template
 - 13 crate'lik temiz separation of concerns
 
 **Henüz mock/stub veya yarım:**
-- Hibrit X25519+Kyber handshake (sadece klasik Noise XX şu an)
-- Bulletproofs gerçek backend (mock impl yerinde)
-- Mainnet genesis ceremony tool-side (modül var, mainnet'e bağlamıyor)
-- Miner daemon ana loop (`cmd_run` hâlâ `sleep(u64::MAX)`)
-- Encrypted mempool decrypt akışı miner tarafında
-- RPC `get_balance_for` + `scan_stealth` (stub)
-- AMM batch zincirinin block producer'la entegrasyonu
+- Bulletproofs gerçek backend (P-01 — mock impl yerinde)
+- Mainnet genesis ceremony tool-side (N-05 — modül var, mainnet'e bağlamıyor)
+- Block producer UTXO commitment hash (K-03/K-05 — header'da hâlâ ZERO)
+- AMM batch zincirinin block producer'la entegrasyonu (K-07)
+- Encrypted mempool tam wiring (T-01 Pedersen DKG dahil)
+- `handle_block` içinde VRF/KES yeniden doğrulama + UTXO-set reorg yok —
+  devnet bu yüzden round-robin lider kullanıyor; gerçek VRF Praos yolu
+  `round_robin_leader = false` ile korunuyor ama çok-node için reorg gerekli
+- Faz 6 DeFi yüzeyi: D-2 AMM pool kovenant template, D-3..D-6
+  (tx helpers, CLI swap, HTTP/UI, lending) henüz başlamadı
 
 Tam açık iş envanteri için **`docs/ROADMAP.md` → "Placeholder ve Mock Envanteri"**
 bölümüne bak (A–L grupları, ID'li).
@@ -66,9 +77,16 @@ Tam metni `docs/ADR/`'de, burada bir nefeste:
 | 004 | VRF | Ristretto255-VRF via `schnorrkel = 0.11` (IETF draft, Cardano-uyumlu) |
 | 005 | KES | Sum-KES (MMM construction) on Dilithium L3, depth=11, N=2048 period (~12 saat × 4 epoch) |
 | 006 | İmza backend | `ml-dsa = 0.0.4` (FIPS 204 final). `pqcrypto-dilithium 0.5` (NIST round-3) tamamen kaldırıldı (wire-uyumsuz) |
+| 007 | Hibrit handshake | X25519+Kyber uygulama-katmanı handshake, Noise-XX üstünde (`/quantumvault/handshake/1.0.0`) — **uygulandı 2026-05-15**, NET-01 kapandı |
+| 008 | Genesis maxvalid-bg | Bootstrap density tabanlı çatal seçimi — çekirdek uygulandı, sync entegrasyonu açık |
+| 009 | Deterministik lider kontrolü | Sabit-nokta aritmetiğiyle deterministik VRF threshold kontrolü |
+| 010 | Bootstrap sync | SyncManager — peer'lerden headers/blocks senkronizasyonu (çekirdek uygulandı) |
+| 011 | Stealth adres entegrasyonu | KEM-tabanlı stealth uçtan uca — **Faz 1-5 uygulandı 2026-05-22** |
+| 012 | İşlem sighash'i | Witness-dışlayan `Transaction::sighash()` + `SigHash` opcode — **uygulandı 2026-05-22**, in-flight witness yeniden-oynatma açığı kapandı |
 
 Bunlar **değiştirilemez** — ek karar gerektirirse yeni ADR yazılır. ADR-001..003 v1
-döneminden, ADR-004..006 v2 Rust pivotundan sonra yazıldı (2026-05-06/07).
+döneminden, ADR-004..006 v2 Rust pivotundan sonra yazıldı (2026-05-06/07);
+ADR-007..012 Mayıs 2026 konsensüs/ağ/gizlilik sprint'lerinde eklendi.
 
 ---
 
@@ -124,7 +142,7 @@ FIPS 204 §6.1) — bu HD wallet, KES leaf, stealth recovery için kritik.
 hem X25519 hem Kyber'i içerir; `encapsulate_hybrid` her ikisinden de shared secret
 türetir, HKDF ile birleştirir. Bu yapı **klasik backdoor + PQC backdoor**'a
 karşı sigorta — birinden biri kırılırsa diğeri tutar. Kullanım: stealth address
-view key, gelecekteki noise handshake (NET-01 hâlâ açık).
+view key + libp2p hibrit handshake (ADR-007 ile 2026-05-15'te uygulandı, NET-01 kapandı).
 
 **VRF — Ristretto255-VRF.** `schnorrkel` crate'i üzerinden. `VrfKeyPair::generate`
 veya `::from_seed`, `evaluate(msg) -> (output, proof)`, `verify(pk, msg, proof) -> output`.
@@ -205,12 +223,16 @@ out-of-bounds → script fail.
 - **Karşılaştırma** (0x30–0x3F): Eq, Neq, Lt, Gt, Le, Ge
 - **Mantık** (0x40–0x4F): If, Else, EndIf, Not
 - **Kripto** (0x50–0x5F): Hash (SHA3), HashBlake3, CheckSigPqc
-- **Introspection** (0x60–0x6F): Slot, InputCount, OutputCount, ReadInput, ReadOutput
+- **Introspection** (0x60–0x6F): Slot, InputCount, OutputCount, ReadInput, ReadOutput,
+  SigHash (0x69, ADR-012), ReadInputDatum (0x6A, Faz 6 D-1)
 - **Covenants** (0x70–0x7F): AssertScriptHash, AssertDatumHash, AssertValue
 - **Data** (0x80–0x8F): Cat, Slice, Len
 - **Meta**: Push1, Push2, Push4, PushInt, Nop, Return
 
-Toplam **57 opcode**. `OpCode::COUNT = 57`.
+Toplam **63 opcode**. `OpCode::COUNT = 63`. Son eklenenler: `SigHash` (0x69,
+2026-05-22, ADR-012 — script imzalanan mesajı işlemin kendisinden türetir) ve
+`ReadInputDatum` (0x6A, 2026-06-05, Faz 6 D-1 — AMM/lending kovenant'larının
+pre-transition state'i okuyabilmesi için).
 
 **Templates (`templates.rs`).** Standart locking script'ler:
 - `p2pkh_pqc(pubkey_hash)` — pay-to-public-key-hash, Dilithium imza doğrulama
@@ -280,9 +302,11 @@ kod her ikisini de kullanmıyor.
 ## 8. Storage (qv-storage)
 
 **`KvStore` + `KvBatch` trait abstraction.** Üç backend:
-- `MemoryKvStore` — `BTreeMap<Vec<u8>, Vec<u8>>` + `RwLock`. Test/simülasyon.
-- `RocksKvStore` — RocksDB, üretim default.
-- `RedbKvStore` — saf-Rust alternative, deneysel.
+- `MemoryKvStore` — `BTreeMap<Vec<u8>, Vec<u8>>` + `RwLock`. Test/simülasyon + devnet node default'u.
+- `RedbKvStore` — saf-Rust kalıcılık; devnet'te kalıcı depolama bunu kullanıyor.
+- `RocksKvStore` — RocksDB, 2026-05-21'den beri **opsiyonel, varsayılan-kapalı feature**
+  (`--features rocksdb`). Amaç: derlemeyi C++ toolchain / libclang bağımlılığından
+  kurtarmak. Üretim deployment'ı için aday olarak duruyor.
 
 **`BlockStore`.** Block-by-hash, block-by-height, header-by-hash erişimi. Duplicate
 hash reject, height collision reject. Bincode encoding.
@@ -388,8 +412,16 @@ size). Monero pattern'ini kullanmadık.
 
 ## 12. Network (qv-net)
 
-**libp2p 0.54** üzerinden. Şu an klasik Noise XX (X25519) — hibrit Kyber
-handshake NET-01'de açık. Gelecek Faz 4 işi.
+**libp2p 0.54** üzerinden. Transport klasik Noise XX (X25519) ile kurulur;
+üzerine **hibrit X25519+Kyber uygulama-katmanı handshake** koşar
+(`/quantumvault/handshake/1.0.0`, request-response tek roundtrip,
+session_binding doğrulamalı, sonuç `SessionStore`'a yazılır). ADR-007 ile
+2026-05-15'te uygulandı — NET-01 kapandı. Klasik katman kimlik doğrulamayı,
+PQC katmanı kuantum-güvenli gizliliği sağlar.
+
+**Deterministik node kimliği.** `NodeIdentity::from_seed` — config'teki
+`node_key_seed_hex` (32-byte hex) verilirse libp2p Ed25519 kimliği ondan
+türetilir → PeerId başlatmalar arası sabit (devnet için kritik).
 
 **Gossip topics.**
 - `/qv/blocks/1` — yeni blok yayını
@@ -418,15 +450,20 @@ Full node binary. **Tüm yukarıdaki katmanları birleştirir.**
 
 **Bileşenleri:**
 - **`cli.rs`** — `qv-node {init,run,reset,version}` komutları
-- **`config.rs`** — mainnet/testnet/devnet preset'leri, TOML config
-- **`genesis.rs`** — devnet için 10 hesaplı parametrik genesis (gerçek mainnet
-  ceremony değil; ceremony modülü ayrı)
+- **`config.rs`** — mainnet/testnet/devnet preset'leri, TOML config. Devnet alanları
+  (hepsi `#[serde(default)]`): `node_key_seed_hex`, `genesis_pools`,
+  `round_robin_leader`, `startup_warmup_secs`
+- **`genesis.rs`** — devnet için 10 hesaplı parametrik genesis; 2026-05-22'den beri
+  hesaplar `DEVNET_TEST_MNEMONIC`'ten cüzdan HD yolunda türetilip **pre-fund**
+  ediliyor (cüzdan `devnet-import` ile bakiyeyi anında görür). Gerçek mainnet
+  ceremony değil; ceremony modülü ayrı
 - **`ceremony.rs`** — mainnet trusted setup tooling (Coordinator + Participant
   + Registration + Contribution + Finalize) — modül dolu ama Node mainnet'te
   bağlamıyor
 - **`rpc.rs`** — JSON-RPC server (jsonrpsee). Metodlar: `qv_getBlockHeight`,
   `qv_getBlockByHash`, `qv_getUtxo`, `qv_sendTransaction`, `qv_getMempoolStatus`,
-  vs. `qv_scanStealth` + `qv_getBalanceFor` stub (N-01/N-02 açık)
+  vs. `qv_getBalanceFor`, `qv_scanStealth`, `qv_scanP2pkh` 2026-05-22'de gerçek
+  implementasyon oldu (N-01/N-02 kapandı; `StealthViewKey` + `StealthScan` wire types)
 - **`network_handler.rs`** — gossip event → NodeEvent decoder
 - **`validation.rs`** — TX validation pipeline (well-formed + utxo lookup +
   script run + signature verify)
@@ -439,22 +476,60 @@ Full node binary. **Tüm yukarıdaki katmanları birleştirir.**
   snapshot alır + log'lar
 
 **Çalışan akışlar:**
-- Devnet config + ephemeral storage ile başlat
+- Devnet config + memory/redb storage ile başlat
 - RPC ile TX al, validate et, mempool'a koy, gossip yay
 - Block message'ı gossip'ten al, validate et, apply et, tip güncelle
 - Tek-node block pipeline (`tests/transfer_e2e.rs` doğrular)
+- **Çok-node devnet** (aşağıdaki alt bölüm)
+
+### 13.1 4-Node Yerel Devnet (2026-05-21+)
+
+Gerçek çok-process devnet: 4 ayrı `qv-node` libp2p üzerinden bağlanıyor, blok
+gossip'liyor ve **aynı zincirde yakınsıyor**. Kritik değişiklik: `slot_ticker.rs`
+üretilen bloğu artık doğrudan depoya yazmıyor; `NodeEvent::BlockReceived` ile
+node event loop'una gönderiyor → yerel üretilen ve peer'dan gelen bloklar aynı
+`handle_block` yolundan geçer (doğrula → UTXO uygula → depola → gossip).
+
+- **Lider seçimi:** deterministik **round-robin** (`round_robin_leader` config'i;
+  slot S lideri = pool `S % n`). Gerekçe: `handle_block` UTXO reorg yapmadığı
+  için olasılıksal VRF'in çift-lider slotları kalıcı çatal üretirdi.
+  `round_robin_leader = false` ile VRF Praos yolu korunur — mainnet hedefi bu.
+- **Araçlar:** `devnet/run-devnet.{ps1,sh}` (4-node launcher),
+  `devnet/run-single.{ps1,sh}` (1 node + cüzdan UI),
+  `devnet/run-all.{ps1,sh}` (4 node + cüzdan + monitör), `devnet/monitor.py`
+  (canlı CLI explorer), `devnet/watchdog.ps1` (lag-restart watchdog —
+  `QV_LAG_RESTART` env'iyle; >1000 blok geride kalan node'u yeniden başlatır,
+  ADR-010 SyncManager ile peer'lerden full re-sync). Türkçe kılavuz: `devnet/SCRIPTS.md`.
+- **Dürüst sınır:** `handle_block` VRF/KES'i yeniden doğrulamaz ve UTXO-set
+  reorg yapmaz — adversarial güvenlik ve gerçek VRF Praos çok-node için
+  gelecek iş.
+
+### 13.2 Binary Dağıtımı (2026-06-05)
+
+- `.github/workflows/release.yml` — tag push'ta (`v*.*.*`) Windows x64 +
+  macOS arm64 için `qv-wallet`/`qv-node`/`qv-miner` release build'leri,
+  sha256 manifest + `BUILD-INFO.txt`, GitHub Release attach.
+- Version stamping: üç binary crate'te `build.rs` → çıktı örneği
+  `qv-wallet 0.1.0 (v0.1.0, git a1b2c3d4e5f6)`.
+- Kılavuzlar: `docs/INSTALL.md` (kullanıcı: indirme + checksum + ilk cüzdan +
+  public devnet), `docs/PUBLIC-DEVNET-RPC.md` (operatör: sertleştirilmiş
+  systemd + Caddy/Let's Encrypt + rate limit + fail2ban + Prometheus).
 
 **Hâlâ açık:**
 - `validate_well_formed_tx_with_available_utxo` test ignored (D-11)
-- `cmd_run` daemon main loop büyük ölçüde mock — gerçek slot leader scheduling
-  + production gossip henüz yok (Faz 3 sonu işi)
+- `handle_block` içinde VRF/KES doğrulama + UTXO-set reorg (gerçek VRF Praos
+  çok-node önkoşulu)
 - Vote/finality akışı (N-03)
 
 ---
 
 ## 14. Wallet (qv-wallet)
 
-CLI wallet binary. `qv-wallet {init, import-mnemonic, address, scan, balance, send}`.
+CLI wallet binary + **axum HTTP API + gömülü tek-dosya HTML/CSS/JS UI**
+(2026-05-22'den beri). `qv-wallet {init, import-mnemonic, devnet-import, address,
+scan, balance, send, send-stealth, serve, export-view-key, audit-scan, disclose,
+verify-disclosure, contacts}`. `--network <devnet|local>` ile iyi-bilinen RPC
+URL'lerine bootstrap (2026-06-05).
 
 **Çalışan:**
 - **`init`** — BIP-39 mnemonic üret (24 kelime), passphrase prompt,
@@ -471,12 +546,28 @@ CLI wallet binary. `qv-wallet {init, import-mnemonic, address, scan, balance, se
   5. Dilithium sign (sign_pqc)
   6. Bincode + hex encode
   7. `--broadcast` ise RPC `qv_sendTransaction`
+- **`scan` / `balance`** — `qv_scanStealth` + `qv_scanP2pkh` üzerinden gerçek
+  tarama (2026-05-22; N-01/N-02 kapandı). Çıktılar daima stealth
+- **`send-stealth`** — stealth alıcıya transfer; `--to-qvaddr`, `--to-contact`
+- **`serve`** — HTTP API + gömülü UI: create/import/unlock/balance/UTXO tablo/
+  Send formu/QR (`.qvaddr` dosyası, 2-parçalı QR, kamera ile QR tarama),
+  multi-account dropdown, transaction history paneli, devnet faucet butonu,
+  address book paneli
+- **Multi-tenant mod** (2026-06-03) — `serve --wallets-dir <path>`: session
+  token'lı register/login (`/api/auth/*`), per-user keystore, TTL'li
+  `SessionStore`; bu modda LAN bind (`0.0.0.0:7777`) izinli. Single-user
+  modda loopback zorunlu
+- **Audit araçları** — `export-view-key` (`.qvview`, spend secret içermez) +
+  `audit-scan`; per-output `disclose`/`verify-disclosure` (`.qvdisclose`,
+  self-contained)
+- **Adres formatı** — tam payable adres `qvst1<hex>` (~6.4 KB bincode payload),
+  kısa kimlik fingerprint `qvfp1<40 hex>`
 
 **Stub veya yarım:**
-- `scan` — stealth output tarama (N-02 RPC bağımlı)
-- `balance` — stealth scan üzerine kurulu (N-01 bağımlı)
-- W-01: swap/lp-add/lp-remove/borrow/repay/pool-info/export-view-key/disclose
-  komutları henüz yok (Faz 5/6)
+- W-01 (kalan kısmı): swap/lp-add/lp-remove/borrow/repay/pool-info komutları
+  henüz yok — Faz 6 D-3/D-4/D-5 işi
+- Multi-tenant demo sertleştirmesi: HTTPS yok (login parolası LAN'da açık
+  gider), faucet rate limit yok, session TTL background sweep yok
 
 ---
 
@@ -509,8 +600,9 @@ operator". Hiç bir hash arama döngüsü yok. Daemon role'ü.
   3. Aksi halde metriği güncelle
 - **`block_producer.rs`** — Lider olduğunda:
   1. Clear mempool snapshot (RPC `qv_getMempoolStatus` — M-12 hâlâ sabit 0
-     döner, gerçek RPC bağlanmadı)
-  2. Encrypted mempool snapshot + committee üyesiyse decrypt (K-06 hâlâ yok)
+     döner, gerçek RPC bağlanmadı; M-09b)
+  2. Encrypted mempool snapshot + committee üyesiyse decrypt (K-06 wiring
+     2026-05-12/14'te kapatıldı; tam threshold akışı T-01 Pedersen DKG'ye bağlı)
   3. Deterministic ordering + AMM batch (K-07 hâlâ yok — `Vec::new()`)
   4. BlockHeader doldur (utxo_commitment K-03 hâlâ ZERO; producer_key_hash
      K-05 hâlâ ZERO)
@@ -525,11 +617,12 @@ operator". Hiç bir hash arama döngüsü yok. Daemon role'ü.
 - Pool registration TX'i imzala (cold key) — ✅ struct olarak doğru; submit_via_rpc
   yarım
 
-**Henüz yapılmamış (Faz 3/4):**
-- `cmd_run` daemon ana loop'u `sleep(u64::MAX)` ile uyutuyor (M-09)
-- Encrypted mempool decrypt entegrasyonu (K-06)
+**Henüz yapılmamış:**
+- `cmd_run` daemon çekirdeği (VRF + stake distribution + slot loop + SIGINT)
+  M-09 core olarak 2026-05-14'te kapatıldı; **mempool RPC fetch hâlâ stub** (M-09b)
 - AMM batcher block producer'a bağlı değil (K-07)
 - UTXO commitment hesaplama (K-03, K-05)
+- Encrypted mempool tam threshold akışı (T-01 Pedersen DKG)
 - Dashboard TUI (M-10, M-11)
 
 ---
@@ -569,8 +662,10 @@ operator". Hiç bir hash arama döngüsü yok. Daemon role'ü.
    spend keypair türetilir, wallet balance +100 görünür.
 ```
 
-Şu an **6. adıma kadar in-memory devnet'te çalışıyor**. 1. adımdaki balance display
-(`scan`) ve 7. adım stealth scanning N-01/N-02'de yarım.
+Bu akışın **tamamı 2026-05-22'den beri çalışıyor**: 4-node devnet üzerinde
+Dilithium-imzalı stealth transfer 4 node'a yayılıyor, 7. adımdaki stealth
+tarama `qv_scanStealth` ile gerçek (N-01/N-02 kapandı). Cüzdan UI üzerinden de
+aynı akış (unlock → balance → Send formu) yürütülebiliyor.
 
 ### 16.2 Pool Registration
 
@@ -653,8 +748,13 @@ operator". Hiç bir hash arama döngüsü yok. Daemon role'ü.
 | qv-storage integration | 12 | Multi-block apply/revert, snapshot lifecycle |
 | qv-wallet unit | 5 | Keystore (4) + error display |
 | qv-wallet integration | 13 | Mnemonic, coin select, tx build, CLI parse, RPC client |
-| **Doc tests** | 10 | Compile-time API doğrulama |
-| **TOPLAM** | **~741** | **0 failed, 32 ignored** |
+| **Doc tests** | 10 | Compile-time API doğrulama (ayrı CI job'u) |
+| **TOPLAM** | **735 passed** | **0 failed, 36 ignored** (2026-05-14 CI; crate kırılımı 2026-05-12 snapshot'ı, yaklaşıktır) |
+
+CI pipeline 2026-05-14'ten beri **tamamen yeşil**: clippy, rustfmt, rustdoc,
+cargo-audit, cargo-deny (5 job). 2026-05-22 sonrası eklenen cüzdan modülleri
+(session, history, faucet, address_book, view_export, disclose) ve D-1 opcode
+testleri kırılıma henüz işlenmedi; güncel toplam için CI çıktısına bak.
 
 **Ignored testler ne için?** Çoğu **yavaş** (KES leaf-tree gen ~2s), birkaçı
 **bilinen mock gap'lere bağlı** (T-01 Pedersen DKG, D-07..D-12 DeFi yan vakaları,
@@ -667,25 +767,30 @@ tek tek takip edilebilir.
 
 Detay `docs/ROADMAP.md`'de; burada yalın özet:
 
-**Yakın vade (Faz 1–3 tamamlama):**
-- **Devnet smoke test** — `qv-node` + `qv-wallet send --broadcast` + tip artışı.
-  Tüm parçalar var; sadece elle koşturma.
-- **N-03**: Vote/finality akışı — şu an gossip'te `Vote` mesajı placeholder, finality
-  henüz BFT vote toplama yapmıyor (k-deep var ama oylama yok)
+**Yakın vade (Faz 6 — Script VM + DeFi temelleri, 2026-06-05'te başladı):**
+- **D-1** ✅ `OpCode::ReadInputDatum (0x6A)` — uygulandı
+- **D-2 (sıradaki)**: `amm_pool_lock` AMM swap kovenant template'i
+  (ReadInputDatum/ReadOutputDatum + x·y=k invariant + AssertOutputScriptHash)
+- **D-3..D-6**: `build_swap_tx` helper, `qv-wallet swap` CLI, `/api/defi/*` +
+  UI Swap paneli, lending + oracle entegrasyonu
 - **K-03/K-05**: UTXO commitment post-apply hash — block header'da ZERO yerine
   gerçek değer
-- **K-06**: Encrypted mempool decrypt → block producer wiring
 - **K-07**: AMM batcher → block producer wiring
-- **M-08**: `submit_via_rpc` gerçek qv_sendTransaction çağrısı
-- **M-09**: `qv-miner cmd_run` daemon ana loop'u
+- **Demo sağlamlaştırma**: HTTPS (`--tls-cert`), faucet rate limit, session TTL
+  background sweep, watchdog crash-loop koruması
 
-**Orta vade (Faz 4–7):**
-- **NET-01**: Hibrit X25519+Kyber libp2p handshake
-- **C-05**: View key seeded keygen (`pqcrypto-kyber` seeded API yok; alternatif crate)
-- **N-01/N-02**: RPC `getBalanceFor` + `scanStealth`
-- **MP-01**: Encrypted mempool decryptor wiring (`qv_crypto::threshold` gerçek
-  primitif zaten var)
+**Orta vade (Faz 7+):**
+- **Gerçek VRF Praos çok-node**: `handle_block` içinde VRF/KES doğrulama +
+  UTXO-set reorg (devnet şu an round-robin lider ile çalışıyor)
+- **N-03**: Vote/finality akışı — gossip'te `Vote` mesajı placeholder, finality
+  henüz BFT vote toplama yapmıyor (k-deep var ama oylama yok)
+- **T-01 / MP-01**: Encrypted mempool tam wiring (Pedersen DKG dahil;
+  `qv_crypto::threshold` primitifleri var)
 - **P-01**: Bulletproofs gerçek backend (şu an `MockCommitter`)
+- **C-05 (kalıcı çözüm)**: View key 2026-05-22'den beri keystore'a şifreli
+  persist ediliyor (pratik kapanış); tam FIPS 203 deterministik seeded keygen
+  için `ml-kem` migrasyonu ayrı ADR olarak açık
+- **Release genişletme**: Linux x64 binary hedefi + Apple Developer imzası
 
 **Uzun vade (Faz 8–10):**
 - **P-03**: STARK range proof migration (Bulletproofs PQC değil)
@@ -751,7 +856,8 @@ Eğer bu doküman okunduktan sonra projeye katkı yapacaksan, sıralı kontrol l
 
 **Bilmek isteyeceğin başka dosyalar:**
 - `docs/ABSTRACT.md` — projenin "neden var" yazısı
-- `docs/MASTER_PLAN.md` — aşama bazlı tarihsel plan
+- `docs/ROADMAP.md` — faz planı + Placeholder ve Mock Envanteri (tek doğru kaynak)
+  (eski `MASTER_PLAN.md` `archive/docs-v1/` altında)
 - `MEMORY.md` — proje hafızası, kararlar, oturum özetleri
 - `PROJECT_STATUS.md` — zaman serisi aşama dökümü
 - `CLAUDE.md` — mimari kurallar (değiştirilemez ilkeler)

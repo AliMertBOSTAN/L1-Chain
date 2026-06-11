@@ -58,6 +58,56 @@ pub struct P2pkhMatch {
     pub value: u64,
 }
 
+/// One live AMM pool returned by `qv_listPools` — mirror of the server's
+/// `PoolInfo` wire format (kept loosely coupled with serde, no qv-node dep
+/// to avoid a workspace cycle). Faz 6 / D-5.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolEntry {
+    /// Pool UTXO outpoint in canonical `<txid_hex>#<idx>` form — feed it
+    /// directly to the swap flow's `--pool` argument.
+    pub outpoint: String,
+    /// Native value carried by the pool UTXO (smallest units).
+    pub value: u64,
+    /// Token A identifier (32-byte hex).
+    pub token_a_id: String,
+    /// Token B identifier (32-byte hex).
+    pub token_b_id: String,
+    /// Current reserve of token A (smallest units).
+    pub reserve_a: u64,
+    /// Current reserve of token B (smallest units).
+    pub reserve_b: u64,
+    /// Total LP shares issued (datum-level accounting; no on-chain LP token).
+    pub lp_total: u64,
+    /// Swap fee in basis points.
+    pub fee_bps: u16,
+}
+
+/// `qv_getUtxo` response — mirror of the server's `UtxoInfo` wire format
+/// (kept loosely coupled with serde, no qv-node dep to avoid a workspace
+/// cycle).
+///
+/// `script_hex` / `datum_hex` are the Faz 6 (D-4) extension used by the
+/// swap flow; they are `#[serde(default)]` so responses from pre-extension
+/// nodes still parse (fields absent → `None`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UtxoInfo {
+    /// Value (smallest units).
+    pub value: u64,
+    /// Hex of the locking script's hash.
+    pub script_hash: String,
+    /// Whether the UTXO carries a datum.
+    pub has_datum: bool,
+    /// Whether the UTXO carries stealth info.
+    pub has_stealth: bool,
+    /// Raw locking-script bytes, hex-encoded (node ≥ Faz 6 D-4).
+    #[serde(default)]
+    pub script_hex: Option<String>,
+    /// Raw datum bytes, hex-encoded; `None` if there is no datum or the
+    /// node predates the extension (check `has_datum` to distinguish).
+    #[serde(default)]
+    pub datum_hex: Option<String>,
+}
+
 impl RpcClient {
     /// Build a client pointing at the given HTTP endpoint, e.g.
     /// `http://127.0.0.1:8080`.
@@ -217,6 +267,26 @@ impl RpcClient {
             .map_err(|e| WalletError::Rpc(format!("scan_p2pkh response parse: {e}")))
     }
 
+    /// Fetch a single live UTXO by outpoint (`qv_getUtxo`). The outpoint
+    /// string may use either the canonical `txid#idx` or the Bitcoin-style
+    /// `txid:idx` form — the node parses both. Returns `None` when the
+    /// UTXO does not exist (never created, or already spent).
+    pub async fn get_utxo(&self, outpoint: &str) -> WalletResult<Option<UtxoInfo>> {
+        let result = self.call("qv_getUtxo", json!([outpoint])).await?;
+        serde_json::from_value::<Option<UtxoInfo>>(result)
+            .map_err(|e| WalletError::Rpc(format!("get_utxo response parse: {e}")))
+    }
+
+    /// Discover every live AMM pool UTXO on the node (`qv_listPools`,
+    /// Faz 6 / D-5). The node already filters fake pools (script bytes
+    /// must match the `amm_pool_lock` regenerated from the datum), and
+    /// returns entries in deterministic outpoint order.
+    pub async fn list_pools(&self) -> WalletResult<Vec<PoolEntry>> {
+        let result = self.call("qv_listPools", json!([])).await?;
+        serde_json::from_value::<Vec<PoolEntry>>(result)
+            .map_err(|e| WalletError::Rpc(format!("list_pools response parse: {e}")))
+    }
+
     /// Borrow the configured RPC URL (useful for logging / UI display).
     #[must_use]
     pub fn url(&self) -> &str {
@@ -238,6 +308,52 @@ mod tests {
         let c = RpcClient::new("http://localhost:1234");
         let dbg = format!("{c:?}");
         assert!(dbg.contains("http://localhost:1234"));
+    }
+
+    #[test]
+    fn utxo_info_parses_extended_and_legacy_json() {
+        // New node: script_hex + datum_hex present.
+        let full = r#"{
+            "value": 1000,
+            "script_hash": "ab",
+            "has_datum": true,
+            "has_stealth": false,
+            "script_hex": "51",
+            "datum_hex": "00ff"
+        }"#;
+        let info: UtxoInfo = serde_json::from_str(full).unwrap();
+        assert_eq!(info.value, 1000);
+        assert_eq!(info.script_hex.as_deref(), Some("51"));
+        assert_eq!(info.datum_hex.as_deref(), Some("00ff"));
+
+        // Old node: fields absent must default to None, not fail.
+        let legacy =
+            r#"{"value":7,"script_hash":"cd","has_datum":false,"has_stealth":true}"#;
+        let info: UtxoInfo = serde_json::from_str(legacy).unwrap();
+        assert_eq!(info.value, 7);
+        assert!(info.script_hex.is_none());
+        assert!(info.datum_hex.is_none());
+    }
+
+    #[test]
+    fn pool_entry_parses_node_json() {
+        let json = r#"{
+            "outpoint": "aa#0",
+            "value": 1000,
+            "token_a_id": "a1",
+            "token_b_id": "b2",
+            "reserve_a": 10000,
+            "reserve_b": 20000,
+            "lp_total": 14142,
+            "fee_bps": 30
+        }"#;
+        let p: PoolEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(p.outpoint, "aa#0");
+        assert_eq!(p.value, 1000);
+        assert_eq!(p.reserve_a, 10_000);
+        assert_eq!(p.reserve_b, 20_000);
+        assert_eq!(p.lp_total, 14_142);
+        assert_eq!(p.fee_bps, 30);
     }
 
     #[test]

@@ -9,6 +9,9 @@ storage_backend = "memory"
 node_key_seed_hex = "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
 round_robin_leader = true
 startup_warmup_secs = 12
+# Existing devnet chain predates utxo_commitment enforcement; opt out so a
+# mixed-version mesh keeps converging. New chains should run with `true`.
+enforce_utxo_commitment = false
 
 [gossip]
 max_peers = 64

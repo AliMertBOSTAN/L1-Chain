@@ -1,0 +1,178 @@
+name: Release
+
+# Tag-tabanlı binary release pipeline.
+#
+# Tetikleyici:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Adımlar:
+#   1. Windows x64 ve macOS arm64 runner'larında her crate binary'sini build.
+#   2. Strip + tar/zip arşivi + sha256 manifesti.
+#   3. GitHub Release oluştur, varlıkları yükle.
+#   4. Manuel tetik için "Run workflow" da etkin (workflow_dispatch).
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (örn. v0.1.0-rc1) — manuel tetik için"
+        required: true
+        default: "v0.0.0-dev"
+
+permissions:
+  contents: write   # GitHub Release oluşturmak ve varlık yüklemek için
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_RELEASE_LTO: thin
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+  CARGO_PROFILE_RELEASE_STRIP: symbols
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Per-platform binary build. Her job kendi runner'ında derleyip varlıkları
+  # GitHub Release'e yükler.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_ext: zip
+            bin_ext: ".exe"
+          - name: macos-arm64
+            os: macos-14   # macOS 14 = Sonoma, Apple Silicon (M1+)
+            target: aarch64-apple-darwin
+            archive_ext: tar.gz
+            bin_ext: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # versiyon damgası için git describe gerekiyor
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      # Linux/macOS build için gereken native deps zaten kurulu;
+      # Windows için clang + perl (openssl-sys backup için) hazır.
+      - name: Install native deps (macOS)
+        if: matrix.os == 'macos-14'
+        run: brew install pkg-config
+
+      # ---------------------------------------------------------------
+      # Build üç binary'yi de tek seferde — workspace --release modunda.
+      # Cargo profili tepedeki env'lerle ayarlandı (LTO thin + codegen 1
+      # + strip symbols). Tek bir kontrolde küçük + hızlı binary çıkar.
+      # ---------------------------------------------------------------
+      - name: Build binaries
+        shell: bash
+        env:
+          QV_BUILD_GIT_HASH: ${{ github.sha }}
+          QV_BUILD_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          cargo build --release --target ${{ matrix.target }} \
+            -p qv-wallet -p qv-node -p qv-miner
+
+      # ---------------------------------------------------------------
+      # Arşivleme. Her platform için ayrı format:
+      #   Windows : zip (PowerShell Compress-Archive)
+      #   macOS   : tar.gz (POSIX-uyumlu)
+      # Arşiv içeriği:
+      #   bin/qv-wallet(.exe)
+      #   bin/qv-node(.exe)
+      #   bin/qv-miner(.exe)
+      #   README.md
+      #   LICENSE (varsa)
+      #   docs/INSTALL.md
+      # ---------------------------------------------------------------
+      - name: Stage release contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="release-stage"
+          rm -rf "$stage"
+          mkdir -p "$stage/bin"
+          for b in qv-wallet qv-node qv-miner; do
+            src="target/${{ matrix.target }}/release/${b}${{ matrix.bin_ext }}"
+            if [ ! -f "$src" ]; then
+              echo "::error::missing binary: $src"
+              ls -la "target/${{ matrix.target }}/release" || true
+              exit 1
+            fi
+            cp "$src" "$stage/bin/"
+          done
+          cp README.md "$stage/" 2>/dev/null || true
+          cp LICENSE  "$stage/" 2>/dev/null || true
+          [ -f docs/INSTALL.md ] && cp docs/INSTALL.md "$stage/" || true
+          [ -f docs/PUBLIC-DEVNET-RPC.md ] && cp docs/PUBLIC-DEVNET-RPC.md "$stage/" || true
+          # Sürüm imzası: hangi git revizyonundan derlendi.
+          cat > "$stage/BUILD-INFO.txt" <<EOF
+          QuantumVault L1 — release artifact
+          tag:        ${{ steps.tag.outputs.tag }}
+          target:     ${{ matrix.target }}
+          git_sha:    ${{ github.sha }}
+          built_at:   $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          built_by:   GitHub Actions (${{ github.workflow }} / ${{ github.run_id }})
+          EOF
+          ls -la "$stage" "$stage/bin"
+
+      - name: Create archive
+        id: archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="quantumvault-${{ steps.tag.outputs.tag }}-${{ matrix.name }}"
+          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
+            (cd release-stage && powershell -NoProfile -Command "Compress-Archive -Path * -DestinationPath ../${name}.zip")
+            file="${name}.zip"
+          else
+            tar -czf "${name}.tar.gz" -C release-stage .
+            file="${name}.tar.gz"
+          fi
+          # sha256
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            powershell -NoProfile -Command "(Get-FileHash '$file' -Algorithm SHA256).Hash.ToLower()" \
+              > "${file}.sha256"
+          else
+            shasum -a 256 "$file" | awk '{print $1}' > "${file}.sha256"
+          fi
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          ls -la "$file" "${file}.sha256"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: |
+            ${{ steps.archive.outputs.file }}
+            ${{ steps.archive.outputs.file }}.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-rc') || contains(steps.tag.outputs.tag, '-beta') || contains(steps.tag.outputs.tag, '-alpha') }}

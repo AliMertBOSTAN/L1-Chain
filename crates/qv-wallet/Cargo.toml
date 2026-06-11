@@ -19,6 +19,7 @@ path = "src/main.rs"
 qv-common  = { workspace = true }
 qv-core    = { workspace = true }
 qv-crypto  = { workspace = true }
+qv-defi    = { workspace = true }
 qv-privacy = { workspace = true }
 qv-script  = { workspace = true }
 

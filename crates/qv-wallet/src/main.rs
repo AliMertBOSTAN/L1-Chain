@@ -13,7 +13,7 @@ use qv_crypto::{DilithiumLevel, PqcPublicKey, SharedSecret};
 use qv_privacy::StealthKeys;
 use qv_script::templates::{p2pkh_pqc, pubkey_hash};
 use qv_wallet::address::{decode_address, encode_address, fingerprint};
-use qv_wallet::cli::{Cli, Commands, ContactsCmd};
+use qv_wallet::cli::{Cli, Commands, ContactsCmd, SwapDirectionArg};
 use qv_wallet::hd::{DefaultSeedDeriver, DEVNET_TEST_MNEMONIC};
 use qv_wallet::keystore::{
     PersistedViewKey, WalletKeystore, WalletMetadata, WalletSecret,
@@ -21,6 +21,10 @@ use qv_wallet::keystore::{
 use qv_wallet::qvaddr::{address_to_qr_parts, render_qr_unicode, Qvaddr};
 use qv_wallet::rpc_client::{P2pkhMatch, RpcClient, StealthMatch};
 use qv_wallet::server::{serve as serve_ui, AppState};
+use qv_wallet::swap::{
+    direction_from_arg, direction_label, execute_create_pool, execute_swap,
+    CreatePoolParams, SwapParams,
+};
 use qv_wallet::tx_builder::TxBuilder;
 use qv_wallet::disclose::{create_disclosure, DisclosureFile};
 use qv_wallet::view_export::ViewKeyExport;
@@ -34,6 +38,10 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     tracing::info!("qv-wallet starting");
+
+    // `--network devnet` ya da `--network local` iyi-bilinen URL'lere
+    // çözülür; yoksa `--rpc` parametresinin değeri kullanılır.
+    let rpc_url = cli.effective_rpc_url();
 
     match cli.command {
         Commands::Init { out } => {
@@ -66,10 +74,10 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Commands::Scan { from, to, account } => {
-            cmd_scan(&cli.keystore, &cli.rpc, from, to, account).await?;
+            cmd_scan(&cli.keystore, &rpc_url, from, to, account).await?;
         }
         Commands::Balance { account } => {
-            cmd_balance(&cli.keystore, &cli.rpc, account).await?;
+            cmd_balance(&cli.keystore, &rpc_url, account).await?;
         }
         Commands::SendStealth {
             to_address,
@@ -85,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
                 to_qvaddr.as_deref(),
                 to_contact.as_deref(),
             )?;
-            cmd_send_stealth(&cli.keystore, &cli.rpc, &recipient, amount, fee, account).await?;
+            cmd_send_stealth(&cli.keystore, &rpc_url, &recipient, amount, fee, account).await?;
         }
         Commands::Contacts(cmd) => {
             cmd_contacts(&cli.keystore, cmd).await?;
@@ -94,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
             cmd_export_view_key(&cli.keystore, &out, account, label).await?;
         }
         Commands::AuditScan { view_key, from, to } => {
-            cmd_audit_scan(&view_key, &cli.rpc, from, to).await?;
+            cmd_audit_scan(&view_key, &rpc_url, from, to).await?;
         }
         Commands::Disclose {
             utxo,
@@ -103,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
             account,
             amount,
         } => {
-            cmd_disclose(&cli.keystore, &cli.rpc, &utxo, &out, label, account, amount).await?;
+            cmd_disclose(&cli.keystore, &rpc_url, &utxo, &out, label, account, amount).await?;
         }
         Commands::VerifyDisclosure { proof } => {
             cmd_verify_disclosure(&proof).await?;
@@ -115,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
         } => {
             cmd_serve(
                 &cli.keystore,
-                &cli.rpc,
+                &rpc_url,
                 &bind,
                 wallets_dir.as_deref(),
                 session_ttl_secs,
@@ -133,13 +141,71 @@ async fn main() -> anyhow::Result<()> {
         } => {
             cmd_send_plain(
                 &cli.keystore,
-                &cli.rpc,
+                &rpc_url,
                 &to_pubkey,
                 amount,
                 &input,
                 input_value,
                 account,
                 fee,
+                broadcast,
+            )
+            .await?;
+        }
+        Commands::Swap {
+            pool,
+            direction,
+            amount,
+            min_receive,
+            input,
+            input_value,
+            account,
+            fee,
+            broadcast,
+        } => {
+            cmd_swap(
+                &cli.keystore,
+                &rpc_url,
+                &pool,
+                direction,
+                amount,
+                min_receive,
+                input.as_deref(),
+                input_value,
+                account,
+                fee,
+                broadcast,
+            )
+            .await?;
+        }
+        Commands::CreatePool {
+            token_a,
+            token_b,
+            fee_bps,
+            reserve_a,
+            reserve_b,
+            pool_value,
+            input,
+            input_value,
+            account,
+            fee,
+            broadcast,
+        } => {
+            cmd_create_pool(
+                &cli.keystore,
+                &rpc_url,
+                CreatePoolParams {
+                    token_a_hex: token_a,
+                    token_b_hex: token_b,
+                    fee_bps,
+                    reserve_a,
+                    reserve_b,
+                    pool_value,
+                    input,
+                    input_value,
+                    fee,
+                },
+                account,
                 broadcast,
             )
             .await?;
@@ -961,6 +1027,183 @@ async fn cmd_send_plain(
         println!();
         println!("Hex-encoded transaction (paste to RPC qv_sendTransaction):");
         println!("  {tx_hex}");
+        println!();
+        println!("Add --broadcast to submit via {rpc_url} automatically.");
+    }
+
+    Ok(())
+}
+
+/// Build, sign, and (optionally) broadcast an AMM swap against a pool UTXO
+/// locked by `amm_pool_lock` (Faz 6 / D-4).
+///
+/// The whole flow (pool fetch + verification, funding selection,
+/// `qv_defi::build_swap_tx`, ADR-012 signing) lives in the shared
+/// [`qv_wallet::swap::execute_swap`] — the same code path the HTTP
+/// `/api/defi/swap` endpoint uses. This function only unlocks the
+/// keystore, prints the summary, and handles `--broadcast`.
+///
+/// Token accounting is datum-level for now: the funding input only covers
+/// the network fee, and the change + (datum-tracked) proceeds go to the
+/// account's own plain p2pkh output.
+#[allow(clippy::too_many_arguments)]
+async fn cmd_swap(
+    keystore_path: &Path,
+    rpc_url: &str,
+    pool: &str,
+    direction_arg: SwapDirectionArg,
+    amount: u64,
+    min_receive: u64,
+    input: Option<&str>,
+    input_value: Option<u64>,
+    account: u32,
+    fee: u64,
+    broadcast: bool,
+) -> anyhow::Result<()> {
+    if amount == 0 {
+        anyhow::bail!("--amount must be positive");
+    }
+    let direction = direction_from_arg(direction_arg);
+    let rpc = RpcClient::new(rpc_url);
+    let stealth = unlock_and_derive(keystore_path, account)?;
+
+    let params = SwapParams {
+        pool: pool.to_string(),
+        direction,
+        amount_in: amount,
+        min_receive,
+        input: input.map(str::to_string),
+        input_value,
+        fee,
+    };
+    let outcome = execute_swap(
+        &rpc,
+        &stealth.spend_kp.secret,
+        &stealth.spend_kp.public,
+        &params,
+    )
+    .await?;
+
+    // ----- Summary + broadcast (send command pattern). -----
+    println!();
+    println!("AMM swap built");
+    println!("  pool:          {}", outcome.pool_outpoint);
+    println!("  direction:     {}", direction_label(direction));
+    println!("  amount in:     {amount}");
+    println!(
+        "  amount out:    {}  (min-receive floor {min_receive})",
+        outcome.amount_out
+    );
+    println!(
+        "  pool fee:      {} (stays in the pool reserves)",
+        outcome.pool_fee_paid
+    );
+    println!("  network fee:   {fee}");
+    println!(
+        "  funding utxo:  {}  (value {}, change {})",
+        outcome.user_outpoint, outcome.user_input_value, outcome.change
+    );
+    println!(
+        "  new reserves:  A={}  B={}  (lp_total {})",
+        outcome.new_pool_datum.reserve_a,
+        outcome.new_pool_datum.reserve_b,
+        outcome.new_pool_datum.lp_total
+    );
+    println!("  local tx_id:   {}", outcome.tx_id_hex);
+    println!(
+        "  tx size:       {} bytes ({} hex)",
+        outcome.tx_size,
+        outcome.tx_hex.len()
+    );
+
+    if broadcast {
+        let res = rpc.send_transaction(&outcome.tx_hex).await?;
+        println!("Broadcast OK. RPC result: {res}");
+    } else {
+        println!();
+        println!("Hex-encoded transaction (paste to RPC qv_sendTransaction):");
+        println!("  {}", outcome.tx_hex);
+        println!();
+        println!("Add --broadcast to submit via {rpc_url} automatically.");
+    }
+
+    Ok(())
+}
+
+/// Build, sign, and (optionally) broadcast the genesis transaction of a
+/// brand-new AMM pool UTXO (Faz 6 / D-5).
+///
+/// The shared flow ([`qv_wallet::swap::execute_create_pool`], also behind
+/// `/api/defi/create-pool`) assembles output #0 as the pool UTXO
+/// (`amm_pool_lock` script + canonical `PoolDatum`,
+/// `lp_total = ⌊sqrt(reserve_a · reserve_b)⌋` via the empty-pool
+/// add-liquidity path) and output #1 as change.
+async fn cmd_create_pool(
+    keystore_path: &Path,
+    rpc_url: &str,
+    params: CreatePoolParams,
+    account: u32,
+    broadcast: bool,
+) -> anyhow::Result<()> {
+    let rpc = RpcClient::new(rpc_url);
+    let stealth = unlock_and_derive(keystore_path, account)?;
+
+    let outcome = execute_create_pool(
+        &rpc,
+        &stealth.spend_kp.secret,
+        &stealth.spend_kp.public,
+        &params,
+    )
+    .await?;
+
+    println!();
+    println!("AMM pool genesis built");
+    println!("  pool outpoint: {}   <- pass this to `swap --pool`", outcome.pool_outpoint);
+    println!(
+        "  token A:       {}",
+        hex::encode(outcome.pool_datum.token_a_id.as_bytes())
+    );
+    println!(
+        "  token B:       {}",
+        hex::encode(outcome.pool_datum.token_b_id.as_bytes())
+    );
+    println!(
+        "  reserves:      A={}  B={}",
+        outcome.pool_datum.reserve_a, outcome.pool_datum.reserve_b
+    );
+    println!(
+        "  swap fee:      {} bps  |  pool native value: {}",
+        outcome.pool_datum.fee_bps, params.pool_value
+    );
+    println!(
+        "  lp_total:      {}  (datum-level LP accounting — see note below)",
+        outcome.lp_total
+    );
+    println!("  network fee:   {}", params.fee);
+    println!(
+        "  funding utxo:  {}  (value {}, change {})",
+        outcome.user_outpoint, outcome.user_input_value, outcome.change
+    );
+    println!("  local tx_id:   {}", outcome.tx_id_hex);
+    println!(
+        "  tx size:       {} bytes ({} hex)",
+        outcome.tx_size,
+        outcome.tx_hex.len()
+    );
+    println!();
+    println!("  NOTE (D-5 scope): LP shares exist only as the datum's lp_total field —");
+    println!("  there is NO on-chain LP token. Add/remove-liquidity spend paths are D-6+;");
+    println!("  the pool covenant (x*y >= k) would pass add-liquidity-shaped transitions");
+    println!("  but blocks remove-liquidity, so locked reserves cannot be withdrawn yet.");
+
+    if broadcast {
+        let res = rpc.send_transaction(&outcome.tx_hex).await?;
+        println!();
+        println!("Broadcast OK. RPC result: {res}");
+    } else {
+        println!();
+        println!("Hex-encoded transaction (paste to RPC qv_sendTransaction):");
+        println!("  {}", outcome.tx_hex);
         println!();
         println!("Add --broadcast to submit via {rpc_url} automatically.");
     }

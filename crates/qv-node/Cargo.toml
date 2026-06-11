@@ -37,6 +37,9 @@ qv-mempool   = { workspace = true }
 qv-script    = { workspace = true }
 qv-privacy   = { workspace = true }
 qv-wallet    = { workspace = true }
+# Faz 6 D-5: `qv_listPools` decodes canonical PoolDatum bytes. No cycle:
+# qv-defi depends only on qv-common/qv-core/qv-script/qv-crypto.
+qv-defi      = { workspace = true }
 
 # Async runtime
 tokio          = { workspace = true }

@@ -209,6 +209,54 @@ node_client.submit_transaction(&signed).await?;
 
 ## Lending Protocol
 
+### On-Chain Lending Covenant (Faz 6 / D-6, ADR-013) — current API
+
+As of D-6 the lending pool is enforced **on-chain** by the
+`qv_script::templates::lending_pool_lock` covenant. The pool UTXO carries
+the canonical 146-byte `LendingPoolDatum` encoding
+(`LendingPoolDatum::to_canonical_bytes`), and four wallet-side builders in
+`qv_defi::tx_helpers` assemble covenant-satisfying transactions:
+
+```rust
+use qv_defi::{
+    build_lending_deposit_tx, build_lending_borrow_tx,
+    build_lending_repay_tx, build_lending_withdraw_tx,
+    sign_oracle_price, LendingRequestCore,
+};
+
+// Deposit / repay: price-less spend path (pool health can only improve).
+let bundle = build_lending_deposit_tx(&req, 50_000)?;
+
+// Borrow / withdraw: need a fresh oracle-signed price. The oracle
+// operator signs `TAG ‖ pool_id ‖ price_scaled ‖ slot` with ML-DSA:
+let price = sign_oracle_price(&oracle_secret, &oracle_public,
+                              pool_id, price_scaled, current_slot)?;
+let bundle = build_lending_borrow_tx(&req, 400_000, &price)?;
+
+// `bundle.tx` carries the pool input's covenant witness already;
+// the wallet signs `bundle.inputs_to_sign` (the user input) and broadcasts.
+```
+
+The covenant verifies: datum shape + pinned identity/risk parameters,
+frozen interest fields, pool native-value preservation, script
+continuity, and — on the borrow/withdraw path — price freshness
+(`SLOT_NUMBER` window) plus a real `CHECKSIG_PQC` over the oracle message
+and the division-free collateral check
+`total_debt · K ≤ total_collateral · price_scaled` (`K` baked in from
+`ltv_max_bps`, see `lending_ltv_factor`).
+
+**Honest v1 limits (ADR-013):** single oracle key (t-of-n median is v2);
+pool-aggregate LTV only — per-position enforcement and liquidation need
+position UTXOs (v2); no on-chain interest accrual (interest fields are
+frozen by the covenant; `accrue_interest` is off-chain quoting); token
+settlement is datum-level accounting until native multi-asset outputs
+land; **no CLI/RPC surface yet** — this layer stops at `tx_helpers`
+(a `qv-wallet lend` CLI following the D-4 `swap` pattern is future work).
+
+> The subsections below describe the longer-term design (per-position
+> Merkle roots, position NFTs, redeemers) and do **not** reflect the
+> current API.
+
 ### Lending Pool Architecture
 
 Each lending pool has a single UTXO encoding collateral and debt:

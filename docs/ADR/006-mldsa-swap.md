@@ -1,6 +1,6 @@
 # ADR-006: Full Swap to `ml-dsa` (FIPS 204) — pqcrypto-dilithium'ı Kaldır
 
-**Durum:** Önerildi (uygulama 2026-05-07'de başladı, C-04/C-06 envanter girdileri kapanır)
+**Durum:** Approved + Uygulandı (2026-05-07) — `pqcrypto-dilithium` workspace'ten tamamen kaldırıldı, C-04/C-06 kapandı; test suite yeşil (736+)
 **Tarih:** 2026-05-07
 **Yazarlar:** QuantumVault Team
 **Yer:** `crates/qv-crypto/src/pqc_sign.rs`, `crates/qv-crypto/Cargo.toml`, workspace `Cargo.toml`

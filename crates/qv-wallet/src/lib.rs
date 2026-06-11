@@ -24,6 +24,7 @@ pub mod scanner;
 pub mod server;
 pub mod server_ui;
 pub mod session;
+pub mod swap;
 pub mod tx_builder;
 pub mod view_export;
 

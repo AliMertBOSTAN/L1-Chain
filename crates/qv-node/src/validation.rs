@@ -8,10 +8,12 @@
 //! 3. **Fee requirements**: The transaction must pay a minimum fee.
 //! 4. **Script validation**: Each input's witness must satisfy its corresponding locking script.
 
+use std::collections::BTreeMap;
+
 use thiserror::Error;
 use tracing::{debug, warn};
 
-use qv_core::{OutPoint, Transaction, TxId, TxOutput};
+use qv_core::{Amount, Block, Height, MonetaryParams, OutPoint, Transaction, TxId, TxOutput};
 use qv_script::validate_script;
 use qv_storage::kv::KvStore;
 use qv_storage::utxo_store::UtxoStore;
@@ -52,6 +54,38 @@ pub enum TxValidationError {
     /// A UTXO referenced by this transaction is already spent in the mempool.
     #[error("double spend: UTXO {0} already spent")]
     DoubleSpend(OutPoint),
+
+    /// A transaction's outputs exceed its resolved input values (negative fee).
+    #[error("outputs exceed inputs in transaction at index {tx_index}")]
+    FeeNegative {
+        /// Zero-based index of the offending transaction within the block.
+        tx_index: usize,
+    },
+
+    /// A coinbase output was spent before reaching maturity.
+    #[error(
+        "immature coinbase spend of {outpoint}: created at height {created_height}, \
+         spent at height {spend_height}, requires {required_depth} confirmations"
+    )]
+    ImmatureCoinbase {
+        /// The coinbase outpoint being spent.
+        outpoint: OutPoint,
+        /// Height of the block that created the coinbase output.
+        created_height: u64,
+        /// Height of the block attempting the spend.
+        spend_height: u64,
+        /// Required maturity depth (consensus `k`).
+        required_depth: u64,
+    },
+
+    /// The coinbase claims more than `block_subsidy + total_fees`.
+    #[error("coinbase overclaim: claimed {claimed}, maximum allowed {max_allowed}")]
+    CoinbaseOverclaim {
+        /// Sum of the coinbase outputs (smallest units).
+        claimed: u64,
+        /// Maximum permissible claim: capped subsidy + fees (smallest units).
+        max_allowed: u64,
+    },
 
     /// Storage layer error (e.g., corrupted UTXO data).
     #[error("storage error: {0}")]
@@ -134,11 +168,11 @@ pub fn validate_transaction<S: KvStore>(
     }
 
     // Step 3: Calculate fee
-    let input_sum = qv_core::Amount::checked_sum(resolved_inputs.iter().map(|o| o.value)).ok_or(
+    let input_sum = Amount::checked_sum(resolved_inputs.iter().map(|o| o.value)).ok_or(
         TxValidationError::Internal("input value overflow".to_string()),
     )?;
 
-    let output_sum = qv_core::Amount::checked_sum(tx.outputs.iter().map(|o| o.value)).ok_or(
+    let output_sum = Amount::checked_sum(tx.outputs.iter().map(|o| o.value)).ok_or(
         TxValidationError::Internal("output value overflow".to_string()),
     )?;
 
@@ -214,6 +248,165 @@ pub fn validate_transaction<S: KvStore>(
 }
 
 // ============================================================================
+// Block reward / fee / coinbase-maturity consensus rules
+// ============================================================================
+
+/// Validate the economic consensus rules of a block (coinbase + fees), and
+/// return the block's total transaction fees.
+///
+/// Checked rules (positions/structure are already covered by
+/// `Block::validate_structure`; this function adds the value-level rules):
+///
+/// 1. **Fee non-negativity** — for every non-coinbase transaction,
+///    `sum(resolved input values) >= sum(output values)`; the difference is
+///    the fee. Inputs may reference outputs created earlier in the same
+///    block (chained transactions).
+/// 2. **Coinbase maturity** — no input may spend a coinbase output that is
+///    fewer than `coinbase_maturity` (= consensus `k`) blocks deep:
+///    `block.height >= creation_height + k`. Spending a coinbase created in
+///    the *same* block is always immature.
+/// 3. **Coinbase amount cap** — if the block carries a coinbase (no-input tx
+///    at position 0), `sum(coinbase outputs) <= block_subsidy(height) +
+///    total_fees` (supply-cap-adjusted via
+///    [`qv_consensus::total_block_reward`]). Underclaiming is allowed
+///    (Bitcoin rule); the unclaimed difference is burned.
+///
+/// Genesis blocks (height 0) carry allocations, not a coinbase, and are
+/// exempt (they are applied directly at node bootstrap, never through this
+/// path).
+///
+/// Must be called **before** the block is applied to `utxo_store` — input
+/// resolution expects the pre-block UTXO state.
+pub fn validate_block_rewards<S: KvStore>(
+    block: &Block,
+    utxo_store: &UtxoStore<S>,
+    monetary: &MonetaryParams,
+    coinbase_maturity: u64,
+) -> Result<Amount, TxValidationError> {
+    let height = block.header.height;
+    if height == Height::GENESIS {
+        return Ok(Amount::ZERO);
+    }
+
+    // Outputs created earlier in this block: outpoint -> (value, is_coinbase).
+    let mut in_block: BTreeMap<OutPoint, (Amount, bool)> = BTreeMap::new();
+    let mut total_fees = Amount::ZERO;
+    let mut coinbase_claim: Option<Amount> = None;
+
+    for (tx_index, tx) in block.transactions.iter().enumerate() {
+        let tx_id = tx
+            .id()
+            .map_err(|e| TxValidationError::HashError(e.to_string()))?;
+        let is_coinbase = tx_index == 0 && tx.inputs.is_empty();
+
+        let output_sum = Amount::checked_sum(tx.outputs.iter().map(|o| o.value)).ok_or(
+            TxValidationError::Internal("output value overflow".to_string()),
+        )?;
+
+        if is_coinbase {
+            coinbase_claim = Some(output_sum);
+        } else {
+            let mut input_sum = Amount::ZERO;
+            for input in &tx.inputs {
+                let outpoint = input.prev_output;
+                let value = if let Some((value, from_coinbase)) = in_block.get(&outpoint) {
+                    if *from_coinbase {
+                        // Spending this block's own coinbase: depth 0 < k.
+                        return Err(TxValidationError::ImmatureCoinbase {
+                            outpoint,
+                            created_height: height.as_u64(),
+                            spend_height: height.as_u64(),
+                            required_depth: coinbase_maturity,
+                        });
+                    }
+                    *value
+                } else {
+                    let resolved = utxo_store
+                        .get(&outpoint)
+                        .map_err(|e| TxValidationError::Storage(e.to_string()))?
+                        .ok_or(TxValidationError::InputNotFound(outpoint))?;
+                    if let Some(created) = utxo_store
+                        .coinbase_height(&outpoint)
+                        .map_err(|e| TxValidationError::Storage(e.to_string()))?
+                    {
+                        if height.as_u64() < created.saturating_add(coinbase_maturity) {
+                            return Err(TxValidationError::ImmatureCoinbase {
+                                outpoint,
+                                created_height: created,
+                                spend_height: height.as_u64(),
+                                required_depth: coinbase_maturity,
+                            });
+                        }
+                    }
+                    resolved.value
+                };
+                input_sum = input_sum.checked_add(value).ok_or(
+                    TxValidationError::Internal("input value overflow".to_string()),
+                )?;
+            }
+
+            let fee = input_sum
+                .checked_sub(output_sum)
+                .ok_or(TxValidationError::FeeNegative { tx_index })?;
+            total_fees = total_fees.checked_add(fee).ok_or(TxValidationError::Internal(
+                "fee sum overflow".to_string(),
+            ))?;
+        }
+
+        for (idx, output) in tx.outputs.iter().enumerate() {
+            let idx_u32 = u32::try_from(idx).map_err(|_| {
+                TxValidationError::Internal("output index overflow".to_string())
+            })?;
+            in_block.insert(OutPoint::new(tx_id, idx_u32), (output.value, is_coinbase));
+        }
+    }
+
+    if let Some(claimed) = coinbase_claim {
+        let max_allowed = qv_consensus::total_block_reward(height, total_fees, monetary);
+        if claimed > max_allowed {
+            return Err(TxValidationError::CoinbaseOverclaim {
+                claimed: claimed.as_u64(),
+                max_allowed: max_allowed.as_u64(),
+            });
+        }
+    }
+
+    Ok(total_fees)
+}
+
+/// Mempool-path coinbase-maturity check: reject a transaction that spends a
+/// coinbase output which would still be immature if included in a block at
+/// `candidate_height` (normally `tip.height + 1`).
+///
+/// The block-apply path re-enforces the same rule consensus-critically in
+/// [`validate_block_rewards`]; this front-runs it so immature spends never
+/// sit in the mempool waiting to invalidate a block.
+pub fn check_coinbase_maturity<S: KvStore>(
+    tx: &Transaction,
+    utxo_store: &UtxoStore<S>,
+    candidate_height: Height,
+    coinbase_maturity: u64,
+) -> Result<(), TxValidationError> {
+    for input in &tx.inputs {
+        let outpoint = input.prev_output;
+        if let Some(created) = utxo_store
+            .coinbase_height(&outpoint)
+            .map_err(|e| TxValidationError::Storage(e.to_string()))?
+        {
+            if candidate_height.as_u64() < created.saturating_add(coinbase_maturity) {
+                return Err(TxValidationError::ImmatureCoinbase {
+                    outpoint,
+                    created_height: created,
+                    spend_height: candidate_height.as_u64(),
+                    required_depth: coinbase_maturity,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
 // Mempool insertion helper
 // ============================================================================
 
@@ -244,7 +437,7 @@ pub fn insert_validated_tx(
     let entry = qv_mempool::clear::MempoolEntry::new(
         tx,
         tx_id,
-        qv_core::Amount::from_smallest_units(validated.fee),
+        Amount::from_smallest_units(validated.fee),
         size,
     );
 
@@ -411,6 +604,228 @@ mod tests {
             matches!(result, Err(TxValidationError::StructureInvalid(_))),
             "should reject tx with no outputs"
         );
+    }
+
+    // ---- validate_block_rewards / coinbase maturity ----
+
+    use qv_core::{Block, BlockHeader, Height, MonetaryParams};
+
+    /// Simple monetary parameters: 100-unit initial reward, halving every
+    /// 10 blocks, 1M supply cap.
+    fn simple_monetary() -> MonetaryParams {
+        MonetaryParams {
+            total_supply: Amount::from_smallest_units(1_000_000),
+            initial_block_reward: Amount::from_smallest_units(100),
+            halving_interval_blocks: 10,
+            min_fee_per_byte: 0,
+        }
+    }
+
+    /// Build a block at `height` from raw transactions. Only `header.height`
+    /// and `transactions` matter to `validate_block_rewards`.
+    fn reward_block(height: u64, txs: Vec<Transaction>) -> Block {
+        let mut header = BlockHeader::genesis_template();
+        header.height = Height::from(height);
+        Block::new(header, txs)
+    }
+
+    fn coinbase(height: u64, value: u64) -> Transaction {
+        Transaction::new_coinbase(
+            Height::from(height),
+            vec![TxOutput::new(
+                Amount::from_smallest_units(value),
+                Script::new(vec![0xC0]),
+            )],
+        )
+    }
+
+    fn spend(input_op: OutPoint, output_value: u64) -> Transaction {
+        Transaction::new(
+            vec![TxInput::new(input_op)],
+            vec![TxOutput::new(
+                Amount::from_smallest_units(output_value),
+                Script::new(vec![0x01]),
+            )],
+        )
+    }
+
+    #[test]
+    fn rewards_computes_total_fees() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+        let op1 = OutPoint::new(TxId::from_bytes([1u8; 32]), 0);
+        let op2 = OutPoint::new(TxId::from_bytes([2u8; 32]), 0);
+        store
+            .insert(op1, TxOutput::new(Amount::from_smallest_units(1_000), Script::default()))
+            .unwrap();
+        store
+            .insert(op2, TxOutput::new(Amount::from_smallest_units(500), Script::default()))
+            .unwrap();
+
+        // Fees: (1000 - 990) + (500 - 460) = 10 + 40 = 50.
+        let block = reward_block(1, vec![spend(op1, 990), spend(op2, 460)]);
+        let fees = validate_block_rewards(&block, &store, &simple_monetary(), 50).unwrap();
+        assert_eq!(fees.as_u64(), 50);
+    }
+
+    #[test]
+    fn rewards_accepts_exact_and_underclaiming_coinbase() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+        let op = OutPoint::new(TxId::from_bytes([3u8; 32]), 0);
+        store
+            .insert(op, TxOutput::new(Amount::from_smallest_units(1_000), Script::default()))
+            .unwrap();
+
+        // Subsidy at height 1 = 100, fee = 10 → cap = 110.
+        let exact = reward_block(1, vec![coinbase(1, 110), spend(op, 990)]);
+        validate_block_rewards(&exact, &store, &simple_monetary(), 50)
+            .expect("exact claim must validate");
+
+        let under = reward_block(1, vec![coinbase(1, 75), spend(op, 990)]);
+        validate_block_rewards(&under, &store, &simple_monetary(), 50)
+            .expect("underclaiming must be allowed");
+    }
+
+    #[test]
+    fn rewards_rejects_coinbase_overclaim() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+        let op = OutPoint::new(TxId::from_bytes([4u8; 32]), 0);
+        store
+            .insert(op, TxOutput::new(Amount::from_smallest_units(1_000), Script::default()))
+            .unwrap();
+
+        // cap = subsidy(100) + fee(10) = 110; claim 111 → reject.
+        let block = reward_block(1, vec![coinbase(1, 111), spend(op, 990)]);
+        let err = validate_block_rewards(&block, &store, &simple_monetary(), 50).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                TxValidationError::CoinbaseOverclaim {
+                    claimed: 111,
+                    max_allowed: 110
+                }
+            ),
+            "expected CoinbaseOverclaim, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn rewards_rejects_negative_fee() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+        let op = OutPoint::new(TxId::from_bytes([5u8; 32]), 0);
+        store
+            .insert(op, TxOutput::new(Amount::from_smallest_units(100), Script::default()))
+            .unwrap();
+
+        // Outputs (150) exceed inputs (100).
+        let block = reward_block(1, vec![spend(op, 150)]);
+        let err = validate_block_rewards(&block, &store, &simple_monetary(), 50).unwrap_err();
+        assert!(
+            matches!(err, TxValidationError::FeeNegative { tx_index: 0 }),
+            "expected FeeNegative, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn rewards_rejects_immature_coinbase_spend() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+
+        // Coinbase output created at height 1 (recorded via apply_block).
+        let cb = coinbase(1, 100);
+        let mut header = BlockHeader::genesis_template();
+        header.height = Height::from(1);
+        let mut cb_block = Block::new(header, vec![cb]);
+        cb_block.header.merkle_root = cb_block.compute_merkle_root().unwrap();
+        store.apply_block(&cb_block).unwrap();
+
+        let cb_op = OutPoint::new(cb_block.transactions[0].id().unwrap(), 0);
+        assert_eq!(store.coinbase_height(&cb_op).unwrap(), Some(1));
+
+        // Spend at height 5: depth 4 < k=50 → immature.
+        let block = reward_block(5, vec![spend(cb_op, 90)]);
+        let err = validate_block_rewards(&block, &store, &simple_monetary(), 50).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                TxValidationError::ImmatureCoinbase {
+                    created_height: 1,
+                    spend_height: 5,
+                    required_depth: 50,
+                    ..
+                }
+            ),
+            "expected ImmatureCoinbase, got {err:?}"
+        );
+
+        // Spend at height 51: depth 50 >= k=50 → mature.
+        let mature = reward_block(51, vec![spend(cb_op, 90)]);
+        validate_block_rewards(&mature, &store, &simple_monetary(), 50)
+            .expect("mature coinbase spend must validate");
+    }
+
+    #[test]
+    fn rewards_rejects_same_block_coinbase_spend() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+
+        let cb = coinbase(1, 100);
+        let cb_op = OutPoint::new(cb.id().unwrap(), 0);
+        // Second tx spends the coinbase created in the same block.
+        let block = reward_block(1, vec![cb, spend(cb_op, 90)]);
+        let err = validate_block_rewards(&block, &store, &simple_monetary(), 50).unwrap_err();
+        assert!(
+            matches!(err, TxValidationError::ImmatureCoinbase { .. }),
+            "same-block coinbase spend must be immature, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn rewards_resolves_chained_in_block_inputs() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+        let op = OutPoint::new(TxId::from_bytes([6u8; 32]), 0);
+        store
+            .insert(op, TxOutput::new(Amount::from_smallest_units(1_000), Script::default()))
+            .unwrap();
+
+        // tx1 spends the stored UTXO (fee 10), tx2 spends tx1's output (fee 5).
+        let tx1 = spend(op, 990);
+        let tx1_out = OutPoint::new(tx1.id().unwrap(), 0);
+        let tx2 = spend(tx1_out, 985);
+
+        let block = reward_block(1, vec![tx1, tx2]);
+        let fees = validate_block_rewards(&block, &store, &simple_monetary(), 50).unwrap();
+        assert_eq!(fees.as_u64(), 15);
+    }
+
+    #[test]
+    fn rewards_skips_genesis_block() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+        let alloc = Transaction::genesis(vec![TxOutput::new(
+            Amount::from_smallest_units(1_000),
+            Script::default(),
+        )]);
+        let block = reward_block(0, vec![alloc]);
+        let fees = validate_block_rewards(&block, &store, &simple_monetary(), 50).unwrap();
+        assert_eq!(fees, Amount::ZERO);
+    }
+
+    #[test]
+    fn mempool_maturity_check_blocks_young_coinbase() {
+        let store = UtxoStore::new(MemoryKvStore::new());
+
+        let cb = coinbase(1, 100);
+        let mut header = BlockHeader::genesis_template();
+        header.height = Height::from(1);
+        let mut cb_block = Block::new(header, vec![cb]);
+        cb_block.header.merkle_root = cb_block.compute_merkle_root().unwrap();
+        store.apply_block(&cb_block).unwrap();
+        let cb_op = OutPoint::new(cb_block.transactions[0].id().unwrap(), 0);
+
+        let tx = spend(cb_op, 90);
+        let err =
+            check_coinbase_maturity(&tx, &store, Height::from(10), 50).unwrap_err();
+        assert!(matches!(err, TxValidationError::ImmatureCoinbase { .. }));
+
+        check_coinbase_maturity(&tx, &store, Height::from(51), 50)
+            .expect("depth 50 satisfies k=50");
     }
 
     #[test]

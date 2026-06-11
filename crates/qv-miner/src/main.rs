@@ -155,8 +155,8 @@ async fn cmd_run(
 ) -> anyhow::Result<()> {
     use qv_consensus::{PoolId, VrfProof};
     use qv_core::{
-        merkle_root_of, Block, BlockHash, BlockHeader, Hash256, Height, ProtocolParams, Slot,
-        Timestamp, Transaction, BLOCK_VERSION,
+        merkle_root_of, Amount, Block, BlockHash, BlockHeader, Hash256, Height, ProtocolParams,
+        Script, Slot, Timestamp, Transaction, TxOutput, BLOCK_VERSION,
     };
     use qv_miner::node_rpc::NodeRpcClient;
     use qv_miner::slot_loop::{run_slot_loop, SlotLoop};
@@ -297,6 +297,39 @@ async fn cmd_run(
     let pool_id_for_producer = pool_id;
     let producer_key_hash = Hash256::from_bytes(qv_crypto::sha3_256(pool_id.as_bytes()));
 
+    // Reward address: `reward_account` must be the 32-byte hex SHA3-256 hash
+    // of the operator's Dilithium spend public key (the same value
+    // `qv_scanP2pkh` takes). When it parses, every produced block carries a
+    // coinbase claiming the block subsidy to `p2pkh_pqc(hash)`; otherwise
+    // blocks are produced without a coinbase (the reward is forfeited —
+    // underclaiming is consensus-valid).
+    let reward_pubkey_hash: Option<[u8; 32]> = match hex::decode(config.reward_account.trim()) {
+        Ok(bytes) => match <[u8; 32]>::try_from(bytes.as_slice()) {
+            Ok(pkh) => {
+                tracing::info!(
+                    reward_pubkey_hash = %config.reward_account.trim(),
+                    "coinbase rewards enabled"
+                );
+                Some(pkh)
+            }
+            Err(_) => {
+                tracing::warn!(
+                    reward_account = %config.reward_account,
+                    "reward_account is not 32 bytes of hex — producing blocks without coinbase"
+                );
+                None
+            }
+        },
+        Err(_) => {
+            tracing::warn!(
+                reward_account = %config.reward_account,
+                "reward_account is not valid hex — producing blocks without coinbase"
+            );
+            None
+        }
+    };
+    let monetary_for_producer = params.monetary.clone();
+
     let block_producer_fn = move |slot: Slot,
                                   vrf_proof: VrfProof|
           -> std::pin::Pin<
@@ -306,6 +339,8 @@ async fn cmd_run(
         let rpc = rpc_for_producer.clone();
         let pool = pool_id_for_producer;
         let producer_hash = producer_key_hash;
+        let reward_pkh = reward_pubkey_hash;
+        let monetary = monetary_for_producer.clone();
         Box::pin(async move {
             // 4.1 Fetch tip.
             let tip = rpc.get_tip().await.map_err(|e| {
@@ -320,7 +355,7 @@ async fn cmd_run(
             let new_height = Height::from(tip.height.saturating_add(1));
 
             // 4.2 Fetch pending transactions.
-            let pending_hex = rpc.get_pending_transactions().await.map_err(|e| {
+            let mut pending_hex = rpc.get_pending_transactions().await.map_err(|e| {
                 qv_miner::MinerError::BlockProduction(format!(
                     "get_pending_transactions failed: {e}"
                 ))
@@ -346,7 +381,43 @@ async fn cmd_run(
                 tx_ids.push(id);
             }
 
-            // 4.3 Merkle root over txids.
+            // 4.2b Coinbase: claim the block subsidy to the operator's
+            //      reward address. Fees are unknown over RPC (the pending
+            //      list carries raw txs, not resolved fees), so only the
+            //      subsidy is claimed — underclaiming is consensus-valid,
+            //      overclaiming would get the block rejected by the node's
+            //      `validate_block_rewards`. The coinbase is also prepended
+            //      to the hex list sent to `qv_getPostApplyCommitment` so
+            //      the stamped commitment covers the reward output.
+            if let Some(pkh) = reward_pkh {
+                let reward =
+                    qv_consensus::total_block_reward(new_height, Amount::ZERO, &monetary);
+                if reward > Amount::ZERO {
+                    let coinbase = Transaction::new_coinbase(
+                        new_height,
+                        vec![TxOutput::new(
+                            reward,
+                            Script::new(qv_script::p2pkh_pqc(&pkh)),
+                        )],
+                    );
+                    let coinbase_id = coinbase.id().map_err(|e| {
+                        qv_miner::MinerError::BlockProduction(format!(
+                            "coinbase id failed: {e}"
+                        ))
+                    })?;
+                    let coinbase_hex =
+                        hex::encode(bincode::serialize(&coinbase).map_err(|e| {
+                            qv_miner::MinerError::Serialization(format!(
+                                "coinbase bincode failed: {e}"
+                            ))
+                        })?);
+                    transactions.insert(0, coinbase);
+                    tx_ids.insert(0, coinbase_id);
+                    pending_hex.insert(0, coinbase_hex);
+                }
+            }
+
+            // 4.3 Merkle root over txids (coinbase included).
             let merkle_root = merkle_root_of(&tx_ids);
 
             // 4.4 Ask the node to compute the post-apply UTXO commitment for

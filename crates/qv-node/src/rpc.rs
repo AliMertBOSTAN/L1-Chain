@@ -50,6 +50,20 @@ pub trait QvNodeApi {
     #[method(name = "qv_getUtxo")]
     async fn get_utxo(&self, outpoint: String) -> RpcResult<Option<UtxoInfo>>;
 
+    /// Discover every live AMM pool UTXO (Faz 6 / D-5).
+    ///
+    /// Scans the live UTXO set: an output qualifies as a pool iff its
+    /// datum is exactly the canonical 90-byte `PoolDatum` encoding **and**
+    /// its locking script is byte-identical to the `amm_pool_lock` script
+    /// regenerated from the datum's `(token_a_id, token_b_id, fee_bps)`.
+    /// The script check filters fake pools — the same principle the D-4
+    /// wallet-side verification applies before building a swap.
+    ///
+    /// Cost is O(UTXO set) per call — acceptable at devnet scale; a
+    /// dedicated pool index is future work.
+    #[method(name = "qv_listPools")]
+    async fn list_pools(&self) -> RpcResult<Vec<PoolInfo>>;
+
     /// Scan the current UTXO set for plain `p2pkh_pqc(pubkey_hash)` outputs.
     ///
     /// Used by wallets to discover "non-stealth" funds — most importantly,
@@ -163,6 +177,14 @@ pub struct TipInfo {
 }
 
 /// Information about a UTXO.
+///
+/// `script_hex` / `datum_hex` were added in Faz 6 (D-4, wallet swap flow):
+/// DeFi clients need the raw locking-script bytes (to regenerate covenant
+/// scripts byte-identically) and the raw datum bytes (to decode the
+/// canonical `PoolDatum`). Both are `Option` + `#[serde(default)]`, so the
+/// extension is backwards compatible in both directions — old clients
+/// ignore the extra JSON fields, and new clients parse old responses
+/// (fields absent → `None`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(crate = "serde")]
 pub struct UtxoInfo {
@@ -170,6 +192,14 @@ pub struct UtxoInfo {
     pub script_hash: String,
     pub has_datum: bool,
     pub has_stealth: bool,
+    /// Raw locking-script bytes, hex-encoded. Always populated by this
+    /// node version; `None` only when parsing a pre-Faz-6 response.
+    #[serde(default)]
+    pub script_hex: Option<String>,
+    /// Raw datum bytes, hex-encoded. `None` when the UTXO carries no
+    /// datum (or when parsing a pre-Faz-6 response — check `has_datum`).
+    #[serde(default)]
+    pub datum_hex: Option<String>,
 }
 
 /// Stealth UTXO match returned by `qv_scanStealth` (ADR-011 Faz 4).
@@ -220,6 +250,71 @@ pub struct P2pkhMatch {
     pub output_index: u32,
     /// Value (smallest units).
     pub value: u64,
+}
+
+/// One live AMM pool returned by `qv_listPools` (Faz 6 / D-5).
+///
+/// All fields are decoded from the pool UTXO's canonical `PoolDatum`
+/// (token ids as lower-case hex). `lp_total` is **datum-level LP share
+/// accounting** — there is no on-chain LP token (D-6+ scope).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(crate = "serde")]
+pub struct PoolInfo {
+    /// Pool UTXO outpoint in canonical `<txid_hex>#<idx>` form — feed it
+    /// directly to `qv-wallet swap --pool`.
+    pub outpoint: String,
+    /// Native value carried by the pool UTXO (smallest units).
+    pub value: u64,
+    /// Token A identifier (32-byte hex).
+    pub token_a_id: String,
+    /// Token B identifier (32-byte hex).
+    pub token_b_id: String,
+    /// Current reserve of token A (smallest units).
+    pub reserve_a: u64,
+    /// Current reserve of token B (smallest units).
+    pub reserve_b: u64,
+    /// Total LP shares issued (datum-level accounting only).
+    pub lp_total: u64,
+    /// Swap fee in basis points.
+    pub fee_bps: u16,
+}
+
+/// Classify a single UTXO as an AMM pool (or not) — the pure core of
+/// `qv_listPools`, factored out for unit testing.
+///
+/// Returns `Some(PoolInfo)` iff:
+/// 1. the output carries a datum of exactly
+///    [`qv_defi::PoolDatum::CANONICAL_LEN`] (90) bytes that decodes as a
+///    canonical `PoolDatum`, **and**
+/// 2. the output's locking script is byte-identical to
+///    `amm_pool_lock(token_a, token_b, fee_bps)` regenerated from that
+///    datum (fake-pool filter — a 90-byte datum under any other script is
+///    not a pool).
+fn pool_info_from_utxo(outpoint: &OutPoint, output: &qv_core::TxOutput) -> Option<PoolInfo> {
+    let datum = output.datum.as_ref()?;
+    let bytes = datum.as_bytes();
+    if bytes.len() != qv_defi::PoolDatum::CANONICAL_LEN {
+        return None;
+    }
+    let pool_datum = qv_defi::PoolDatum::from_canonical_bytes(bytes).ok()?;
+    let expected_script = qv_script::amm_pool_lock(
+        pool_datum.token_a_id.as_bytes(),
+        pool_datum.token_b_id.as_bytes(),
+        pool_datum.fee_bps,
+    );
+    if output.locking_script.as_bytes() != expected_script.as_slice() {
+        return None;
+    }
+    Some(PoolInfo {
+        outpoint: outpoint.to_string(),
+        value: output.value.as_u64(),
+        token_a_id: hex::encode(pool_datum.token_a_id.as_bytes()),
+        token_b_id: hex::encode(pool_datum.token_b_id.as_bytes()),
+        reserve_a: pool_datum.reserve_a,
+        reserve_b: pool_datum.reserve_b,
+        lp_total: pool_datum.lp_total,
+        fee_bps: pool_datum.fee_bps,
+    })
 }
 
 /// Wire payload that carries a stealth view-key over JSON-RPC.
@@ -604,9 +699,38 @@ impl<S: KvStore + Send + Sync + 'static> QvNodeApiServer for RpcServer<S> {
                 script_hash: output.locking_script.hash().to_hex(),
                 has_datum: output.datum.is_some(),
                 has_stealth: output.stealth_info.is_some(),
+                script_hex: Some(hex::encode(output.locking_script.as_bytes())),
+                datum_hex: output.datum.as_ref().map(|d| hex::encode(d.as_bytes())),
             })),
             None => Ok(None),
         }
+    }
+
+    async fn list_pools(&self) -> RpcResult<Vec<PoolInfo>> {
+        tracing::debug!("RPC: listPools");
+
+        let entries = self.utxo_store.entries().map_err(|e| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32603,
+                format!("utxo store error: {e}"),
+                None::<()>,
+            )
+        })?;
+
+        // O(UTXO set) scan — acceptable for devnet scale. A persistent
+        // pool index (script-shape keyed) is the planned follow-up once
+        // pool counts justify it.
+        let mut pools: Vec<(OutPoint, PoolInfo)> = entries
+            .iter()
+            .filter_map(|(outpoint, output)| {
+                pool_info_from_utxo(outpoint, output).map(|info| (*outpoint, info))
+            })
+            .collect();
+
+        // Deterministic order so repeated calls produce identical wire
+        // bytes (`OutPoint: Ord` is canonical: tx_id bytes, then index).
+        pools.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(pools.into_iter().map(|(_, info)| info).collect())
     }
 
     async fn scan_p2pkh(&self, pubkey_hash_hex: String) -> RpcResult<Vec<P2pkhMatch>> {
@@ -971,9 +1095,26 @@ mod tests {
             script_hash: "abc".to_string(),
             has_datum: true,
             has_stealth: false,
+            script_hex: Some("51".to_string()),
+            datum_hex: Some("aa".repeat(90)),
         };
         let json = serde_json::to_string(&utxo).unwrap();
-        let _deserialized: UtxoInfo = serde_json::from_str(&json).unwrap();
+        let back: UtxoInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.script_hex.as_deref(), Some("51"));
+        assert_eq!(back.datum_hex, utxo.datum_hex);
+    }
+
+    /// Faz 6 D-4 extension must stay backwards compatible: JSON emitted
+    /// by a pre-extension node (no `script_hex`/`datum_hex` keys) must
+    /// still deserialize, with the new fields defaulting to `None`.
+    #[test]
+    fn test_utxo_info_deserializes_legacy_json() {
+        let legacy =
+            r#"{"value":42,"script_hash":"ab","has_datum":false,"has_stealth":true}"#;
+        let back: UtxoInfo = serde_json::from_str(legacy).unwrap();
+        assert_eq!(back.value, 42);
+        assert!(back.script_hex.is_none());
+        assert!(back.datum_hex.is_none());
     }
 
     #[test]
@@ -985,6 +1126,9 @@ mod tests {
             value: 50_000,
             shared_secret_hex: "cd".repeat(32),
             onetime_pk_hash_hex: "ef".repeat(32),
+            kem_ciphertext_hex: "01".repeat(64),
+            view_tag_hex: "a7".to_string(),
+            kyber_level: 3,
         };
         let json = serde_json::to_string(&scan).unwrap();
         let back: StealthScan = serde_json::from_str(&json).unwrap();
@@ -993,6 +1137,9 @@ mod tests {
         assert_eq!(back.value, scan.value);
         assert_eq!(back.shared_secret_hex, scan.shared_secret_hex);
         assert_eq!(back.onetime_pk_hash_hex, scan.onetime_pk_hash_hex);
+        assert_eq!(back.kem_ciphertext_hex, scan.kem_ciphertext_hex);
+        assert_eq!(back.view_tag_hex, scan.view_tag_hex);
+        assert_eq!(back.kyber_level, scan.kyber_level);
     }
 
     #[test]
@@ -1045,6 +1192,101 @@ mod tests {
         };
         let err = wire.into_view_keys().unwrap_err();
         assert!(err.contains("Kyber"));
+    }
+
+    // ------------------------------------------------------------------
+    // qv_listPools (Faz 6 / D-5)
+    // ------------------------------------------------------------------
+
+    fn make_pool_utxo() -> (OutPoint, qv_core::TxOutput) {
+        use qv_core::{Datum, Script, TxOutput};
+
+        let datum = qv_defi::PoolDatum {
+            token_a_id: qv_core::Hash256::from_bytes([0xA1; 32]),
+            token_b_id: qv_core::Hash256::from_bytes([0xB2; 32]),
+            reserve_a: 10_000,
+            reserve_b: 20_000,
+            lp_total: 14_142,
+            fee_bps: 30,
+        };
+        let script = Script::new(qv_script::amm_pool_lock(
+            datum.token_a_id.as_bytes(),
+            datum.token_b_id.as_bytes(),
+            datum.fee_bps,
+        ));
+        let output = TxOutput::new(Amount::from_smallest_units(1_000u64), script)
+            .with_datum(Datum::new(datum.to_canonical_bytes()));
+        let outpoint = OutPoint::new(TxId::from_bytes([0x77; 32]), 0);
+        (outpoint, output)
+    }
+
+    #[test]
+    fn pool_info_detects_canonical_pool_utxo() {
+        let (outpoint, output) = make_pool_utxo();
+        let info = pool_info_from_utxo(&outpoint, &output).expect("must classify as pool");
+        assert_eq!(info.outpoint, format!("{}#0", "77".repeat(32)));
+        assert_eq!(info.value, 1_000);
+        assert_eq!(info.token_a_id, "a1".repeat(32));
+        assert_eq!(info.token_b_id, "b2".repeat(32));
+        assert_eq!(info.reserve_a, 10_000);
+        assert_eq!(info.reserve_b, 20_000);
+        assert_eq!(info.lp_total, 14_142);
+        assert_eq!(info.fee_bps, 30);
+    }
+
+    #[test]
+    fn pool_info_rejects_fake_pool_with_wrong_script() {
+        // A 90-byte canonical datum under a NON-amm_pool_lock script must
+        // not be reported as a pool (fake-pool filter).
+        let (outpoint, mut output) = make_pool_utxo();
+        output.locking_script = qv_core::Script::new(vec![0x01]); // OP_1
+        assert!(pool_info_from_utxo(&outpoint, &output).is_none());
+    }
+
+    #[test]
+    fn pool_info_rejects_script_datum_mismatch() {
+        // Datum claims fee 30, but the script was generated with fee 100 —
+        // regenerated bytes differ, so this is not a canonical pool.
+        let (outpoint, mut output) = make_pool_utxo();
+        output.locking_script = qv_core::Script::new(qv_script::amm_pool_lock(
+            &[0xA1; 32],
+            &[0xB2; 32],
+            100,
+        ));
+        assert!(pool_info_from_utxo(&outpoint, &output).is_none());
+    }
+
+    #[test]
+    fn pool_info_rejects_wrong_datum_length_and_missing_datum() {
+        let (outpoint, output) = make_pool_utxo();
+
+        // Truncated datum (89 bytes).
+        let mut short = output.clone();
+        let mut bytes = short.datum.as_ref().unwrap().as_bytes().to_vec();
+        bytes.pop();
+        short.datum = Some(qv_core::Datum::new(bytes));
+        assert!(pool_info_from_utxo(&outpoint, &short).is_none());
+
+        // No datum at all.
+        let mut bare = output;
+        bare.datum = None;
+        assert!(pool_info_from_utxo(&outpoint, &bare).is_none());
+    }
+
+    #[test]
+    fn pool_info_serde_roundtrip() {
+        let (outpoint, output) = make_pool_utxo();
+        let info = pool_info_from_utxo(&outpoint, &output).unwrap();
+        let json = serde_json::to_string(&info).unwrap();
+        let back: PoolInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.outpoint, info.outpoint);
+        assert_eq!(back.value, info.value);
+        assert_eq!(back.token_a_id, info.token_a_id);
+        assert_eq!(back.token_b_id, info.token_b_id);
+        assert_eq!(back.reserve_a, info.reserve_a);
+        assert_eq!(back.reserve_b, info.reserve_b);
+        assert_eq!(back.lp_total, info.lp_total);
+        assert_eq!(back.fee_bps, info.fee_bps);
     }
 
     #[test]

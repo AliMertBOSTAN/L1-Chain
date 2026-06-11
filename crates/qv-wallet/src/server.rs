@@ -49,9 +49,12 @@ use crate::keystore::{
 use crate::qvaddr::{
     address_from_qr_parts, address_to_qr_parts, render_qr_svg, Qvaddr, DEFAULT_QR_PARTS,
 };
-use crate::rpc_client::{P2pkhMatch, RpcClient, StealthMatch};
+use crate::rpc_client::{P2pkhMatch, PoolEntry, RpcClient, StealthMatch};
 use crate::session::{
     user_keystore_path, validate_username, SessionEntry, SessionStore,
+};
+use crate::swap::{
+    direction_from_str, execute_create_pool, execute_swap, CreatePoolParams, SwapParams,
 };
 use crate::tx_builder::TxBuilder;
 use crate::view_export::ViewKeyExport;
@@ -470,6 +473,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/balance", get(handle_balance))
         .route("/api/utxos", get(handle_utxos))
         .route("/api/send", post(handle_send))
+        // ---- DeFi (Faz 6 D-5; mode-agnostic, session-or-global) ----
+        .route("/api/defi/pools", get(handle_defi_pools))
+        .route("/api/defi/swap", post(handle_defi_swap))
+        .route("/api/defi/create-pool", post(handle_defi_create_pool))
         .with_state(state)
 }
 
@@ -1180,6 +1187,209 @@ async fn handle_send(
 }
 
 // ---------------------------------------------------------------------------
+// DeFi — pool discovery, swap, create-pool (Faz 6 / D-5)
+// ---------------------------------------------------------------------------
+
+/// `GET /api/defi/pools` response.
+#[derive(Debug, Serialize)]
+pub struct PoolsResponse {
+    /// Live pools as reported by the node's `qv_listPools` (already
+    /// fake-pool-filtered, deterministic outpoint order).
+    pub pools: Vec<PoolEntry>,
+}
+
+/// `POST /api/defi/swap` request body.
+#[derive(Debug, Deserialize)]
+pub struct DefiSwapRequest {
+    /// Pool UTXO outpoint (`txid#idx` or `txid:idx`).
+    pub pool: String,
+    /// `"a-to-b"` or `"b-to-a"` (same spelling as the CLI).
+    pub direction: String,
+    /// Amount of the input token to sell (smallest units).
+    pub amount: u64,
+    /// Slippage floor: minimum acceptable output amount.
+    pub min_receive: u64,
+    /// Network fee; defaults to 1000 like `/api/send`.
+    #[serde(default = "default_fee")]
+    pub fee: u64,
+}
+
+/// `POST /api/defi/swap` response.
+#[derive(Debug, Serialize)]
+pub struct DefiSwapResponse {
+    pub tx_id: String,
+    pub amount_out: u64,
+    pub pool_fee_paid: u64,
+    pub new_reserve_a: u64,
+    pub new_reserve_b: u64,
+    pub new_lp_total: u64,
+    pub change: u64,
+    pub broadcast: bool,
+    pub rpc_result: serde_json::Value,
+}
+
+/// `POST /api/defi/create-pool` request body.
+#[derive(Debug, Deserialize)]
+pub struct DefiCreatePoolRequest {
+    /// Token A identifier (32-byte hex).
+    pub token_a: String,
+    /// Token B identifier (32-byte hex).
+    pub token_b: String,
+    /// Swap fee in basis points (0..=10000).
+    pub fee_bps: u16,
+    /// Initial reserve of token A (smallest units).
+    pub reserve_a: u64,
+    /// Initial reserve of token B (smallest units).
+    pub reserve_b: u64,
+    /// Native value locked into the pool UTXO; defaults to 1000 (the CLI
+    /// default).
+    #[serde(default = "default_pool_value")]
+    pub pool_value: u64,
+    /// Network fee; defaults to 1000.
+    #[serde(default = "default_fee")]
+    pub fee: u64,
+}
+
+fn default_pool_value() -> u64 {
+    1000
+}
+
+/// `POST /api/defi/create-pool` response.
+#[derive(Debug, Serialize)]
+pub struct DefiCreatePoolResponse {
+    pub tx_id: String,
+    /// Canonical `<txid>#0` of the new pool — pass to the swap flow.
+    pub pool_outpoint: String,
+    pub reserve_a: u64,
+    pub reserve_b: u64,
+    pub lp_total: u64,
+    pub fee_bps: u16,
+    pub change: u64,
+    /// Honest D-5 scope note (LP accounting is datum-level only).
+    pub note: String,
+    pub broadcast: bool,
+    pub rpc_result: serde_json::Value,
+}
+
+/// Map shared-flow errors onto HTTP status codes: user mistakes
+/// (`InvalidArg`) become 400s, everything else surfaces as the usual
+/// wallet error envelope.
+fn defi_api_error(e: WalletError) -> ApiError {
+    match e {
+        WalletError::InvalidArg(m) => ApiError::BadRequest(m),
+        other => ApiError::Wallet(other),
+    }
+}
+
+async fn handle_defi_pools(
+    State(state): State<AppState>,
+    bearer: Bearer,
+) -> Result<Json<PoolsResponse>, ApiError> {
+    let _a = state.require_active(&bearer).await?;
+    let pools = state.rpc.list_pools().await.map_err(ApiError::Wallet)?;
+    Ok(Json(PoolsResponse { pools }))
+}
+
+async fn handle_defi_swap(
+    State(state): State<AppState>,
+    bearer: Bearer,
+    Json(req): Json<DefiSwapRequest>,
+) -> Result<Json<DefiSwapResponse>, ApiError> {
+    let a = state.require_active(&bearer).await?;
+    let direction = direction_from_str(&req.direction).map_err(defi_api_error)?;
+
+    // Same core path as `qv-wallet swap` (cmd_swap → execute_swap); the
+    // HTTP surface always auto-selects the funding UTXO and broadcasts.
+    let params = SwapParams {
+        pool: req.pool,
+        direction,
+        amount_in: req.amount,
+        min_receive: req.min_receive,
+        input: None,
+        input_value: None,
+        fee: req.fee,
+    };
+    let outcome = execute_swap(
+        &state.rpc,
+        &a.stealth.spend_kp.secret,
+        &a.stealth.spend_kp.public,
+        &params,
+    )
+    .await
+    .map_err(defi_api_error)?;
+
+    let rpc_result = state
+        .rpc
+        .send_transaction(&outcome.tx_hex)
+        .await
+        .map_err(ApiError::Wallet)?;
+
+    Ok(Json(DefiSwapResponse {
+        tx_id: outcome.tx_id_hex,
+        amount_out: outcome.amount_out,
+        pool_fee_paid: outcome.pool_fee_paid,
+        new_reserve_a: outcome.new_pool_datum.reserve_a,
+        new_reserve_b: outcome.new_pool_datum.reserve_b,
+        new_lp_total: outcome.new_pool_datum.lp_total,
+        change: outcome.change,
+        broadcast: true,
+        rpc_result,
+    }))
+}
+
+async fn handle_defi_create_pool(
+    State(state): State<AppState>,
+    bearer: Bearer,
+    Json(req): Json<DefiCreatePoolRequest>,
+) -> Result<Json<DefiCreatePoolResponse>, ApiError> {
+    let a = state.require_active(&bearer).await?;
+
+    // Same core path as `qv-wallet create-pool` (cmd_create_pool →
+    // execute_create_pool); the HTTP surface always auto-selects the
+    // funding UTXO and broadcasts.
+    let params = CreatePoolParams {
+        token_a_hex: req.token_a,
+        token_b_hex: req.token_b,
+        fee_bps: req.fee_bps,
+        reserve_a: req.reserve_a,
+        reserve_b: req.reserve_b,
+        pool_value: req.pool_value,
+        input: None,
+        input_value: None,
+        fee: req.fee,
+    };
+    let outcome = execute_create_pool(
+        &state.rpc,
+        &a.stealth.spend_kp.secret,
+        &a.stealth.spend_kp.public,
+        &params,
+    )
+    .await
+    .map_err(defi_api_error)?;
+
+    let rpc_result = state
+        .rpc
+        .send_transaction(&outcome.tx_hex)
+        .await
+        .map_err(ApiError::Wallet)?;
+
+    Ok(Json(DefiCreatePoolResponse {
+        tx_id: outcome.tx_id_hex,
+        pool_outpoint: outcome.pool_outpoint,
+        reserve_a: outcome.pool_datum.reserve_a,
+        reserve_b: outcome.pool_datum.reserve_b,
+        lp_total: outcome.lp_total,
+        fee_bps: outcome.pool_datum.fee_bps,
+        change: outcome.change,
+        note: "LP shares are datum-level lp_total accounting only — no on-chain LP token; \
+               add/remove-liquidity spend paths are D-6+ scope."
+            .to_string(),
+        broadcast: true,
+        rpc_result,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // QR + .qvaddr handlers
 // ---------------------------------------------------------------------------
 
@@ -1708,5 +1918,36 @@ mod tests {
         let req: SendRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.fee, 1000);
         assert_eq!(req.amount, 42);
+    }
+
+    #[test]
+    fn defi_swap_request_defaults_fee_via_serde() {
+        let json = r#"{ "pool": "ab#0", "direction": "a-to-b", "amount": 10, "min_receive": 9 }"#;
+        let req: DefiSwapRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.fee, 1000);
+        assert_eq!(req.pool, "ab#0");
+        assert_eq!(req.direction, "a-to-b");
+        assert_eq!(req.amount, 10);
+        assert_eq!(req.min_receive, 9);
+    }
+
+    #[test]
+    fn defi_create_pool_request_defaults_via_serde() {
+        let json = r#"{
+            "token_a": "a1", "token_b": "b2",
+            "fee_bps": 30, "reserve_a": 1000, "reserve_b": 2000
+        }"#;
+        let req: DefiCreatePoolRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.pool_value, 1000);
+        assert_eq!(req.fee, 1000);
+        assert_eq!(req.fee_bps, 30);
+    }
+
+    #[test]
+    fn defi_api_error_maps_invalid_arg_to_bad_request() {
+        let e = defi_api_error(WalletError::InvalidArg("nope".into()));
+        assert!(matches!(e, ApiError::BadRequest(m) if m == "nope"));
+        let e = defi_api_error(WalletError::Rpc("down".into()));
+        assert!(matches!(e, ApiError::Wallet(WalletError::Rpc(_))));
     }
 }

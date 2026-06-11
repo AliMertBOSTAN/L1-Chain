@@ -2,15 +2,85 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Tek satırlık `--version` çıktısı. Üç parça birleşik:
+///   `<cargo_pkg_version> (<build_tag>, git <short_hash>)`
+/// build.rs `QV_GIT_HASH`/`QV_BUILD_TAG` rustc-env'lerini doldurur.
+pub const VERSION_STRING: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("QV_BUILD_TAG"),
+    ", git ",
+    env!("QV_GIT_HASH"),
+    ")",
+);
+
+/// Resmi public devnet RPC endpoint'i. `--network devnet` alias'ı bu URL'ye
+/// çözülür. Operator değişimi olursa burayı + INSTALL.md'yi güncellemek
+/// yeterli.
+pub const PUBLIC_DEVNET_RPC_URL: &str = "https://rpc.testnet.quantumvault.example";
+
+/// Yerel single-node devnet için varsayılan URL — `run-single.ps1`
+/// ve `run-all.ps1` script'lerinin başlattığı node bu adresi dinler.
+pub const LOCAL_DEVNET_RPC_URL: &str = "http://127.0.0.1:8545";
+
+/// Bootstrap modunda `--network` flag'i, kullanıcının uzun bir URL
+/// yazmadan iyi-bilinen bir endpoint'e bağlanmasını sağlar.
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+pub enum NetworkAlias {
+    /// Resmi public devnet RPC ([`PUBLIC_DEVNET_RPC_URL`]).
+    Devnet,
+    /// Yerel single-node devnet ([`LOCAL_DEVNET_RPC_URL`]).
+    Local,
+}
+
+impl NetworkAlias {
+    /// Alias'a karşılık gelen RPC URL'i.
+    #[must_use]
+    pub fn rpc_url(self) -> &'static str {
+        match self {
+            NetworkAlias::Devnet => PUBLIC_DEVNET_RPC_URL,
+            NetworkAlias::Local => LOCAL_DEVNET_RPC_URL,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
-#[command(version, about = "QuantumVault CLI wallet")]
+#[command(version = VERSION_STRING, about = "QuantumVault CLI wallet")]
 pub struct Cli {
     #[arg(long, default_value = "wallet.json", global = true)]
     pub keystore: PathBuf,
+    /// Doğrudan node JSON-RPC URL'i. `--network` ile birlikte verilirse
+    /// `--rpc` üstünden gelir.
     #[arg(long, default_value = "http://localhost:8080", global = true)]
     pub rpc: String,
+    /// İyi-bilinen ağa kısa-yol. Set edilirse `--rpc` değerinin yerine
+    /// karşılık gelen URL kullanılır. (`devnet` = public, `local` = 127.0.0.1:8545)
+    #[arg(long, global = true, value_enum)]
+    pub network: Option<NetworkAlias>,
     #[command(subcommand)]
     pub command: Commands,
+}
+
+impl Cli {
+    /// Etkin RPC URL'i. `--network` öncelikli, yoksa `--rpc`.
+    #[must_use]
+    pub fn effective_rpc_url(&self) -> String {
+        self.network
+            .map(|n| n.rpc_url().to_string())
+            .unwrap_or_else(|| self.rpc.clone())
+    }
+}
+
+/// `swap --direction` flag: which pool token the user sells.
+///
+/// Maps 1:1 onto `qv_defi::SwapDirection`; the conversion lives in
+/// `crate::swap::direction_from_arg` (this module stays clap-only).
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwapDirectionArg {
+    /// Sell token A, receive token B (`a-to-b`).
+    AToB,
+    /// Sell token B, receive token A (`b-to-a`).
+    BToA,
 }
 
 /// Subcommands for the `contacts` group (address book).
@@ -251,6 +321,125 @@ pub enum Commands {
         account: u32,
 
         /// Transaction fee (smallest units). Change = input_value − amount − fee.
+        #[arg(long, default_value_t = 1000)]
+        fee: u64,
+
+        /// If set, broadcast via `qv_sendTransaction` to the configured RPC
+        /// endpoint. Otherwise just print the signed tx hex for manual submission.
+        #[arg(long)]
+        broadcast: bool,
+    },
+    /// Swap against an on-chain AMM pool UTXO (Faz 6 / D-4, devnet).
+    ///
+    /// Fetches the pool UTXO (canonical datum + locking script) via
+    /// `qv_getUtxo`, computes the constant-product output, builds the
+    /// covenant transaction (`qv-defi::build_swap_tx` — pool input #0
+    /// witness-less, user input #1 signed by this wallet), and optionally
+    /// broadcasts it. Token accounting is currently **datum-level** (the
+    /// pool's reserves move inside its datum); the user's funding input
+    /// only needs to cover the network `--fee`, and change plus swap
+    /// proceeds are paid to the account's own plain p2pkh output.
+    Swap {
+        /// Pool UTXO outpoint as `<txid_hex>#<idx>` or `<txid_hex>:<idx>`.
+        #[arg(long)]
+        pool: String,
+
+        /// Which pool token you are selling.
+        #[arg(long, value_enum)]
+        direction: SwapDirectionArg,
+
+        /// Amount of the input token to sell (smallest units).
+        #[arg(long)]
+        amount: u64,
+
+        /// Slippage floor: minimum acceptable output amount. The swap is
+        /// rejected locally if the computed output falls below this.
+        #[arg(long)]
+        min_receive: u64,
+
+        /// Funding UTXO as `<txid_hex>:<idx>` (or `#`). If omitted, the
+        /// wallet auto-selects the smallest sufficient plain p2pkh UTXO
+        /// of the account via `qv_scanP2pkh`.
+        #[arg(long)]
+        input: Option<String>,
+
+        /// Total value of `--input` (smallest units). Only meaningful
+        /// together with `--input`; if omitted there, the wallet resolves
+        /// the value via `qv_getUtxo`.
+        #[arg(long, requires = "input")]
+        input_value: Option<u64>,
+
+        /// Account index to spend from.
+        #[arg(long, default_value_t = 0)]
+        account: u32,
+
+        /// Transaction fee (smallest units). Change = input_value − fee.
+        #[arg(long, default_value_t = 1000)]
+        fee: u64,
+
+        /// If set, broadcast via `qv_sendTransaction` to the configured RPC
+        /// endpoint. Otherwise just print the signed tx hex for manual submission.
+        #[arg(long)]
+        broadcast: bool,
+    },
+    /// Bootstrap a brand-new on-chain AMM pool UTXO (Faz 6 / D-5, devnet).
+    ///
+    /// Builds the genesis pool transaction: output #0 is the pool UTXO
+    /// (locked by `amm_pool_lock(token_a, token_b, fee_bps)`, carrying the
+    /// canonical `PoolDatum` with the initial reserves and
+    /// `lp_total = ⌊sqrt(reserve_a · reserve_b)⌋`), output #1 is your
+    /// change. The funding input must cover `--pool-value` + `--fee`.
+    ///
+    /// **Scope note:** LP shares are tracked only as the datum's
+    /// `lp_total` — there is no on-chain LP token, and add/remove-liquidity
+    /// spend paths are not implemented yet (D-6+). The pool covenant's
+    /// `x·y ≥ k` check would admit add-liquidity-shaped transitions but
+    /// can never admit remove-liquidity, so locked reserves cannot be
+    /// withdrawn until a dedicated spend path ships.
+    CreatePool {
+        /// Token A identifier — 32-byte hex (64 chars).
+        #[arg(long)]
+        token_a: String,
+
+        /// Token B identifier — 32-byte hex (64 chars).
+        #[arg(long)]
+        token_b: String,
+
+        /// Swap fee in basis points (0..=10000), e.g. 30 = 0.3%.
+        #[arg(long)]
+        fee_bps: u16,
+
+        /// Initial reserve of token A (smallest units, datum-level).
+        #[arg(long)]
+        reserve_a: u64,
+
+        /// Initial reserve of token B (smallest units, datum-level).
+        #[arg(long)]
+        reserve_b: u64,
+
+        /// Native value to lock into the pool UTXO. Carried through every
+        /// subsequent swap unchanged.
+        #[arg(long, default_value_t = 1000)]
+        pool_value: u64,
+
+        /// Funding UTXO as `<txid_hex>:<idx>` (or `#`). If omitted, the
+        /// wallet auto-selects the smallest sufficient plain p2pkh UTXO
+        /// of the account via `qv_scanP2pkh`.
+        #[arg(long)]
+        input: Option<String>,
+
+        /// Total value of `--input` (smallest units). Only meaningful
+        /// together with `--input`; if omitted there, the wallet resolves
+        /// the value via `qv_getUtxo`.
+        #[arg(long, requires = "input")]
+        input_value: Option<u64>,
+
+        /// Account index to spend from.
+        #[arg(long, default_value_t = 0)]
+        account: u32,
+
+        /// Transaction fee (smallest units).
+        /// Change = input_value − pool_value − fee.
         #[arg(long, default_value_t = 1000)]
         fee: u64,
 

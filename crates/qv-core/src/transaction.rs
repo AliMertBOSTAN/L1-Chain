@@ -27,7 +27,7 @@ use thiserror::Error;
 
 use qv_crypto::sha3_256;
 
-use crate::types::{Amount, DatumHash, OutPoint, ScriptHash, Slot, TxId};
+use crate::types::{Amount, DatumHash, Height, OutPoint, ScriptHash, Slot, TxId};
 
 // ============================================================================
 // Errors
@@ -51,6 +51,19 @@ pub enum TransactionError {
     /// Output values overflowed `u64` when summed.
     #[error("sum of output values overflows")]
     OutputOverflow,
+
+    /// A coinbase transaction carried one or more inputs.
+    #[error("coinbase transaction must not have inputs")]
+    CoinbaseHasInputs,
+
+    /// The coinbase height commitment does not match the block height.
+    #[error("coinbase height mismatch: expected {expected}, got {actual}")]
+    CoinbaseHeightMismatch {
+        /// Height of the block embedding the coinbase.
+        expected: u64,
+        /// Height the coinbase actually committed to (its `lock_time`).
+        actual: u64,
+    },
 
     /// Canonical encoding failed.
     #[error("canonical encoding failed: {0}")]
@@ -402,6 +415,88 @@ impl Transaction {
         }
     }
 
+    /// Compose a **coinbase** transaction — the block producer's reward
+    /// claim. Coinbases have no inputs; their outputs mint the block
+    /// subsidy plus the fees collected from the block's other transactions.
+    ///
+    /// # Height binding (replay / duplicate-TxId prevention)
+    ///
+    /// Two coinbases paying the same value to the same script would
+    /// otherwise serialize identically and collide on `TxId` (Bitcoin's
+    /// pre-BIP34 problem). We bind the coinbase to its block height by
+    /// storing the height in the existing `lock_time` field
+    /// (`lock_time = Slot(height)`), which is part of the canonical
+    /// encoding and therefore of the `TxId`. This is the least-invasive
+    /// deterministic equivalent of Bitcoin's BIP34 scriptSig-height rule:
+    /// no new struct fields, no datum pollution on reward outputs, and it
+    /// stays consistent with `lock_time`'s "not before" semantics because
+    /// `slot >= height` always holds (each block advances the slot by at
+    /// least one). Validators check the binding via
+    /// [`Self::validate_coinbase_structure`].
+    #[must_use]
+    pub fn new_coinbase(height: Height, outputs: Vec<TxOutput>) -> Self {
+        Self {
+            version: TX_VERSION,
+            inputs: Vec::new(),
+            outputs,
+            validity_interval: ValidityInterval::UNBOUNDED,
+            lock_time: Slot::from(height.as_u64()),
+            fee: Amount::ZERO,
+        }
+    }
+
+    /// True iff this transaction has no inputs.
+    ///
+    /// At the ledger level a no-input transaction is either a coinbase
+    /// (position 0 of a non-genesis block) or a genesis allocation
+    /// (height-0 block). The distinction is positional and enforced by
+    /// `Block::validate_structure`; this predicate only reports the shape.
+    #[must_use]
+    pub fn is_coinbase(&self) -> bool {
+        self.inputs.is_empty()
+    }
+
+    /// The block height a coinbase committed to (see [`Self::new_coinbase`]).
+    ///
+    /// Returns `None` when the transaction has inputs (not a coinbase).
+    #[must_use]
+    pub fn coinbase_height(&self) -> Option<Height> {
+        if self.is_coinbase() {
+            Some(Height::from(self.lock_time.as_u64()))
+        } else {
+            None
+        }
+    }
+
+    /// Structural checks for a coinbase transaction embedded in a block at
+    /// `height`:
+    ///
+    /// - no inputs,
+    /// - at least one output,
+    /// - output values sum without overflow,
+    /// - `lock_time` commits to exactly `height` (see [`Self::new_coinbase`]).
+    ///
+    /// The *amount* rule (`sum(outputs) <= subsidy + fees`) needs resolved
+    /// input values and monetary parameters, so it lives in the node's
+    /// block-validation pipeline, not here.
+    pub fn validate_coinbase_structure(&self, height: Height) -> Result<(), TransactionError> {
+        if !self.inputs.is_empty() {
+            return Err(TransactionError::CoinbaseHasInputs);
+        }
+        if self.outputs.is_empty() {
+            return Err(TransactionError::NoOutputs);
+        }
+        Amount::checked_sum(self.outputs.iter().map(|o| o.value))
+            .ok_or(TransactionError::OutputOverflow)?;
+        if self.lock_time.as_u64() != height.as_u64() {
+            return Err(TransactionError::CoinbaseHeightMismatch {
+                expected: height.as_u64(),
+                actual: self.lock_time.as_u64(),
+            });
+        }
+        Ok(())
+    }
+
     /// Replace the validity interval.
     #[must_use]
     pub fn with_validity(mut self, interval: ValidityInterval) -> Self {
@@ -696,6 +791,80 @@ mod tests {
         let d = Datum::new(b"(100, 200, 30)".to_vec());
         assert_eq!(d.hash(), Datum::new(b"(100, 200, 30)".to_vec()).hash());
         assert_ne!(d.hash(), Datum::new(b"(100, 200, 31)".to_vec()).hash());
+    }
+
+    #[test]
+    fn coinbase_constructor_binds_height_via_lock_time() {
+        let cb = Transaction::new_coinbase(
+            Height::from(42),
+            vec![TxOutput::new(Amount::from(5_000), Script::new(vec![0x01]))],
+        );
+        assert!(cb.is_coinbase());
+        assert!(cb.inputs.is_empty());
+        assert_eq!(cb.lock_time, Slot::from(42));
+        assert_eq!(cb.coinbase_height(), Some(Height::from(42)));
+        cb.validate_coinbase_structure(Height::from(42))
+            .expect("well-formed coinbase");
+    }
+
+    #[test]
+    fn coinbase_txid_is_unique_per_height() {
+        // Same value, same script — only the height differs. The TxIds must
+        // differ (this is the whole point of the height binding).
+        let out = vec![TxOutput::new(Amount::from(100), Script::new(vec![0xAA]))];
+        let cb1 = Transaction::new_coinbase(Height::from(1), out.clone());
+        let cb2 = Transaction::new_coinbase(Height::from(2), out);
+        assert_ne!(cb1.id().unwrap(), cb2.id().unwrap());
+    }
+
+    #[test]
+    fn coinbase_rejects_height_mismatch() {
+        let cb = Transaction::new_coinbase(
+            Height::from(7),
+            vec![TxOutput::new(Amount::from(1), Script::default())],
+        );
+        let err = cb.validate_coinbase_structure(Height::from(8)).unwrap_err();
+        assert!(matches!(
+            err,
+            TransactionError::CoinbaseHeightMismatch {
+                expected: 8,
+                actual: 7
+            }
+        ));
+    }
+
+    #[test]
+    fn coinbase_rejects_inputs_and_empty_outputs() {
+        // A tx with inputs is not a coinbase.
+        let with_inputs = simple_tx();
+        assert!(!with_inputs.is_coinbase());
+        assert_eq!(with_inputs.coinbase_height(), None);
+        assert!(matches!(
+            with_inputs.validate_coinbase_structure(Height::from(1)),
+            Err(TransactionError::CoinbaseHasInputs)
+        ));
+
+        // A coinbase with no outputs is invalid.
+        let empty = Transaction::new_coinbase(Height::from(1), vec![]);
+        assert!(matches!(
+            empty.validate_coinbase_structure(Height::from(1)),
+            Err(TransactionError::NoOutputs)
+        ));
+    }
+
+    #[test]
+    fn coinbase_rejects_output_sum_overflow() {
+        let cb = Transaction::new_coinbase(
+            Height::from(1),
+            vec![
+                TxOutput::new(Amount::from(u64::MAX), Script::default()),
+                TxOutput::new(Amount::from(1), Script::default()),
+            ],
+        );
+        assert!(matches!(
+            cb.validate_coinbase_structure(Height::from(1)),
+            Err(TransactionError::OutputOverflow)
+        ));
     }
 
     #[test]

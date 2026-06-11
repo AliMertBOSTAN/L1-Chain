@@ -450,10 +450,24 @@ impl Node {
                             debug!(tx_id = ?tx.id(), "received transaction from network");
 
                             // Validate and insert into mempool.
-                            let current_slot = {
+                            let (current_slot, tip_height) = {
                                 let chain = self.chain_state.lock().await;
-                                chain.tip().slot
+                                let tip = chain.tip();
+                                (tip.slot, tip.height)
                             };
+
+                            // Coinbase maturity gate: a tx spending a coinbase
+                            // output that would still be immature in the next
+                            // block never enters the mempool.
+                            if let Err(e) = crate::validation::check_coinbase_maturity(
+                                &tx,
+                                &self.utxo_store,
+                                tip_height.next(),
+                                self.protocol_params.consensus.k_finality,
+                            ) {
+                                debug!(error = %e, "transaction rejected: immature coinbase spend");
+                                continue;
+                            }
 
                             match crate::validation::validate_transaction(
                                 &tx,
@@ -679,6 +693,19 @@ impl Node {
         if self.config.startup_warmup_secs > 0 {
             ticker = ticker.with_warmup(self.config.startup_warmup_secs);
         }
+        // Coinbase production: when a reward address is configured, every
+        // locally produced block claims subsidy + fees to it. Without it the
+        // node produces reward-less blocks (pre-coinbase behaviour).
+        if let Some(ref hex_pkh) = self.config.reward_pubkey_hash_hex {
+            let reward_pkh = parse_seed32(hex_pkh, "reward_pubkey_hash_hex")?;
+            info!(
+                reward_pubkey_hash = %hex_pkh,
+                "coinbase rewards enabled for produced blocks"
+            );
+            ticker = ticker.with_coinbase(reward_pkh, self.protocol_params.monetary.clone());
+        } else {
+            info!("no reward_pubkey_hash_hex configured — producing blocks without coinbase");
+        }
 
         // Spawn the ticker on a background task.
         tokio::spawn(async move {
@@ -708,12 +735,53 @@ impl Node {
         // Step 2: Verify chain linkage and slot monotonicity.
         self.validate_chain_linkage(block).await?;
 
+        // Step 2b: Economic consensus rules — per-tx fee non-negativity,
+        //          coinbase maturity (k-deep spendability), and the coinbase
+        //          amount cap (sum(coinbase outputs) <= subsidy + fees).
+        //          Must run against the *pre-apply* UTXO state.
+        crate::validation::validate_block_rewards(
+            block,
+            &self.utxo_store,
+            &self.protocol_params.monetary,
+            self.protocol_params.consensus.k_finality,
+        )
+        .map_err(|e| crate::NodeError::BlockValidation(format!("reward rules: {e}")))?;
+
         // Step 3: Apply block effects to the UTXO set. This also rejects
         //         ledger-invalid blocks (e.g. double-spends) before the
         //         block is committed to consensus state.
         self.utxo_store
             .apply_block(block)
             .map_err(crate::NodeError::Storage)?;
+
+        // Step 3b: Verify the header's UTXO commitment against the locally
+        //          recomputed post-apply commitment. A mismatch means the
+        //          producer lied about (or mis-computed) the resulting state,
+        //          so the block is rejected and its UTXO effects reverted.
+        //          Gated by `enforce_utxo_commitment` so devnets that still
+        //          interoperate with pre-commitment producers can opt out.
+        //          Perf note: `commitment_root()` walks the full UTXO set
+        //          (O(N) full-Merkle); fine at devnet scale, an incremental
+        //          (sparse-Merkle) commitment is the planned mainnet fix.
+        if self.config.enforce_utxo_commitment {
+            let computed = self
+                .utxo_store
+                .commitment_root()
+                .map_err(crate::NodeError::Storage)?;
+            if computed != block.header.utxo_commitment {
+                if let Err(revert_err) = self.utxo_store.revert_block(block) {
+                    tracing::error!(
+                        error = %revert_err,
+                        "failed to revert UTXO effects after commitment mismatch"
+                    );
+                }
+                return Err(crate::NodeError::BlockValidation(format!(
+                    "utxo commitment mismatch: header {}, computed {}",
+                    block.header.utxo_commitment.to_hex(),
+                    computed.to_hex()
+                )));
+            }
+        }
 
         // Step 4: Commit the block to the consensus chain state. If the
         //         chain state rejects it, roll back the UTXO effects from

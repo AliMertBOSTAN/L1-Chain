@@ -30,6 +30,9 @@ qv-common    = { workspace = true }
 qv-core      = { workspace = true }
 qv-crypto    = { workspace = true }
 qv-consensus = { workspace = true }
+# Coinbase reward outputs are locked with the canonical `p2pkh_pqc` template;
+# depending on qv-script keeps the script bytes byte-identical to the node's.
+qv-script    = { workspace = true }
 qv-mempool   = { workspace = true }
 qv-storage   = { workspace = true }
 qv-net       = { workspace = true }

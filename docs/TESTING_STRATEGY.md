@@ -1,5 +1,16 @@
 # QuantumVault Testing Strategy
 
+_Son güncelleme: 2026-06-10_
+
+> **Güncel durum (2026-06-10):** **735+ passed / 0 failed / 36 ignored**
+> (`cargo nextest run` / `just test`; doc-test'ler ayrı CI job'unda).
+> Her `#[ignore]` testi bir ROADMAP envanter ID'sine bağlıdır (T-01,
+> A-01..A-03, C-04/C-06, D-07..D-12, B-03, M-04-yavaş vb.) — tam liste:
+> `docs/ROADMAP.md` "Ignored Test İndeksi". GitHub Actions CI **5 job
+> yeşil**: clippy, rustfmt, rustdoc, cargo-audit, cargo-deny (2026-05-14'ten
+> beri). Fiili test stack'i: **cargo-nextest + proptest + criterion**
+> (ADR-001 v1/C++ dönemine aittir; Google Test/CMake artık kullanılmıyor).
+
 ## Overview
 
 This document defines the comprehensive testing strategy for QuantumVault, a quantum-resistant UTXO-based Layer 1 blockchain. The strategy follows a **Test Pyramid** approach with clear coverage targets, performance benchmarks, and test organization by module.
@@ -31,17 +42,20 @@ The testing infrastructure emphasizes:
 
 ### Distribution by Layer
 
-| Layer | Coverage | Count (2026-05-12) | Focus |
+| Layer | Coverage | Count (2026-06-10) | Focus |
 |-------|----------|--------------------|-------|
-| **Unit Tests** | ~85% | ~577 tests | Module behavior, edge cases |
-| **Integration Tests** | n/a | ~149 tests | End-to-end workflows, multi-crate flows |
-| **Doc Tests** | n/a | ~10 tests | Compile-time API doğrulama |
+| **Unit Tests** | ~85% | ~580+ tests | Module behavior, edge cases |
+| **Integration Tests** | n/a | ~150+ tests | End-to-end workflows, multi-crate flows |
+| **Doc Tests** | n/a | ~10 tests | Compile-time API doğrulama (ayrı CI job'u) |
 | **Property-Based** | n/a | proptest (qv-core, qv-crypto) | Invariant checking, randomized inputs |
 | **Fuzz Targets** | n/a | 6 (`fuzz/`) | UTXO commit, script run, tx decode |
 
-**TOPLAM: ~736 passed / 0 failed / 34 ignored** (post-ADR-006, pre-M-04 build verify;
-M-04 sonrası beklenen ~741/32). 32-34 ignored test bilinçli olarak yavaş KES
-(~2s leaf-tree gen) veya bağımlı bir envanter ID'sine (T-01, B-03, D-07..D-12).
+**TOPLAM: 735+ passed / 0 failed / 36 ignored** (`cargo test --lib --tests`
+eşdeğeri; bkz. ROADMAP "Mevcut Durum"). 36 ignored testin **her biri** bir
+ROADMAP envanter ID'siyle eşlidir: 18'i yalnızca yavaş KES setup'ı (~2s
+leaf-tree gen, `--ignored` ile koşulur), 5'i T-01 (Pedersen DKG / Feldman
+VSS), 7'si D-07..D-12 (DeFi yan vakaları), kalanı C-04/C-06, B-03, D-11.
+Detay: `docs/ROADMAP.md` → "O. Ignored Test İndeksi".
 
 ---
 
@@ -676,71 +690,62 @@ All benchmarks measured on standard hardware. Target metrics:
 
 ## 6. Test Organization and Execution
 
-### Directory Structure
+### Directory Structure (Cargo workspace düzeni)
+
+Testler crate-bazlı yaşar — merkezi bir `tests/` dizini yoktur:
+
 ```
-tests/
-  crypto/
-    test_dilithium.cpp
-    test_kyber.cpp
-    test_hybrid_kem.cpp
-    test_hash.cpp
-    test_rng.cpp
-    TEST_PLAN.md
-  core/
-    test_transaction.cpp
-    test_block.cpp
-    test_utxo.cpp
-  consensus/
-    test_pow.cpp
-    test_pos.cpp
-    test_validation.cpp
-  privacy/
-    test_stealth.cpp
-  vm/
-    test_opcodes.cpp
-    test_scripts.cpp
-  storage/
-    test_mempool.cpp
-    test_blockstore.cpp
-  da/
-    test_erasure.cpp
-  integration/
-    test_tx_lifecycle.cpp
-    test_block_production.cpp
-    test_stealth_e2e.cpp
-    test_consensus_finality.cpp
-  CMakeLists.txt
+crates/
+  qv-crypto/
+    src/*.rs            # unit testler: #[cfg(test)] mod tests (KAT'lar dahil)
+    tests/              # integration testler (crate sınırı üzerinden)
+    benches/            # criterion benchmark'ları
+  qv-core/
+    src/*.rs            # transaction, block, utxo, merkle unit testleri
+    tests/
+  qv-consensus/ ...     # aynı desen tüm qv-* crate'lerinde
+fuzz/                   # cargo-fuzz hedefleri (6 adet)
 ```
 
 ### Running Tests
 
 ```bash
-# Run all tests
-ctest --test-dir build
+# Run all tests (tercih edilen yol)
+just test                       # = cargo nextest run --workspace
 
-# Run specific test category
-ctest --test-dir build -R crypto
+# Doğrudan nextest
+cargo nextest run --workspace
 
-# Run with verbose output
-ctest --test-dir build --verbose
+# Tek crate
+cargo nextest run -p qv-script
 
-# Run with code coverage
-cmake --preset dev -DENABLE_COVERAGE=ON
-ninja -C build test_coverage
+# Filtre (test adına göre)
+cargo nextest run -E 'test(sighash)'
 
-# Run benchmarks
-./build/bin/crypto_benchmark
-./build/bin/consensus_benchmark
+# Ignored (yavaş KES vb.) testleri de koş
+cargo test --workspace -- --ignored
+
+# Doc-testler (nextest doc-test koşmaz; ayrı)
+cargo test --doc --workspace
+
+# Benchmarks (criterion)
+cargo bench -p qv-crypto
+
+# Tam lokal CI (commit öncesi)
+just ci
 ```
 
 ### Continuous Integration
 
-CI pipeline runs:
-1. All unit tests (coverage >80%)
-2. All integration tests
-3. Code coverage analysis
-4. Static analysis (clang-tidy, cppcheck)
-5. Benchmark regression detection
+GitHub Actions — **5 job, hepsi yeşil (2026-05-14'ten beri)**:
+1. `clippy` — `cargo clippy --all-targets -- -D warnings`
+2. `rustfmt` — `cargo fmt --check`
+3. `rustdoc` — doc build + doc-testler
+4. `cargo-audit` — bağımlılık güvenlik taraması
+5. `cargo-deny` — lisans + ban + advisory politikası
+
+Test suite (`cargo nextest`) lokal `just ci` akışının parçasıdır;
+benchmark regression takibi criterion raporları üzerinden manueldir.
 
 ---
 
@@ -748,12 +753,13 @@ CI pipeline runs:
 
 ### Dilithium KATs
 - Source: [ML-DSA Specification](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf)
-- Test vectors provided in `tests/crypto/kat/dilithium/`
+- `qv-crypto::pqc_sign` unit testleri (boyut invariant'ları + roundtrip); `ml-dsa`
+  crate'i kendi FIPS 204 KAT'larını upstream'de koşar
 - Verify against reference implementation from NIST
 
 ### Kyber KATs
 - Source: [ML-KEM Specification](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf)
-- Test vectors provided in `tests/crypto/kat/kyber/`
+- `qv-crypto::hybrid_kem` unit testleri (encapsulate/decapsulate roundtrip + boyutlar)
 - Verify against reference implementation from `pqcrypto-kyber` (PQClean) and ML-KEM RustCrypto crate
 
 ### SHA3 KATs
@@ -781,17 +787,16 @@ CI pipeline runs:
 
 ### Coverage Reports
 ```bash
-# Generate HTML coverage report
-cmake --preset dev -DENABLE_COVERAGE=ON
-ninja -C build test_coverage
-# Open build/coverage/index.html in browser
+# Generate HTML coverage report (cargo-llvm-cov)
+cargo llvm-cov nextest --workspace --html
+# Open target/llvm-cov/html/index.html in browser
 ```
 
 ### Benchmark Reports
 ```bash
-# Generate benchmark report
-ninja -C build run_benchmarks
-# Output: build/benchmark_results.json (JSON format for trend analysis)
+# Generate benchmark report (criterion)
+cargo bench --workspace
+# Output: target/criterion/<bench>/report/index.html (HTML + JSON trend verisi)
 ```
 
 ### CI Reporting
@@ -822,5 +827,6 @@ ninja -C build run_benchmarks
 
 ---
 
-**Last Updated**: 2026-04-10
-**Status**: APPROVED
+**Last Updated**: 2026-06-10
+**Status**: APPROVED (Rust/v2 stack'e hizalandı; ADR-001'deki Google Test/CMake
+kararı v1/C++ dönemine aittir — fiili framework: cargo-nextest + proptest + criterion)

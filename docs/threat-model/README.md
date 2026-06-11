@@ -1,7 +1,7 @@
 # QuantumVault L1 — Threat Model Index
 
-**Current Status**: AŞAMA 14 — Security Hardening  
-**Last Updated**: 2026-04-27  
+**Current Status**: Tarihsel analiz (AŞAMA 14 dönemi, 2026-04-27 snapshot'ı) — temel STRIDE analizleri geçerli; o tarihten sonra kapanan boşluklar (gerçek VRF/KES, ML-DSA swap, hibrit handshake ADR-007, sighash ADR-012) için `PROJECT_STATUS.md` ve `docs/security/qv-consensus-fork-finality-audit.md` esas alınmalı  
+**Last Updated**: 2026-04-27 (index notu: 2026-06-10)  
 **Scope**: Per-crate threat analysis, attack surface inventory, mitigation tracking
 
 ---

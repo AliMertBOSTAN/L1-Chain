@@ -211,6 +211,15 @@ pub enum OpCode {
     Min = 0x27,
     /// a b → max(a,b).
     Max = 0x28,
+    /// a b → push (a as u64 * b as u64) as 16-byte LE Bytes.
+    ///
+    /// Treats inputs as `u64` (bit-reinterpret of `i64`), computes a
+    /// `u128` product that cannot overflow, and pushes the 16-byte
+    /// little-endian encoding onto the stack. Used by AMM swap covenants
+    /// for the constant-product invariant `new_a*new_b ≥ old_a*old_b`
+    /// where reserves are u64 and the product needs ~128 bits of room.
+    /// Pair with [`OpCode::GeU128`] for the ≥ check.
+    MulU128 = 0x29,
 
     // ---- Comparison (0x30–0x3F) ----
     /// a b → 1 if a == b, else 0.
@@ -231,6 +240,11 @@ pub enum OpCode {
     And = 0x37,
     /// a b → 1 if either non-zero, else 0.
     Or = 0x38,
+    /// a b → 1 if `a ≥ b` as little-endian unsigned 128-bit integers, else 0.
+    ///
+    /// Both operands must be exactly-16-byte `Bytes`. Companion to
+    /// [`OpCode::MulU128`] so AMM scripts can compare two products.
+    GeU128 = 0x39,
 
     // ---- Control flow (0x40–0x4F) ----
     /// Pop; if truthy, execute until matching `Else`/`EndIf`.
@@ -265,6 +279,22 @@ pub enum OpCode {
     ReadOutputDatum = 0x63,
     /// Push the SHA3-256 hash of the current transaction.
     TxHash = 0x64,
+    /// Pop index i → push the datum bytes of resolved input #i
+    /// (empty bytes if the prev-output had no datum). Symmetric counterpart
+    /// to [`OpCode::ReadOutputDatum`]; lets AMM / lending locking scripts
+    /// read their own pre-transition state when validating an invariant
+    /// (e.g. `new_a*new_b ≥ old_a*old_b` for constant-product swaps).
+    ReadInputDatum = 0x6A,
+    /// Push the SHA3-256 of the currently-executing locking script.
+    ///
+    /// The validator computes this once per script invocation (it knows
+    /// the script bytes — it is executing them) and exposes it via
+    /// `Context.locking_script_hash`. Used by covenant scripts to
+    /// enforce **script continuity**: an AMM pool UTXO can require its
+    /// successor UTXO to be locked to the same script (preventing a
+    /// swap that drains the pool into a plain p2pkh UTXO) by combining
+    /// `SELF_SCRIPT_HASH` with [`OpCode::AssertOutputScriptHash`].
+    SelfScriptHash = 0x6B,
     /// Push the current slot number as an integer.
     SlotNumber = 0x65,
     /// Push the number of inputs.
@@ -291,6 +321,16 @@ pub enum OpCode {
     Slice = 0x81,
     /// Pop value → push its byte length (Int → 8, Bytes → len).
     Len = 0x82,
+    /// Pop `(bytes, n)` → read first `n` bytes as little-endian
+    /// unsigned integer, push as `Int`.
+    ///
+    /// `n` must be in `1..=8`. The byte string must have length exactly
+    /// `n`. The result is a bit-reinterpret into `i64`: values with the
+    /// top bit set wrap to negative — that is the intended behaviour so
+    /// downstream opcodes like [`OpCode::MulU128`] can still treat them
+    /// as `u64`. Used by AMM covenants to extract reserves from datum
+    /// byte sequences.
+    BytesToInt = 0x83,
 
     // ---- Meta (0xFF) ----
     /// No operation.
@@ -299,7 +339,7 @@ pub enum OpCode {
 
 impl OpCode {
     /// Number of opcodes defined.
-    pub const COUNT: usize = 58;
+    pub const COUNT: usize = 63;
 
     /// Maximum allowed script size in bytes.
     pub const MAX_SCRIPT_SIZE: usize = 16_384;
@@ -335,6 +375,7 @@ impl OpCode {
             0x26 => Ok(Self::Abs),
             0x27 => Ok(Self::Min),
             0x28 => Ok(Self::Max),
+            0x29 => Ok(Self::MulU128),
 
             0x30 => Ok(Self::Eq),
             0x31 => Ok(Self::Neq),
@@ -345,6 +386,7 @@ impl OpCode {
             0x36 => Ok(Self::Not),
             0x37 => Ok(Self::And),
             0x38 => Ok(Self::Or),
+            0x39 => Ok(Self::GeU128),
 
             0x40 => Ok(Self::If),
             0x41 => Ok(Self::Else),
@@ -367,6 +409,8 @@ impl OpCode {
             0x67 => Ok(Self::OutputCount),
             0x68 => Ok(Self::TxFee),
             0x69 => Ok(Self::SigHash),
+            0x6A => Ok(Self::ReadInputDatum),
+            0x6B => Ok(Self::SelfScriptHash),
 
             0x70 => Ok(Self::AssertOutputScriptHash),
             0x71 => Ok(Self::AssertDatumHash),
@@ -375,6 +419,7 @@ impl OpCode {
             0x80 => Ok(Self::Cat),
             0x81 => Ok(Self::Slice),
             0x82 => Ok(Self::Len),
+            0x83 => Ok(Self::BytesToInt),
 
             0xFF => Ok(Self::Nop),
 
@@ -414,6 +459,7 @@ impl OpCode {
             Self::Neg => "NEG",
             Self::Abs => "ABS",
             Self::Min => "MIN",
+            Self::MulU128 => "MUL_U128",
             Self::Max => "MAX",
             Self::Eq => "EQ",
             Self::Neq => "NEQ",
@@ -424,6 +470,7 @@ impl OpCode {
             Self::Not => "NOT",
             Self::And => "AND",
             Self::Or => "OR",
+            Self::GeU128 => "GE_U128",
             Self::If => "IF",
             Self::Else => "ELSE",
             Self::EndIf => "ENDIF",
@@ -443,12 +490,15 @@ impl OpCode {
             Self::OutputCount => "OUTPUT_COUNT",
             Self::TxFee => "TX_FEE",
             Self::SigHash => "SIG_HASH",
+            Self::ReadInputDatum => "READ_INPUT_DATUM",
+            Self::SelfScriptHash => "SELF_SCRIPT_HASH",
             Self::AssertOutputScriptHash => "ASSERT_OUTPUT_SCRIPT_HASH",
             Self::AssertDatumHash => "ASSERT_DATUM_HASH",
             Self::AssertValue => "ASSERT_VALUE",
             Self::Cat => "CAT",
             Self::Slice => "SLICE",
             Self::Len => "LEN",
+            Self::BytesToInt => "BYTES_TO_INT",
             Self::Nop => "NOP",
         }
     }
@@ -722,6 +772,7 @@ mod tests {
             OpCode::Abs,
             OpCode::Min,
             OpCode::Max,
+            OpCode::MulU128,
             OpCode::Eq,
             OpCode::Neq,
             OpCode::Lt,
@@ -731,6 +782,7 @@ mod tests {
             OpCode::Not,
             OpCode::And,
             OpCode::Or,
+            OpCode::GeU128,
             OpCode::If,
             OpCode::Else,
             OpCode::EndIf,
@@ -750,12 +802,15 @@ mod tests {
             OpCode::OutputCount,
             OpCode::TxFee,
             OpCode::SigHash,
+            OpCode::ReadInputDatum,
+            OpCode::SelfScriptHash,
             OpCode::AssertOutputScriptHash,
             OpCode::AssertDatumHash,
             OpCode::AssertValue,
             OpCode::Cat,
             OpCode::Slice,
             OpCode::Len,
+            OpCode::BytesToInt,
             OpCode::Nop,
         ];
         assert_eq!(known.len(), OpCode::COUNT);

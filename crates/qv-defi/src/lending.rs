@@ -14,6 +14,14 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use qv_core::Hash256;
+use qv_script::templates::{
+    LENDING_DATUM_BASE_RATE_OFFSET, LENDING_DATUM_COLLATERAL_TOKEN_OFFSET,
+    LENDING_DATUM_DEBT_TOKEN_OFFSET, LENDING_DATUM_INTEREST_MULTIPLIER_OFFSET,
+    LENDING_DATUM_LAST_ACCRUAL_SLOT_OFFSET, LENDING_DATUM_LEN, LENDING_DATUM_LIQ_BONUS_OFFSET,
+    LENDING_DATUM_LIQ_THRESHOLD_OFFSET, LENDING_DATUM_LTV_MAX_OFFSET,
+    LENDING_DATUM_POOL_ID_OFFSET, LENDING_DATUM_SLOPE_OFFSET,
+    LENDING_DATUM_TOTAL_COLLATERAL_OFFSET, LENDING_DATUM_TOTAL_DEBT_OFFSET,
+};
 
 // ============================================================================
 // Errors
@@ -53,6 +61,10 @@ pub enum LendingError {
     /// Zero amount provided.
     #[error("zero amount")]
     ZeroAmount,
+
+    /// Canonical datum encoding or decoding error.
+    #[error("datum error: {0}")]
+    DatumError(String),
 }
 
 pub type Result<T> = core::result::Result<T, LendingError>;
@@ -148,6 +160,109 @@ impl LendingPoolDatum {
     /// Decode from bincode bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         bincode::deserialize(bytes).map_err(|_| LendingError::InvalidParams)
+    }
+
+    /// Length in bytes of the canonical (script-friendly) encoding.
+    ///
+    /// Defined by `qv-script` (the consumer of the layout) as
+    /// [`LENDING_DATUM_LEN`] so the two crates cannot drift (ADR-013).
+    pub const CANONICAL_LEN: usize = LENDING_DATUM_LEN;
+
+    /// Encode the datum into its **canonical fixed-width layout** — the
+    /// exact byte sequence the `lending_pool_lock` covenant script slices
+    /// (all integers little-endian):
+    ///
+    /// | Bytes    | Field                       | Type         |
+    /// |----------|-----------------------------|--------------|
+    /// | 0..32    | `pool_id`                   | 32 raw bytes |
+    /// | 32..64   | `collateral_token_id`       | 32 raw bytes |
+    /// | 64..96   | `debt_token_id`             | 32 raw bytes |
+    /// | 96..104  | `total_collateral`          | `u64` LE     |
+    /// | 104..112 | `total_debt`                | `u64` LE     |
+    /// | 112..114 | `base_rate_bps`             | `u16` LE     |
+    /// | 114..116 | `slope_bps`                 | `u16` LE     |
+    /// | 116..118 | `ltv_max_bps`               | `u16` LE     |
+    /// | 118..120 | `liquidation_threshold_bps` | `u16` LE     |
+    /// | 120..122 | `liquidation_bonus_bps`     | `u16` LE     |
+    /// | 122..138 | `interest_multiplier_q64`   | `u128` LE    |
+    /// | 138..146 | `last_accrual_slot`         | `u64` LE     |
+    ///
+    /// This — not bincode — is what must be attached to the lending pool
+    /// UTXO as its on-chain datum.
+    #[must_use]
+    pub fn to_canonical_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(Self::CANONICAL_LEN);
+        out.extend_from_slice(self.pool_id.as_bytes());
+        out.extend_from_slice(self.collateral_token_id.as_bytes());
+        out.extend_from_slice(self.debt_token_id.as_bytes());
+        out.extend_from_slice(&self.total_collateral.to_le_bytes());
+        out.extend_from_slice(&self.total_debt.to_le_bytes());
+        out.extend_from_slice(&self.base_rate_bps.to_le_bytes());
+        out.extend_from_slice(&self.slope_bps.to_le_bytes());
+        out.extend_from_slice(&self.ltv_max_bps.to_le_bytes());
+        out.extend_from_slice(&self.liquidation_threshold_bps.to_le_bytes());
+        out.extend_from_slice(&self.liquidation_bonus_bps.to_le_bytes());
+        out.extend_from_slice(&self.interest_multiplier_q64.to_le_bytes());
+        out.extend_from_slice(&self.last_accrual_slot.to_le_bytes());
+        out
+    }
+
+    /// Decode a datum from its canonical fixed-width layout (the inverse
+    /// of [`Self::to_canonical_bytes`]).
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != Self::CANONICAL_LEN {
+            return Err(LendingError::DatumError(format!(
+                "canonical lending datum must be {} bytes, got {}",
+                Self::CANONICAL_LEN,
+                bytes.len()
+            )));
+        }
+
+        fn read_32(bytes: &[u8], offset: usize) -> Result<[u8; 32]> {
+            bytes
+                .get(offset..offset.wrapping_add(32))
+                .and_then(|s| s.try_into().ok())
+                .ok_or_else(|| LendingError::DatumError("hash slice out of range".into()))
+        }
+        fn read_u64(bytes: &[u8], offset: usize) -> Result<u64> {
+            bytes
+                .get(offset..offset.wrapping_add(8))
+                .and_then(|s| <[u8; 8]>::try_from(s).ok())
+                .map(u64::from_le_bytes)
+                .ok_or_else(|| LendingError::DatumError("u64 slice out of range".into()))
+        }
+        fn read_u16(bytes: &[u8], offset: usize) -> Result<u16> {
+            bytes
+                .get(offset..offset.wrapping_add(2))
+                .and_then(|s| <[u8; 2]>::try_from(s).ok())
+                .map(u16::from_le_bytes)
+                .ok_or_else(|| LendingError::DatumError("u16 slice out of range".into()))
+        }
+        fn read_u128(bytes: &[u8], offset: usize) -> Result<u128> {
+            bytes
+                .get(offset..offset.wrapping_add(16))
+                .and_then(|s| <[u8; 16]>::try_from(s).ok())
+                .map(u128::from_le_bytes)
+                .ok_or_else(|| LendingError::DatumError("u128 slice out of range".into()))
+        }
+
+        Ok(Self {
+            pool_id: Hash256::from_bytes(read_32(bytes, LENDING_DATUM_POOL_ID_OFFSET)?),
+            collateral_token_id: Hash256::from_bytes(read_32(
+                bytes,
+                LENDING_DATUM_COLLATERAL_TOKEN_OFFSET,
+            )?),
+            debt_token_id: Hash256::from_bytes(read_32(bytes, LENDING_DATUM_DEBT_TOKEN_OFFSET)?),
+            total_collateral: read_u64(bytes, LENDING_DATUM_TOTAL_COLLATERAL_OFFSET)?,
+            total_debt: read_u64(bytes, LENDING_DATUM_TOTAL_DEBT_OFFSET)?,
+            base_rate_bps: read_u16(bytes, LENDING_DATUM_BASE_RATE_OFFSET)?,
+            slope_bps: read_u16(bytes, LENDING_DATUM_SLOPE_OFFSET)?,
+            ltv_max_bps: read_u16(bytes, LENDING_DATUM_LTV_MAX_OFFSET)?,
+            liquidation_threshold_bps: read_u16(bytes, LENDING_DATUM_LIQ_THRESHOLD_OFFSET)?,
+            liquidation_bonus_bps: read_u16(bytes, LENDING_DATUM_LIQ_BONUS_OFFSET)?,
+            interest_multiplier_q64: read_u128(bytes, LENDING_DATUM_INTEREST_MULTIPLIER_OFFSET)?,
+            last_accrual_slot: read_u64(bytes, LENDING_DATUM_LAST_ACCRUAL_SLOT_OFFSET)?,
+        })
     }
 }
 
@@ -757,5 +872,106 @@ mod tests {
         let bytes = pool.to_bytes().unwrap();
         let decoded = LendingPoolDatum::from_bytes(&bytes).unwrap();
         assert_eq!(pool, decoded);
+    }
+
+    #[test]
+    fn canonical_roundtrip() {
+        let mut pool = make_pool();
+        pool.total_collateral = u64::MAX; // exercise full-width values
+        pool.interest_multiplier_q64 = u128::MAX - 7;
+        pool.last_accrual_slot = 123_456_789;
+        let bytes = pool.to_canonical_bytes();
+        assert_eq!(bytes.len(), LendingPoolDatum::CANONICAL_LEN);
+        let decoded = LendingPoolDatum::from_canonical_bytes(&bytes).unwrap();
+        assert_eq!(pool, decoded);
+    }
+
+    #[test]
+    fn canonical_layout_matches_script_offsets() {
+        // The lending_pool_lock covenant slices these exact offsets; if
+        // this test breaks, on-chain pools become unspendable.
+        let pool = LendingPoolDatum {
+            pool_id: Hash256::from_bytes([0x1D; 32]),
+            collateral_token_id: Hash256::from_bytes([0xC0; 32]),
+            debt_token_id: Hash256::from_bytes([0xDB; 32]),
+            total_collateral: 0x0102_0304_0506_0708,
+            total_debt: 0x1112_1314_1516_1718,
+            base_rate_bps: 100,
+            slope_bps: 5_000,
+            ltv_max_bps: 7_500,
+            liquidation_threshold_bps: 8_000,
+            liquidation_bonus_bps: 1_000,
+            interest_multiplier_q64: 0x2122_2324_2526_2728_3132_3334_3536_3738,
+            last_accrual_slot: 0x4142_4344_4546_4748,
+        };
+        let bytes = pool.to_canonical_bytes();
+
+        assert_eq!(
+            &bytes[LENDING_DATUM_POOL_ID_OFFSET..LENDING_DATUM_POOL_ID_OFFSET + 32],
+            &[0x1D; 32]
+        );
+        assert_eq!(
+            &bytes
+                [LENDING_DATUM_COLLATERAL_TOKEN_OFFSET..LENDING_DATUM_COLLATERAL_TOKEN_OFFSET + 32],
+            &[0xC0; 32]
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_DEBT_TOKEN_OFFSET..LENDING_DATUM_DEBT_TOKEN_OFFSET + 32],
+            &[0xDB; 32]
+        );
+        assert_eq!(
+            &bytes
+                [LENDING_DATUM_TOTAL_COLLATERAL_OFFSET..LENDING_DATUM_TOTAL_COLLATERAL_OFFSET + 8],
+            &0x0102_0304_0506_0708_u64.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_TOTAL_DEBT_OFFSET..LENDING_DATUM_TOTAL_DEBT_OFFSET + 8],
+            &0x1112_1314_1516_1718_u64.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_BASE_RATE_OFFSET..LENDING_DATUM_BASE_RATE_OFFSET + 2],
+            &100_u16.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_SLOPE_OFFSET..LENDING_DATUM_SLOPE_OFFSET + 2],
+            &5_000_u16.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_LTV_MAX_OFFSET..LENDING_DATUM_LTV_MAX_OFFSET + 2],
+            &7_500_u16.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_LIQ_THRESHOLD_OFFSET..LENDING_DATUM_LIQ_THRESHOLD_OFFSET + 2],
+            &8_000_u16.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_LIQ_BONUS_OFFSET..LENDING_DATUM_LIQ_BONUS_OFFSET + 2],
+            &1_000_u16.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_INTEREST_MULTIPLIER_OFFSET
+                ..LENDING_DATUM_INTEREST_MULTIPLIER_OFFSET + 16],
+            &0x2122_2324_2526_2728_3132_3334_3536_3738_u128.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[LENDING_DATUM_LAST_ACCRUAL_SLOT_OFFSET..],
+            &0x4142_4344_4546_4748_u64.to_le_bytes()
+        );
+    }
+
+    #[test]
+    fn canonical_rejects_wrong_length() {
+        let pool = make_pool();
+        let mut bytes = pool.to_canonical_bytes();
+        bytes.pop();
+        assert!(matches!(
+            LendingPoolDatum::from_canonical_bytes(&bytes),
+            Err(LendingError::DatumError(_))
+        ));
+        bytes.extend_from_slice(&[0, 0]); // now 147 bytes
+        assert!(matches!(
+            LendingPoolDatum::from_canonical_bytes(&bytes),
+            Err(LendingError::DatumError(_))
+        ));
     }
 }

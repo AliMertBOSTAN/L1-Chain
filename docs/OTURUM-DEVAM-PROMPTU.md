@@ -45,6 +45,16 @@ bölümlerinden alınmıştır.
    per-user `wallets/<username>/wallet.json`, UI auth paneli, HTTP'de
    clipboard + QR auth header fix'i, node-monitor tx geçmişi 60→600 default
    ve 10000 entry cap, `devnet/watchdog.ps1` + `QV_LAG_RESTART` env'i.
+9. **Binary dağıtımı C-1..C-5 (2026-06-05)** — `.github/workflows/release.yml`
+   (tag-tabanlı Windows x64 + macOS arm64 release), üç binary crate'te
+   `build.rs` + `VERSION_STRING` sürüm damgası, `docs/INSTALL.md` kullanıcı
+   kılavuzu, `docs/PUBLIC-DEVNET-RPC.md` operatör kılavuzu (Caddy + Let's
+   Encrypt + rate limit + systemd), `qv-wallet --network devnet|local`
+   alias'ı (`effective_rpc_url()`).
+10. **Faz 6 D-1 — ReadInputDatum (2026-06-05)** — `OpCode::ReadInputDatum
+    (0x6A)` + interpreter + gas (10) + 3 unit test. **Henüz lokalde
+    derlenmedi** — sıradaki oturumda `cargo build -p qv-script` +
+    `cargo nextest run -p qv-script` doğrulaması gerekli.
 
 Detay için: ROADMAP.md "Mevcut Durum" tablosu ve PROJECT_STATUS.md.
 
@@ -65,44 +75,93 @@ LAN'dan `http://<bilgisayar-LAN-IP>:7777` ile register edebilir.
 
 ## Yol Haritası (A→C→D→E→B sırasında ilerliyoruz)
 
-Kullanıcı bu sırayı tercih etti. Sıradaki = **C**.
+Kullanıcı bu sırayı tercih etti. A ✅ ve C ✅ bitti; sıradaki = **D-2
+(`amm_pool_lock` template)**, ardından D-3..D-6 → E → B.
 
-### ✅ A — Dokümantasyon hizalama (BİTTİ — 2026-06-03 bu prompt)
+### ✅ A — Dokümantasyon hizalama (BİTTİ — 2026-06-03)
 
 ROADMAP.md "Mevcut Durum" tablosuna 2026-06-03 satırı eklendi,
 PROJECT_STATUS.md'ye yeni bölüm eklendi, bu prompt yeniden yazıldı.
 
-### 🔜 C — Binary dağıtımı (Seçenek A — non-custodial — sıradaki)
+### ✅ C — Binary dağıtımı (BİTTİ — 2026-06-05)
 
-**Hedef:** Kullanıcılar `qv-wallet.exe` (Windows), `qv-wallet` (Linux/macOS)
-binary'sini indirip kendi makinelerinde non-custodial çalıştırsın. Sunucu
-sadece node + (opsiyonel) faucet sayfası.
+Altı alt-görev tamam:
 
-**Görevler:**
+- **C-1** `.github/workflows/release.yml` — tag-tabanlı multi-platform
+  (Windows x64 + macOS arm64) release pipeline. `softprops/action-gh-release@v2`
+  ile GitHub Release'e zip/tar.gz + sha256 + BUILD-INFO upload.
+- **C-2** Üç binary crate'te `build.rs` + `VERSION_STRING` const
+  (cli.rs'lerde). `--version` çıktısı `<pkg> (<tag>, git <short_sha>)`.
+- **C-3** `docs/INSTALL.md` — Windows + macOS kullanıcı kurulum kılavuzu.
+- **C-4** `docs/PUBLIC-DEVNET-RPC.md` — Caddy + Let's Encrypt + rate
+  limit + fail2ban + Prometheus + systemd sertleştirilmiş unit.
+- **C-5** `qv-wallet --network devnet|local` alias'ı, `effective_rpc_url()`.
+- **C-6** PROJECT_STATUS.md + bu prompt güncellendi (bu satır).
 
-1. **Cross-compile setup.** Workspace'e `.cargo/config.toml` ekle —
-   `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`,
-   `aarch64-apple-darwin`, `x86_64-apple-darwin` target'ları.
-2. **GitHub Actions release workflow.** Tag'lendiğinde her platform için
-   binary build, strip, zip, GitHub Release'e attach. (`actions/upload-release-asset` veya `softprops/action-gh-release`.)
-3. **Binary sürümleme.** `cargo metadata`'dan version, `git describe` ile
-   commit hash; `qv-wallet --version` çıktısı bunları bassın.
-4. **Kullanıcı dağıtım kılavuzu.** `docs/INSTALL.md` — Windows için
-   "indir → yönetici PowerShell'de Defender exclusion → çalıştır", macOS
-   için Gatekeeper notu, Linux için chmod+x. Kendi node'a vs. public devnet
-   node'a nasıl bağlanacak.
-5. **Public devnet RPC** (opsiyonel — bu seansın kapsamı dışı olabilir):
-   `https://devnet.quantumvault.example/rpc` gibi bir endpoint kurmak için
-   notlar; reverse proxy + rate limit. Geçici çözüm: kullanıcının kendi
-   `qv-node`'unu çalıştırması.
-6. **Cüzdan tarafı: bootstrap mode.** İlk açılışta "Devnet'e bağlan" / "Kendi
-   node'una bağlan" seçimi. Devnet seçilirse otomatik RPC URL'i embed.
+Sıradaki oturumda doğrulama: kullanıcı `cargo build -p qv-wallet -p
+qv-node -p qv-miner` çalıştırmalı; build.rs yol çözümlemesi muhtemel
+küçük hata kaynağı (`../../.git/HEAD` cargo working-dir'ine göre).
 
-**Başarı kriteri:** Boş bir Windows makineye binary indir → çift tıkla →
-cüzdan UI lokalhost'ta açıldı → register + balance + send çalıştı; **hiçbir
-geliştirici aracı yüklemeden**.
+### 🚧 D — Faz 6: Script VM + DeFi temelleri (devam ediyor)
 
-### D — Faz 6: Script VM + DeFi temelleri
+**D-1 ✅ (2026-06-05)** — `OpCode::ReadInputDatum (0x6A)` + interpreter
++ gas + 3 unit test. Stack: pop index `i` → push resolved input #i'nin
+datum baytları. `ReadOutputDatum`'a paralel. AMM/lending kovenant'larının
+old-state'i okumak için temel yetenek. Henüz lokal build doğrulaması
+yapılmadı.
+
+**D-2 sıradaki — AMM kovenant locking script.** Plan:
+
+```text
+amm_pool_lock(token_a_id, token_b_id, fee_bps):
+  Sabitler:
+    SELF_SCRIPT_HASH   = SHA3-256(this script bytes)  // recursive — D-2.1
+    POOL_DATUM_LAYOUT  = | token_a_id (32) | token_b_id (32) | reserve_a (8 LE) | reserve_b (8 LE) | lp_total (8 LE) | fee_bps (2 LE) |
+
+  Adımlar:
+    1. ReadInputDatum 0  → old_datum_bytes
+    2. ReadOutputDatum 0 → new_datum_bytes
+    3. Slice old_datum 0  32 → old_a_id ; Slice new_datum 0 32 → new_a_id ; Eq Verify
+    4. Slice old_datum 32 32 → old_b_id ; Slice new_datum 32 32 → new_b_id ; Eq Verify
+    5. Slice old_datum 64 8 → old_a (u64 LE)
+    6. Slice old_datum 72 8 → old_b
+    7. Slice new_datum 64 8 → new_a
+    8. Slice new_datum 72 8 → new_b
+    9. old_a * old_b → k_old (u128)
+    10. new_a * new_b → k_new (u128)
+    11. k_new >= k_old → Verify  // invariant
+    12. AssertOutputScriptHash 0 SELF_SCRIPT_HASH  // pool stays AMM
+    13. Op1  // success
+```
+
+Bilinmesi gerekenler:
+- **Self-script-hash döngüsü** (D-2.1): Locking script kendi hash'ini
+  bilemez. İki çözüm: (a) hash'i witness'tan al + AssertOutputScriptHash
+  ile match'le; (b) "script hash placeholder" desenli template — script
+  derleyici sonradan kendi hash'iyle yamayıp commit eder. Cardano (b)
+  yolunu kullanır.
+- **Slice + Mul u128 desteği**: Şu an `Mul` opcode'u i64'te wrapping
+  yapıyor. `Mul` u128 versiyonu (`MulU128`?) ya da çift-genişlik trick'i
+  gerekebilir. İncele.
+- **u64 LE bayt → integer dönüşümü**: `Slice` bayt verisi döndürür;
+  bunu `Int` value'ya çevirmek için yeni bir opcode `BytesToInt` ya da
+  benzeri lazım olabilir.
+
+D-2 başlamadan önce bu üç tasarım kararını netleştir, gerekirse mini-ADR
+yaz.
+
+**D-3..D-6 sırası (D-2'den sonra):**
+
+- **D-3** — `qv-defi::tx_helpers::build_swap_tx`: cüzdan tarafı off-chain
+  helper (pool UTXO'sunu bul, yeni PoolDatum hesapla, swap tx'i kur).
+- **D-4** — CLI: `qv-wallet swap` (`qv-defi::amm::compute_swap_output`
+  matematiği zaten yazılı; sadece pipe'lamak gerek).
+- **D-5** — HTTP + UI: `/api/defi/swap`, `/api/defi/pools`, cüzdan UI'da
+  Send panelinin yanına Swap paneli.
+- **D-6** — Lending (`qv-defi::lending` matematik tarafı tamam) + oracle
+  entegrasyonu.
+
+#### D ana hatları
 
 **Hedef:** Programlanabilir UTXO'lar, AMM ve lending.
 
@@ -173,7 +232,16 @@ gerekirse açılır.
 
 ## Sıradaki ilk adım
 
-**C — Binary dağıtımı** ile başla. İlk soru kullanıcıya: "Hangi platformlara
-build hedefliyoruz başlangıçta? (Windows-x64 mutlaka var; Linux-x64?
-macOS arm64 + x64?)". Ardından `.cargo/config.toml` + GitHub Actions
-workflow ile başla.
+1. **Bekleyen build doğrulamaları** (2026-06-05 seansının ekleri henüz
+   lokalde derlenmedi — kullanıcıdan çalıştırıp çıktıyı yapıştırmasını iste):
+   - `cargo build -p qv-script` + `cargo nextest run -p qv-script`
+     (D-1 ReadInputDatum)
+   - `cargo build -p qv-wallet -p qv-node -p qv-miner` (C-2 build.rs sürüm
+     damgası; `../../.git/HEAD` yol çözümlemesi muhtemel küçük hata kaynağı)
+2. **D-2 — `amm_pool_lock` template** ile devam et. Başlamadan önce üç
+   tasarım kararını netleştir (self-script-hash döngüsü, u128 çarpma /
+   `Mul` genişliği, `BytesToInt` ihtiyacı) — gerekirse mini-ADR yaz.
+3. D-2 bitince sıra: **D-3 → D-4 → D-5 → D-6** (yukarıdaki plan), sonra E.
+4. Araya sıkıştırılabilir küçük işler — açık **B-grubu**: HTTPS
+   (tokio-rustls + `--tls-cert/--tls-key`), faucet rate limit, session TTL
+   background sweep (tokio task), watchdog crash-loop koruması.

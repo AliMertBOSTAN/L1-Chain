@@ -2,9 +2,12 @@
 
 Comprehensive documentation for operating the QuantumVault devnet: setup, monitoring, troubleshooting, and recovery procedures.
 
-> **Not (2026-05-21):** Aşağıdaki bölümlerin çoğu Docker Compose tabanlı 3-node
-> devnet'i anlatır. Docker gerektirmeyen hızlı bir yerel test için yeni eklenen
-> **4-node `run-devnet` devnet'ini** kullan — bir sonraki bölüme bak.
+> **Not (2026-06-10):** Bu dosyanın ikinci yarısı (Table of Contents'ten
+> itibaren) Docker Compose tabanlı 3-node devnet'i anlatır ve **LEGACY**'dir.
+> Güncel yol: Docker gerektirmeyen yerel launcher'lar — **`run-single`**
+> (1 node + cüzdan UI), **`run-devnet`** (4 node) ve **`run-all`**
+> (4 node + cüzdan + monitör). Aşağıdaki bölümlere ve
+> [`devnet/SCRIPTS.md`](../devnet/SCRIPTS.md)'ye bak.
 
 ---
 
@@ -73,6 +76,100 @@ bash devnet/run-devnet.sh stop
 - Slot süresi ve k-finalite `config/devnet.toml`'dan gelir (500 ms slot, k=5).
 
 ---
+
+## Launcher Script'leri: run-single ve run-all — 2026-06-10
+
+`run-devnet`'in üstüne iki "tek komutla tam yığın" launcher eklendi. Hepsi
+hem PowerShell (`.ps1`) hem bash (`.sh`) sürümüyle gelir ve
+`start | stop | status | clean` alt komutlarını destekler. Ayrıntılı
+kullanım, çevre değişkenleri, log düzeni ve manuel duman testi akışı için
+**[`devnet/SCRIPTS.md`](../devnet/SCRIPTS.md)**'ye bak.
+
+| Script | Ne kaldırır? | Tarayıcıda |
+|---|---|---|
+| `devnet/run-single.{ps1,sh}` | 1 node + cüzdan UI | http://127.0.0.1:7777 |
+| `devnet/run-devnet.{ps1,sh}` | 4 node (konsensüs) | — (CLI/RPC ile izlenir) |
+| `devnet/run-all.{ps1,sh}` | 4 node + cüzdan UI + node-monitor | http://127.0.0.1:7777 ve http://127.0.0.1:7070 |
+
+```powershell
+# En basit deneyim: yeni cüzdan oluştur → bakiyeyi gör → transfer at
+.\devnet\run-single.ps1 start
+
+# Tam paket: 4 node + cüzdan + node-monitor (monitör Node.js gerektirir)
+.\devnet\run-all.ps1 start
+```
+
+- `run-single`: binaryleri derler, `qv-node --init` ile genesis kurar, node'u
+  `127.0.0.1:8545`'te başlatır, cüzdanı `DEVNET_TEST_MNEMONIC` ile import
+  edip UI'yi `127.0.0.1:7777`'de açar (keystore parolası `devnetpw`,
+  `QV_WALLET_PW` ile değiştirilebilir).
+- `run-all`: 4 node'lu devnet + cüzdan UI (node0'a bağlı) + node-monitor
+  (http://127.0.0.1:7070 — 4 node'un yükseklik/eş sayısı/mempool durumu).
+- Çalışma dizinleri: `devnet/work-single` (tek node) ve `devnet/work4`
+  (4 node); PID dosyaları üzerinden `stop` hepsini öldürür, `clean` tüm
+  state'i siler.
+
+---
+
+## Lag-Restart Watchdog (`devnet/watchdog.ps1`) — 2026-06-10
+
+Uzun süre çalışan 4-node devnet'te geride kalan node'ları otomatik yeniden
+başlatan süpervizör. `run-devnet.ps1 start` sırasında **`QV_LAG_RESTART`**
+çevre değişkeni set'liyse arka planda otomatik başlatılır:
+
+```powershell
+$env:QV_LAG_RESTART = "1000"   # eşik: 1000 blok
+.\devnet\run-devnet.ps1 start
+# çıktıda: "watchdog pid=… threshold=1000 interval=30s consec=2"
+```
+
+Çalışma şekli:
+
+1. Her **30 saniyede bir** (varsayılan; `QV_LAG_INTERVAL` ile ayarlanır)
+   her node'un RPC'sine `qv_getTip` sorar.
+2. Kümedeki maksimum yükseklikten **eşikten (`QV_LAG_RESTART`, örn. 1000
+   blok) fazla** geride kalan veya hiç erişilemeyen node'lar işaretlenir.
+3. Bir node **ardışık 2 kontrolde** (varsayılan; `QV_LAG_CONSEC`) geride
+   kalırsa process'i `Stop-Process` ile sonlandırılır ve aynı argümanlarla
+   yeniden başlatılır. Yeni PID, `pids` dosyasında eskisinin yerine yazılır —
+   `run-devnet.ps1 stop` çalışmaya devam eder.
+4. Memory storage backend'de restart, peer'lardan tam yeniden senkronizasyon
+   (ADR-010 SyncManager) tetikler.
+
+Node komut satırları `work4/nodeN.cmd` JSON metadata dosyalarından okunur;
+watchdog logları `work4/watchdog.log` / `watchdog.err`'e yazılır. Elle
+çalıştırma: `.\devnet\watchdog.ps1 -Work devnet\work4 -Threshold 1000 -Interval 30`.
+(Şimdilik yalnızca PowerShell sürümü var.)
+
+---
+
+## Multi-Tenant Cüzdan Demo (LAN bind) — 2026-06-10
+
+`qv-wallet serve` iki modda çalışır:
+
+- **Single-user (varsayılan):** tek global keystore. Güvenlik gereği
+  **yalnızca loopback'e** (`127.0.0.1` / `::1`) bind edebilir — başka bir
+  adrese bind denemesi reddedilir.
+- **Multi-tenant (custodial demo):** `serve --wallets-dir <path>` ile her
+  kullanıcıya `<wallets-dir>/<username>/wallet.json` keystore'u ve per-user
+  session token verilir. Bu modda LAN bind mümkündür:
+
+```powershell
+cargo run -p qv-wallet -- --rpc http://127.0.0.1:8545 serve --bind 0.0.0.0:7777 --wallets-dir .\wallets
+```
+
+> Uyarı: multi-tenant mod **custodial**'dır (anahtarlar sunucuda durur) ve
+> yalnızca devnet/demo amaçlıdır — güvenilmeyen ağlara açma.
+
+---
+
+# LEGACY: Docker Compose Devnet (3 node)
+
+> **LEGACY — artık önerilmiyor.** Aşağıdaki tüm bölümler (Table of Contents
+> dahil) eski Docker Compose tabanlı 3-node devnet'i anlatır ve referans için
+> korunmaktadır. Güncel geliştirme için yukarıdaki **`run-devnet`**,
+> **`run-single`** ve **`run-all`** launcher'larını kullan
+> (bkz. [`devnet/SCRIPTS.md`](../devnet/SCRIPTS.md)).
 
 ## Table of Contents
 
@@ -665,4 +762,4 @@ For issues not covered above:
 
 ---
 
-**Last Updated:** 2026-05-21 | 4-node `run-devnet` yerel devnet + CLI monitor eklendi
+**Last Updated:** 2026-06-10 | run-single/run-all launcher'ları, lag-restart watchdog ve multi-tenant cüzdan notu eklendi; Docker Compose bölümleri LEGACY olarak işaretlendi

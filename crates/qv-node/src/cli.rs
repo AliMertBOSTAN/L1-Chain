@@ -3,11 +3,21 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+/// Tek satırlık `--version` çıktısı (build.rs damgaları).
+pub const VERSION_STRING: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("QV_BUILD_TAG"),
+    ", git ",
+    env!("QV_GIT_HASH"),
+    ")",
+);
+
 /// Command-line arguments for the QuantumVault node.
 #[derive(clap::Parser, Debug, Clone)]
 #[command(
     name = "qv-node",
-    version = "0.1.0",
+    version = VERSION_STRING,
     about = "QuantumVault full node daemon",
     long_about = "A quantum-safe, PoS-consensus, UTXO-model L1 blockchain node."
 )]

@@ -75,7 +75,12 @@ pub fn validate_script_with_gas(
     full_script.extend_from_slice(witness_bytes);
     full_script.extend_from_slice(locking_script.as_bytes());
 
-    let ctx = Context::new(tx.clone(), resolved_inputs.to_vec(), current_slot);
+    // SelfScriptHash opcode reads `ctx.locking_script_hash`. Compute it
+    // from the locking script bytes so covenant scripts can enforce
+    // continuity (e.g. AMM pools requiring the successor UTXO to use
+    // the same script).
+    let ctx = Context::new(tx.clone(), resolved_inputs.to_vec(), current_slot)
+        .with_locking_script(locking_script.as_bytes());
     let mut gas = GasMeter::new(gas_limit);
 
     execute(&full_script, &ctx, &mut gas)

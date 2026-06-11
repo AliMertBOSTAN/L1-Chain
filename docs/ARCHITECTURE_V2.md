@@ -1,10 +1,18 @@
 # QuantumVault v2 — Mimari Yol Haritası
 
-_Pivot tarihi: 2026-04-15_
+_Pivot tarihi: 2026-04-15 — Son güncelleme: 2026-06-10 (durum notları + referans onarımı)_
 
 Bu belge v1'den (C++ iskelet) v2'ye (Rust, DeFi odaklı, UTXO+Covenants,
 Ouroboros tarzı PoS, Stealth+Confidential Amounts) geçişin gerekçelerini ve
 getirdiği yeni mühendislik zorluklarını kayıt altına alır.
+
+> **Not (2026-06-10):** Bu belge bir **gerekçe/yol haritası kaydıdır**; sistemin
+> güncel snapshot'ı için `docs/SYSTEM_OVERVIEW.md`, açık işler için
+> `docs/ROADMAP.md` esastır. Pivot sonrası başlıca kilometre taşları: CI tamamen
+> yeşil + 735 test (2026-05-14), hibrit X25519+Kyber handshake uygulandı
+> (ADR-007, 2026-05-15), 4-node libp2p devnet (2026-05-21), stealth uçtan uca +
+> sighash (ADR-011/012, 2026-05-22), multi-tenant cüzdan UI (2026-06-03),
+> binary release pipeline + Faz 6 DeFi başlangıcı (2026-06-05).
 
 ---
 
@@ -74,6 +82,9 @@ gerektirmiyor. UTXO + Nakamoto ile doğal uyum.
 
 **Açık soru:** k-deep finality DeFi için yeterli mi, yoksa checkpoint
 kesinleşmesi (Byzantine fault tolerant overlay) eklemeli miyiz?
+_(2026-06-10 itibarıyla hâlâ açık — ROADMAP'te "BFT finality gadget" önerisi
+olarak takipte. Yapışkan/monoton k-deep finalite ve genesis maxvalid-bg çekirdeği
+ise ADR-008 ile uygulandı.)_
 
 ---
 
@@ -101,6 +112,12 @@ iminent olduğunda geçiş yapabiliriz" demek.
 sadece stealth addresses varsayılan, confidential amounts "privacy mode"
 olarak opt-in. Böylece PQC uyumluluğunu ertelemiş oluruz.
 
+> **Güncelleme (2026-06-10):** Bu alternatif seçildi (bkz. §10) ve stealth
+> tarafı **uygulandı** — ADR-011 ile uçtan uca entegrasyon (Faz 1-5, 2026-05-22):
+> stealth çıktı üretimi, `qv_scanStealth` taraması, harcama, `qvst1`/`qvfp1`
+> adres formatı, cüzdan UI. Confidential amounts hâlâ mock backend (P-01);
+> STARK migration path planı geçerli.
+
 ---
 
 ## 5. Rust Ekosistem Entegrasyonu
@@ -110,7 +127,9 @@ Sıfırdan bespoke Rust seçtin — framework yok. Kullanılacak kütüphaneler:
 ### Core
 - **tokio** — async runtime
 - **rust-libp2p** — P2P ağ (production-ready, Ethereum Lighthouse kullanıyor)
-- **rocksdb** veya **redb** — depolama (redb: pure Rust, daha az bağımlılık)
+- **rocksdb** veya **redb** — depolama (redb: pure Rust, daha az bağımlılık).
+  _2026-05-21'den beri rocksdb opsiyonel, varsayılan-kapalı feature; node
+  MemoryKvStore + redb kalıcılık kullanıyor (C++ toolchain/libclang bağımlılığı kalktı)_
 - **prost** veya **rkyv** — serializasyon (rkyv zero-copy, daha hızlı)
 - **tracing** — structured logging
 - **rayon** — paralel işlem
@@ -196,6 +215,15 @@ yerine şunu yapıyoruz:
 
 ## 9. Sonraki Adımlar (Teklif)
 
+> **Durum (2026-06-10):** Bu liste 2026-04-15'teki tarihsel tekliftir; güncel
+> faz takibi `docs/ROADMAP.md`'dedir. Kabaca: Aşama 0-3 ✅; Aşama 5'in stealth
+> kısmı ✅ (ADR-011), Bulletproofs mock (P-01); Aşama 6'nın "PQC KEM handshake"
+> maddesi ✅ (ADR-007, hibrit X25519+Kyber, 2026-05-15); Aşama 7'nin "3-node
+> local testnet" hedefi **4-node libp2p devnet** olarak gerçekleşti (2026-05-21,
+> round-robin lider) + cüzdan HTTP API/UI ve binary release pipeline eklendi;
+> Aşama 4 (DeFi primitifleri) Faz 6 olarak 2026-06-05'te başladı (D-1
+> `ReadInputDatum` ✅, D-2 AMM kovenant sırada).
+
 ### Aşama 0 — Temel Temizlik & Altyapı (1 hafta)
 - [ ] C++ v1'i arşive taşı
 - [ ] Rust workspace iskeleti (tüm crate'ler boş)
@@ -267,4 +295,9 @@ Toplam: ~20 hafta (~5 ay) MVP için.
 
 - [ADR-002: DeFi Architecture](./ADR/002-defi-architecture.md)
 - [ADR-003: MEV Encrypted Mempool](./ADR/003-mev-encrypted-mempool.md)
-- [MASTER_PLAN.md](./MASTER_PLAN.md) — sıralı görev listesi
+- [ADR-007: Hibrit X25519+Kyber Handshake](./ADR/007-hybrid-handshake.md) — uygulandı 2026-05-15
+- [ADR-011: Stealth Adres Entegrasyonu](./ADR/011-stealth-address-integration.md) — Faz 1-5 uygulandı
+- [ADR-012: İşlem Sighash'i](./ADR/012-transaction-sighash.md) — uygulandı
+- [ROADMAP.md](./ROADMAP.md) — faz planı + Placeholder ve Mock Envanteri
+  (eski `MASTER_PLAN.md` `archive/docs-v1/` altına arşivlendi)
+- [SYSTEM_OVERVIEW.md](./SYSTEM_OVERVIEW.md) — sistemin güncel snapshot'ı
